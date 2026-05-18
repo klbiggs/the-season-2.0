@@ -46,6 +46,7 @@ Build in phases per `plans/MASTER.md` §6. P0–P4 are the spine — get determi
 ## Coding conventions
 
 - **TypeScript strict mode**, plus `noUncheckedIndexedAccess`.
+- **Determinism-sensitive deps are exact-pinned** (no caret). At P0 this is `seedrandom@3.0.5`; later phases that introduce libs whose internals affect hashing (anything participating in `hashableState` or save serialization) must do the same. Other deps may use `~` (patch-only). Document the rationale in a proximity comment when adding to the list.
 - **Pure-logic modules return new state**, never mutate. Use Immer at the store/orchestrator boundary, not inside rules.
 - **State machines are XState v5 actor refs** held in the Zustand store. Don't inline state-machine logic in components.
 - **No comments that paraphrase code.** Comments explain non-obvious WHY — hidden constraints, subtle invariants, references to spec sections. Cite spec section (`§3 "Mood Transitions"`) for rule citations.
