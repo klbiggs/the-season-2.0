@@ -52,6 +52,10 @@ Build in phases per `plans/MASTER.md` §6. P0–P4 are the spine — get determi
 - **Tests live next to the code:** `economy.ts` and `economy.test.ts` colocated.
 - **Pure-logic test coverage is the determinism contract** — aim for ~100% on `src/game/rules/**`. Coverage on UI is lower priority.
 - **No emojis in code or comments** unless the user explicitly asks.
+- **`src/game/hash.ts` is the canonical hash module.** Every phase that adds replay-relevant state extends `hashableState`'s projection; `GameStateSchema` (in `src/game/store.ts`) is the single source of truth for what counts as state, and `hashable-state-extension.test.ts` enforces the schema-keys ↔ projection-keys equality. Never compute a side-channel hash.
+- **Boundary-rule tests use `ESLint.lintText` against synthetic source strings**, never on-disk `.ts.snippet` fixtures or extension-name games. See `eslint/boundaries.test.ts` for the pattern.
+- **Stub-for-anchor.** When a boundary rule needs to reference a file that doesn't have implementation yet, ship the file with `export {};` and a single one-line comment explaining what anchors it (see `src/runtime/tickOrchestrator.ts`). The file existing is the contract.
+- **`HouseId` is a branded `string`** (`type HouseId = string & { __brand: "HouseId" }`), exported from `src/game/rng.ts`. Never refer to a house by raw `string`; always cast at the boundary (`"player" as HouseId`) and propagate the type from there.
 
 ## LLM integration specifics
 
