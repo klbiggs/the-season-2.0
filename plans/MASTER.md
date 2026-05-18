@@ -1,0 +1,394 @@
+# *The Season* — Master Plan
+
+> Master plan for rebuilding *The Season* greenfield in the browser. Source spec is `../greenfield-spec.md`; §-references throughout point there. Per-phase subplans live in [`phases/`](./phases/).
+
+---
+
+## Table of Contents
+
+1. [Context](#1-context)
+2. [Tech Stack (Decisions)](#2-tech-stack-decisions)
+3. [Architecture Principles](#3-architecture-principles)
+4. [Repository Layout](#4-repository-layout)
+5. [Cross-Cutting Contracts](#5-cross-cutting-contracts)
+6. [Phase Index](#6-phase-index)
+7. [Capability Map (§3 → Phase)](#7-capability-map)
+8. [Edge Cases (§7 → Phase)](#8-edge-cases)
+9. [Non-Functional Requirements (§8) Cross-Reference](#9-non-functional-requirements)
+10. [Open Questions (§10)](#10-open-questions)
+
+---
+
+## 1. Context
+
+*The Season* is a single-player, turn-based, browser-based social-strategy and dynasty-simulation game set in Regency / early Victorian Britain. The player guides a noble house across multiple generations: managing wealth, reputation, scandal, marriages, schemes, whispers, duels, and faction politics. The signature interaction is a conversational ballroom where natural-language player input is resolved by a deterministic combat engine modulated by an LLM phrasing-quality multiplier.
+
+**Why now:** A prior implementation (apparent Godot codebase based on §9 idioms) is being rewritten greenfield in the browser to address structural concerns from the §9 "Lessons Learned": pure-logic/runtime separation, deterministic replay, decomposed views, pure-function save migrations, and disciplined async UI mutation.
+
+**Hard frame:**
+- Browser-based; no desktop wrapper (Tauri, Electron) in scope.
+- Single-player; offline-capable except for the optional LLM-driven conversation.
+- BYOK credential model for the LLM (the player supplies their own Anthropic key).
+- Static SPA — no backend in v1.
+
+---
+
+## 2. Tech Stack (Decisions)
+
+| Concern | Choice | Why |
+|---|---|---|
+| Framework | **React 19 + Vite 6 + TypeScript (strict)** | Largest ecosystem for the dense informational UI this game needs; type-system carries the discriminated-union state machines and LLM response schemas |
+| Styling / components | **Tailwind v4 + shadcn/ui** | Dense ledger UI, modals, tabs, form panels — shadcn composables map 1:1 to the game's surfaces |
+| State | **Zustand + Immer** | Lean, no boilerplate, plays well with pure-logic separation; Immer lets per-tick mutations read naturally while staying structurally immutable |
+| State machines | **XState v5** | §3 explicitly enumerates 6+ state machines; modeling them inline prevents in-between-states bugs |
+| Determinism | **`seedrandom` wrapped in a per-house `Rng` with `{seed, callCount}`** | Round-trips through save/load; one canonical source forbidden from `Math.random` (lint-enforced) |
+| Persistence | **Dexie (IndexedDB) + Zod-validated migrations** | Saves can grow large with embeddings; IndexedDB handles it; migrations are named pure functions per §9 |
+| LLM | **`@anthropic-ai/sdk` browser-direct, BYOK, prompt-cached persona blocks, tool-use responses** | Forces structured outputs (validated by Zod), caches per-character persona between turns, no backend needed |
+| Embeddings (optional, deferred) | **Voyage AI** | Best-in-class retrieval quality; cheap; in-browser cosine similarity over a bounded array — no vector DB needed at this scale |
+| Animations | **Framer Motion** | DOM-native, perfect for portrait slides on faux-pas/sabotage/scheme completion |
+| Social web visualization | **react-force-graph-2d** (canvas-backed, D3-force under the hood, custom node sprites for portraits) | The one spatial surface in the app |
+| All other rendering | **DOM + CSS + SVG** | Strategy map = 7 location pins. Ballroom = 5 portrait cards. Elopement = 7-tile row. Ledger = tables. No game engine needed. |
+| Lint / format | **Biome** | Single config, faster than ESLint+Prettier |
+| Tests | **Vitest** (pure logic ~100% coverage) + **Playwright** (UI flows) | Pure-logic tests are the determinism contract |
+| Hosting | **Vercel** or **Netlify**, static SPA | No backend in v1 |
+
+**Explicitly NOT in the stack:**
+- No PixiJS / Phaser / Three.js (visual budget doesn't justify a renderer).
+- No backend / Supabase / Convex in v1 (BYOK + IndexedDB means none required).
+- No boardgame.io (its turn/phase abstractions don't fit the spec's irregular tick clock).
+- No Redux / Redux Toolkit (Zustand + Immer covers it).
+- No Tauri / Electron (browser only).
+
+---
+
+## 3. Architecture Principles
+
+Distilled from §9, keeping only framework-agnostic guidance:
+
+1. **Pure gameplay logic separated from runtime orchestration.** Combat math, scheme resolution, mood drift, succession, duel resolution, marriage acceptance, economy tier classification — these live in `src/game/rules/` with zero imports from UI, persistence, LLM, or events. Runtime orchestrators wrap them and own all side effects.
+2. **One canonical tick clock.** A single `tick: number` is the source of truth. Every scheduled event stores an absolute end-tick, never a relative duration.
+3. **Topically-partitioned event modules.** No single `events.ts` god file. Group by domain (`events/scheme.ts`, `events/conversation.ts`, `events/family.ts`).
+4. **Decomposed views.** The map and ballroom views split by responsibility (tick orchestration, location routing, tactic dispatch, scheme panel state, conversation flow) — each independently testable.
+5. **Centralized fixture & constants registries.** NPC names, house names, artifact definitions, trait registry, mood registry, location deltas, scheme costs/durations — every tunable in `src/game/constants.ts` or `src/game/fixtures/`, never in UI code.
+6. **Pure-function save migrations.** Each `vN → vN+1` is a named idempotent function with its own Vitest suite. The runner composes them.
+7. **Async continuation safety.** Every conversation round-trip uses `AbortController` threaded through `fetch`, and post-await state mutations check that the request hasn't been superseded (a `requestId` ref pattern). This is the React equivalent of §9's three-fold guard.
+8. **Determinism boundary is explicit.** The non-deterministic LLM layer must not touch the gameplay PRNG call-count. Enforced by lint: only `src/game/rules/**` and `src/runtime/tickOrchestrator.ts` may import from `src/game/rng.ts`.
+9. **Typed dependency injection / typed registry — no string-based runtime lookups.** Every cross-component reference is typed.
+10. **Action gating is atomic.** No "deducted wealth then errored" paths. Validate preconditions first; deduct second; apply effects third.
+
+---
+
+## 4. Repository Layout
+
+```
+the-season-2.0/
+├── greenfield-spec.md                 # Source of truth (read-only reference)
+├── plans/                             # This master plan + per-phase subplans
+│   ├── MASTER.md
+│   └── phases/00-foundation.md … 18-llm-flavor.md
+├── package.json
+├── vite.config.ts
+├── tsconfig.json
+├── biome.json
+├── index.html
+└── src/
+    ├── main.tsx
+    ├── App.tsx                        # View shell: Map | Ballroom | Ledger | Elopement
+    ├── game/
+    │   ├── constants.ts               # All §3 tuning values in one place
+    │   ├── rng.ts                     # Per-house seeded PRNG + call-count
+    │   ├── rules/                     # PURE. No non-rule imports.
+    │   │   ├── combat.ts              # Affection/Composure deltas, stance modifiers
+    │   │   ├── economy.ts             # Bankruptcy tier classification, per-tick deltas
+    │   │   ├── schemes.ts             # Cost/duration/prerequisite resolution
+    │   │   ├── moods.ts               # Drift roller, faux-pas lock
+    │   │   ├── duel.ts                # 12-exchange resolver
+    │   │   ├── elopement.ts           # Sprint advance/win conditions
+    │   │   ├── marriage.ts            # Proposal acceptance, conception, inheritance
+    │   │   ├── succession.ts          # Heir resolution, archetype classification
+    │   │   ├── rivals.ts              # Action weighting, hostility decay
+    │   │   ├── patronesses.ts         # Favor erosion, veto checks
+    │   │   ├── whispers.ts            # Verification progress, weaponization branches
+    │   │   ├── artifacts.ts           # Wardrobe decay, forgery surfacing, theft notice
+    │   │   ├── siblingRivals.ts       # Promotion at succession, action roller
+    │   │   ├── inheritedSecrets.ts    # Surfacing, blood feuds
+    │   │   ├── dynastyLegacies.ts     # Perk trigger evaluation
+    │   │   ├── globalEvents.ts        # WarEffort, MarketCrash, MonarchsMood
+    │   │   ├── era.ts                 # Era transition
+    │   │   ├── happiness.ts           # Dull-spouse drain, temptation hook
+    │   │   ├── promenade.ts           # Hyde Park resolution
+    │   │   ├── staff.ts               # Loyalty drift, bribery roll, assignment outputs
+    │   │   └── courier.ts             # Transit time lookup (per location pair)
+    │   ├── machines/                  # XState definitions (see §5.2)
+    │   ├── fixtures/                  # NPCs, houses, artifacts, traits, locations, patronesses, factions
+    │   └── store.ts                   # Zustand + Immer (thin reducer over rules/)
+    ├── runtime/                       # Orchestrators (side effects)
+    │   ├── tickOrchestrator.ts        # Fixed-order phase runner
+    │   ├── conversationOrchestrator.ts
+    │   ├── schemeOrchestrator.ts
+    │   ├── elopementOrchestrator.ts
+    │   ├── successionOrchestrator.ts
+    │   └── events/                    # Topically partitioned (scheme, conversation, family, scandal, ...)
+    ├── llm/
+    │   ├── client.ts                  # Anthropic SDK setup, BYOK, timeout, abort
+    │   ├── prompts/                   # Cacheable persona blocks per character
+    │   ├── tools.ts                   # `respond` + `generateWhisper` tool schemas
+    │   ├── routing.ts                 # Haiku default; Sonnet/Opus for first-meeting
+    │   └── embeddings.ts              # OPTIONAL — Voyage client (deferred)
+    ├── persist/
+    │   ├── schema.ts                  # Zod schemas per save version
+    │   ├── migrations/                # Named pure functions vN → vN+1
+    │   ├── dexie.ts                   # IndexedDB setup
+    │   └── vectorIndex.ts             # OPTIONAL — embedding sidecar
+    └── ui/
+        ├── map/
+        ├── ballroom/
+        ├── ledger/
+        ├── elopement/
+        ├── socialWeb/
+        ├── promenade/
+        └── shared/                    # shadcn/ui composables, theming
+```
+
+---
+
+## 5. Cross-Cutting Contracts
+
+### 5.1 Determinism
+
+- **PRNG:** `seedrandom`-based, wrapped per-house. Every draw advances `callCount`. Save stores `{seed, callCount}`; load re-seeds then advance-draws `callCount` times.
+- **Per-tick phase order is fixed** (§3 "Tick-Driven Time Advancement"): time advance → economy → courier draining → scheme resolution → global-event roll → mood drift → rival action roll. Rival action **always runs last** so its draws can't perturb earlier seeded outcomes.
+- **The conversation layer is excluded** and must not advance the gameplay PRNG call-count.
+- **Lint rule + Vitest sanity test:** grep-fail on `Math.random` outside permitted files; `eslint-plugin-boundaries` confines `src/game/rng.ts` imports.
+- **Replay harness:** Vitest runs 30 identical-seed campaigns; final state hash must be identical across all 30 (§8).
+
+### 5.2 State Machines Catalog (§3)
+
+| Machine | States | Triggers |
+|---|---|---|
+| Whisper | Unverified → Verified → Weaponized \| Dismissed | Tick verification progress; player action |
+| Scheme | Active → Completed \| Cancelled \| Failed | Tick countdown; player cancel; prerequisite invalidation |
+| Marriage | Active → Dissolved | Spouse death |
+| Era | Earlier → Later | Fixed tick threshold (one-way) |
+| Mood (per NPC) | Receptive \| Defensive(locked) \| Distracted \| Jealous \| Grieving | Per-tick drift roll; reactive on faux-pas |
+| Bankruptcy tier | Solvent \| Hemorrhaging \| Embarrassed \| Ruined | Recomputed each tick from wealth |
+| Conversation round-trip | Idle → Sending → Resolving → Done \| Failed | Player send; LLM response; abort/timeout |
+| Elopement sprint | Running → Won \| Lost | Player tile = 7 (win); father tile = 7 or composure ≤ 0 (loss) |
+| Sibling-rival | Active → Reconciled | Hostility decays to 0 OR successful reconciliation action |
+| Forgery | Unsurfaced → Surfaced | Per-tick surfacing roll |
+| Global event | Active → Expired | Absolute end-tick reached |
+| View routing | Map \| Ballroom \| Ledger \| ElopementOverlay | Player navigation; overlay suspends Map |
+
+All machines live in `src/game/machines/` and are XState v5 actor refs held in the Zustand store.
+
+### 5.3 Save Migration Discipline
+
+- Save format is JSON, versioned by an integer `version` field.
+- Each migration is a named pure function: `export function migrate_v3_to_v4(state: SaveV3): SaveV4`.
+- A migration runner composes them in order: `runMigrations(state, fromVersion, toVersion)`.
+- Each migration has its own Vitest file with example fixtures.
+- **Forbidden:** sequential-fall-through migration blocks; cumulative side effects between migrations.
+- Schema is Zod-validated per version (`SaveV3Schema.parse(state)` before running migrations from v3).
+- The vector index (optional) is a binary sidecar keyed by save-game identifier — not part of the JSON save.
+
+### 5.4 LLM Integration Contract (§5)
+
+- **SDK:** `@anthropic-ai/sdk` in the browser; user supplies API key via UI (BYOK).
+- **Routing:**
+  - First-meeting (empty `(houseId, targetCharId)` history): `claude-sonnet-4-6` (or `claude-opus-4-7`).
+  - All other turns: `claude-haiku-4-5`.
+- **Structured output via tool use.** Define a single tool `respond` with schema:
+  ```ts
+  {
+    dialogue: string,
+    classifiedTactic: "Flattery" | "WittyBanter" | "SlyGossip" | "DeepEmpathy",
+    qualityMultiplier: number,   // clamped [0.5, 1.5] defensively
+    moodHint?: Mood,
+    toolCalls?: Array<{ name: "generateWhisper", args: {...} }>
+  }
+  ```
+  Force the model with `tool_choice: { type: "tool", name: "respond" }`. Validate with Zod on receipt.
+- **Prompt caching:** Mark the per-character persona block (traits, mood, archetype, faction, recent biographical notes) with `cache_control: { type: "ephemeral" }`. The dynamic suffix is the recency window (last 3 exchanges per §3 "Data Lifecycle") + the player's freeform message.
+- **System instruction budget under 1500 tokens** (§5).
+- **15-second timeout** via `AbortController.signal.timeout()`.
+- **Failure paths** (timeout, network, schema, missing key) all:
+  - Do NOT advance the tick.
+  - Do NOT call the combat resolver.
+  - Do NOT append to conversation history.
+  - DO re-enable UI controls + surface a user-readable banner.
+- **Pre-flight key check:** validate shape (`/^sk-ant-/`, non-empty) — no network roundtrip per §5.
+- **Sticky banner** when key absent — disables only the conversation send affordance.
+- **Out-of-range values clamped defensively**, not errored.
+- **Unknown classifications fall back to the pinned intent (or Flattery if none pinned).**
+
+### 5.5 Pure Logic / Orchestrator Separation
+
+- `src/game/rules/**` may import only from: `src/game/constants.ts`, `src/game/fixtures/**`, `src/game/rng.ts`, and other `src/game/rules/**` files.
+- `src/runtime/**` orchestrates: calls rules, mutates the Zustand store, publishes events, schedules UI updates.
+- `src/ui/**` reads from the Zustand store; player actions dispatch through orchestrators.
+- **Lint enforcement:** `eslint-plugin-boundaries` config codifies this.
+
+### 5.6 Event System
+
+- Topically partitioned modules under `src/runtime/events/`: `scheme.ts`, `conversation.ts`, `family.ts`, `scandal.ts`, `economy.ts`, `combat.ts`, `tick.ts`.
+- Each module defines its own typed event variants (discriminated unions) and publisher.
+- Subscribers register via React effects; **every subscription pairs with a cleanup unsubscribe** (§9).
+- No global string-keyed event bus.
+
+### 5.7 Fixture Registry & Designer Constants
+
+- `src/game/constants.ts` — every numeric tuning in §3: trait base value (10), bonus value (+15), penalty value (−10), quality bounds [0.5, 1.5], affection threshold (80), reputation threshold (40), proposal slope endpoints (0.5, 0.95), conception cadence (2 years), fertility ceiling (40), succession reputation penalty (−20), scheme costs/durations, etc.
+- `src/game/fixtures/` — every named identity: 32 traits, 5 moods, 7 locations, 7 scheme types, 4 tactics, 5 patronesses, 3 rival houses, 3 factions, 2 eras, 3 global events, artifact registry.
+
+---
+
+## 6. Phase Index
+
+| # | Phase | Subplan | Depends on |
+|---|---|---|---|
+| P0 | Foundation: setup, RNG, save scaffold | [`phases/00-foundation.md`](./phases/00-foundation.md) | — |
+| P1 | Tick Engine & Pure Rules | [`phases/01-tick-engine.md`](./phases/01-tick-engine.md) | P0 |
+| P2 | Save/Load & Migrations | [`phases/02-save-migrations.md`](./phases/02-save-migrations.md) | P0 |
+| P3 | Strategy Map & Locations | [`phases/03-strategy-map.md`](./phases/03-strategy-map.md) | P1 |
+| P4 | LLM Conversation & Ballroom | [`phases/04-ballroom-llm.md`](./phases/04-ballroom-llm.md) | P0, P1 |
+| P5 | Schemes & Multi-Tick Operations | [`phases/05-schemes.md`](./phases/05-schemes.md) | P1, P4 |
+| P6 | Whispers, Espionage & Staff | [`phases/06-whispers-espionage.md`](./phases/06-whispers-espionage.md) | P1, P4, P5 |
+| P7 | Family, Marriage & Succession | [`phases/07-family-succession.md`](./phases/07-family-succession.md) | P1 |
+| P8 | Rival Houses, Patronesses & Duels | [`phases/08-rivals-patronesses.md`](./phases/08-rivals-patronesses.md) | P1, P5 |
+| P9 | Elopement Sprint Overlay | [`phases/09-elopement.md`](./phases/09-elopement.md) | P5 |
+| P10 | Artifacts, Wardrobe, Forgery & Theft | [`phases/10-artifacts.md`](./phases/10-artifacts.md) | P7 |
+| P11 | Sibling Rivals & Inherited Secrets | [`phases/11-sibling-rivals-secrets.md`](./phases/11-sibling-rivals-secrets.md) | P7, P6 |
+| P12 | Hyde Park Promenade | [`phases/12-promenade.md`](./phases/12-promenade.md) | P3, P4, P10 |
+| P13 | Global Events & Era Progression | [`phases/13-global-events-era.md`](./phases/13-global-events-era.md) | P1, P10 |
+| P14 | Ledger View & Social Web Visualization | [`phases/14-ledger-social-web.md`](./phases/14-ledger-social-web.md) | most prior |
+| P15 | Dynasty Legacies & Renown Perks | [`phases/15-dynasty-legacies.md`](./phases/15-dynasty-legacies.md) | P7, P5, P6 |
+| P16 | Polish — Audio, i18n, Procedural Identity | [`phases/16-polish.md`](./phases/16-polish.md) | most prior |
+| P17 | (Optional) Semantic Memory | [`phases/17-semantic-memory.md`](./phases/17-semantic-memory.md) | P4, P6, P5 |
+| P18 | (Optional) LLM Flavor Content | [`phases/18-llm-flavor.md`](./phases/18-llm-flavor.md) | P4, P10 |
+
+---
+
+## 7. Capability Map (§3 → Phase)
+
+Every §3 capability is owned by exactly one phase:
+
+| §3 Capability | Phase |
+|---|---|
+| View Routing Between Modes | P0 shell; P3 map; P4 ballroom; P9 elopement; P14 ledger |
+| Tick-Driven Time Advancement | P1 |
+| Strategy Map | P3 |
+| Conversational Ballroom | P4 |
+| Schemes | P5 (+ P10 Treason Framing) |
+| Elopement Sprint | P9 |
+| Marriage, Conception & Succession | P7 |
+| Espionage & Whisper Ledger | P6 |
+| Patronesses & Faction Politics | P8 |
+| Duels & Grievances | P8 |
+| Rival Houses | P8 |
+| Mood Drift | P1 |
+| Global Events | P13 |
+| Ledger View | P14 |
+| Save & Load | P0 scaffold; P2 migrations; all phases own their schema additions |
+| Wardrobe, Artifacts & Heirlooms | P10 |
+| Forgery & Theft | P10 |
+| Treason Framing | P10 |
+| Hyde Park Daytime Promenade | P12 |
+| Staff Espionage (Downstairs Network) | P6 |
+| Whisper Weaponization Branches | P6 |
+| Sibling Rivals | P11 |
+| Family Archetype Auto-Classification | P7 |
+| Tutor Influence | P7 |
+| Inherited Secrets & Blood Feuds | P11 |
+| Dynasty Legacies | P15 |
+| Social Web Visualization | P14 |
+| Generated Flavor Content | P18 |
+| Audio, Localization & Procedural Identity | P16 |
+| Real Semantic Memory | P17 |
+| Happiness Drain from Dull-Spouse | P7 |
+
+---
+
+## 8. Edge Cases (§7 → Phase)
+
+| Edge case | Owning phase |
+|---|---|
+| Mid-conversation view exit | P4 |
+| Heir promotion mid-conversation | P4 + P7 |
+| Era-flip during a Smuggling scheme | P5 |
+| Same-tick monarch's audience and rival action | P3 (audience) + P8 (rival order) |
+| Cancellation of in-flight Seduction by Chaperone | P5 |
+| Mood-lock cascade prevention | P1 (mood layer) + P4 (faux-pas trigger) |
+| Affection/Composure mutation from multiple sites | enforced everywhere; lint + tests in P0/P1 |
+| Save-data migration ordering | P2 |
+| Rival-house associated-character pruning | P8 + P7 (death cascade) |
+| Conversation history orphan keys | P6 + P4 |
+| Forgery surfacing cascade | P10 |
+| Theft against an unequipped artifact | P10 |
+| Sibling-rival promotion of a corpse | P11 |
+| Tutor reassignment after maturation | P7 |
+| Wardrobe refresh during bankruptcy | P10 |
+| Out-of-season artifact equipped mid-ball | P10 |
+| Staff bribery while assigned to mail interception | P6 |
+| Inherited-secret surface against a now-allied rival | P11 |
+| Dynasty perk award during the same tick as succession | P15 |
+| Embedding service failure during conversation start | P4 stub; P17 full |
+| Cultural-pivot Monarch's Mood against no-artifact house | P13 |
+| Action gating bypassed by mid-flight scheme starts | P5 |
+
+---
+
+## 9. Non-Functional Requirements (§8)
+
+| NFR | Where enforced |
+|---|---|
+| 15-second conversation timeout | P4 |
+| Save serialization synchronous, no UI stall | P2 |
+| Conversation history < 50 KB | P4 bounded recency |
+| Genealogical children list — old generations collapse to ancestor summary | P7 + P11 |
+| Inherited-secrets ledger bounded | P11 |
+| Artifacts/forgeries per house capped | P10 |
+| Vector index capped FIFO | P17 |
+| 30-run replay stability | P0 harness; every phase adds its own determinism tests |
+| Credential never persisted / logged | P4 BYOK input |
+| Structured logging on decision points | every phase |
+| Conversation failure logging without credential leak | P4 |
+| Designer constants in one canonical location each | P0 sets up `constants.ts`; every phase adds its own constants there |
+| Save-data forward migratability | P2 |
+
+---
+
+## 10. Open Questions (§10)
+
+Carrying forward all 24 open questions with a recommended default for each. Resolve before implementation begins.
+
+| # | Question | Default for v1 |
+|---|---|---|
+| 1 | Heirs inherit patroness favor scores or reset? | **Inherit** (continuity > reset) |
+| 2 | Rival-house registry procedurally seeded or canonical? | **Canonical** (matches prior implementation; predictability for testing) |
+| 3 | Sibling-rival mechanic active in v1? | **Yes** (specced detail level suggests intent) |
+| 4 | Archetype classification on mid-life trait acquisition? | **No** — only at succession + child maturation per §3 |
+| 5 | LLM routing for proposal/scheme/duel/audience in v1? | **No** — first-meeting only |
+| 6 | Seduction discovery one-shot or multi-tick suspicion? | **One-shot** (matches §3 elopement sprint scope) |
+| 7 | Treason Framing in v1? | **Yes** — ships with P10 |
+| 8 | Faction tension graphical visualization? | **No** — numeric in rival ledger only |
+| 9 | Social Web replaces textual ledgers? | **Coexist** in v1 |
+| 10 | Wardrobe decay global tick or per-artifact-family? | **Global tick** (simpler; per-family in v1.5) |
+| 11 | Forged artifacts detectable by Observant NPCs? | **Hidden until per-tick surfacing roll** (simpler) |
+| 12 | Semantic-memory subsystem in v1? | **Deferred to v1.5** (P17 optional) |
+| 13 | LLM tool surface beyond whisper-generation in v1? | **Whisper only** in v1 |
+| 14 | NPC-initiated conversations in v1? | **Deferred** |
+| 15 | Streaming dialogue in v1? | **No** — single-shot "thinking..." pattern |
+| 16 | Cross-house marriages with rivals? | **Deferred** |
+| 17 | Pre-adulthood betrothals? | **Deferred** |
+| 18 | Lifespan fixed or per-character rolled? | **Per-character rolled** (varied siblings is good gameplay) |
+| 19 | Staff-espionage subsystem in v1? | **Yes** (specced) |
+| 20 | Three weaponization branches simultaneously? | **All three** in v1 |
+| 21 | Cultural-pivot before artifact registry ships? | **N/A** — P10 (artifacts) ships before P13 (events) |
+| 22 | Dynasty perks retroactive? | **No** — going-forward only |
+| 23 | Dull-spouse temptation hook auto-unlocks or ledger-elected? | **Auto-unlock on threshold crossing** (less friction) |
+
+---
+
+## TL;DR
+
+> **React 19 + Vite + TS + Tailwind/shadcn + Zustand/Immer + XState v5 + Dexie + Zod + Anthropic SDK (BYOK, prompt-cached personas, tool-use responses) + react-force-graph for the social web.** Static SPA, no backend. Pure-logic rules layer with seeded RNG round-tripping through versioned save migrations. Build in 19 phases (17 required + 2 optional), each independently shippable. P0 → P4 form the spine that proves determinism, separation, state machines, migrations, and the LLM round-trip. After that, every phase fills in rules and views over a sound foundation.
