@@ -145,6 +145,13 @@ describe("P3 positive controls — cross-element permission pins", () => {
     const fired = result.messages.some((m) => m.ruleId === "boundaries/element-types");
     expect(fired).toBe(false);
   });
+
+  it("game-store → game-util is permitted (P3: store.ts imports getHouseOrThrow)", async () => {
+    const source = `import { getHouseOrThrow } from "./util/lookups";\nexport function x() { return getHouseOrThrow; }\n`;
+    const result = await lint(source, "src/game/store.ts");
+    const fired = result.messages.some((m) => m.ruleId === "boundaries/element-types");
+    expect(fired).toBe(false);
+  });
 });
 
 // P3 negative control — guards against a future refactor relocating
