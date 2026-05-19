@@ -18,9 +18,10 @@ import type { SeasonStore } from "../../game/store";
 type Props = {
   store: SeasonStore;
   location: LocationId;
+  onEnterBallroom?: (() => void) | undefined;
 };
 
-export function LocationDetailsPanel({ store, location }: Props) {
+export function LocationDetailsPanel({ store, location, onEnterBallroom }: Props) {
   const house = store((s) => s.houses.get(PLAYER_HOUSE_ID));
   const consecutiveTicks = house?.consecutiveTicksAtCurrentLocation ?? 0;
   const wealth = house?.wealth ?? 0;
@@ -112,6 +113,22 @@ export function LocationDetailsPanel({ store, location }: Props) {
             data-testid="location-details-wardrobe"
           >
             Refresh Wardrobe (−20 wealth)
+          </button>
+        )}
+        {/* P4: Enter Ballroom action — only at Capital. Calls
+            enterBallroom which validates "at Capital" again at the
+            rule layer + publishes BallroomEntered. */}
+        {location === "Capital" && onEnterBallroom !== undefined && (
+          <button
+            type="button"
+            onClick={() => {
+              const result = store.getState().enterBallroom();
+              if (result.ok) onEnterBallroom();
+            }}
+            className="px-3 py-2 rounded bg-purple-700 text-white hover:bg-purple-800 text-sm"
+            data-testid="location-details-enter-ballroom"
+          >
+            Enter the Ballroom
           </button>
         )}
       </div>

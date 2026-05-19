@@ -12,9 +12,10 @@ import { MapBackdrop } from "./MapBackdrop";
 
 type Props = {
   store: SeasonStore;
+  onEnterBallroom?: (() => void) | undefined;
 };
 
-export function MapView({ store }: Props) {
+export function MapView({ store, onEnterBallroom }: Props) {
   const state = store();
   const house = state.houses.get(PLAYER_HOUSE_ID);
   const currentLocation: LocationId = house?.currentLocation ?? "Capital";
@@ -106,7 +107,11 @@ export function MapView({ store }: Props) {
         })}
       </div>
       <div className="w-80">
-        <LocationDetailsPanel store={store} location={currentLocation} />
+        <LocationDetailsPanel
+          store={store}
+          location={currentLocation}
+          onEnterBallroom={onEnterBallroom}
+        />
       </div>
       {toast !== null && (
         <ActionRejectionToast message={toast.message} onDismiss={() => setToast(null)} />
