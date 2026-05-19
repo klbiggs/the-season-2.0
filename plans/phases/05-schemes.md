@@ -41,4 +41,4 @@
 
 **Verification.** Vitest: each scheme effect; Chaperone vs multiple in-flight Seductions; Smuggling rejection at era-edge tick; atomic gating (no partial state mutation on rejection).
 
-**Close out.** When the gates and verification items above are green, run `/close-phase P5` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, and surface proposed `CLAUDE.md` additions and a commit message for approval.
+**Close out.** When the gates and verification items above are green, run `/close-phase P5` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, apply any `CLAUDE.md` additions, and commit the changes (no push).

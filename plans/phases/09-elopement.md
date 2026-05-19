@@ -27,4 +27,4 @@
 
 **Verification.** Vitest on the resolver; Playwright: launch sprint via Seduction discovery → reach tile 7 → reputation halved on save state.
 
-**Close out.** When the gates and verification items above are green, run `/close-phase P9` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, and surface proposed `CLAUDE.md` additions and a commit message for approval.
+**Close out.** When the gates and verification items above are green, run `/close-phase P9` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, apply any `CLAUDE.md` additions, and commit the changes (no push).

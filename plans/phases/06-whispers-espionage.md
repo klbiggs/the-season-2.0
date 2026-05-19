@@ -37,4 +37,4 @@
 
 **Verification.** Vitest: per-branch outcomes; staff loyalty drift over 100-tick simulation; courier transit reproducibility; whisper generation determinism across replays.
 
-**Close out.** When the gates and verification items above are green, run `/close-phase P6` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, and surface proposed `CLAUDE.md` additions and a commit message for approval.
+**Close out.** When the gates and verification items above are green, run `/close-phase P6` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, apply any `CLAUDE.md` additions, and commit the changes (no push).

@@ -36,4 +36,4 @@
 
 **Verification.** All four failure paths tested (timeout, network, schema, missing key) — none advance the tick. Cache hit observable on the second turn against the same NPC (lower latency, lower input-token cost). Conversation history correctly survives a forced succession during a pending request.
 
-**Close out.** When the gates and verification items above are green, run `/close-phase P4` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, and surface proposed `CLAUDE.md` additions and a commit message for approval.
+**Close out.** When the gates and verification items above are green, run `/close-phase P4` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, apply any `CLAUDE.md` additions, and commit the changes (no push).

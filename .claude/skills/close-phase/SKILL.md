@@ -1,9 +1,8 @@
 ---
 name: close-phase
-description: Close out a phase of plans/MASTER.md. Runs pnpm test/lint/typecheck, walks the phase subplan's §Verification list, updates the phase status in MASTER.md §6 (adds a Status column on first run), appends a section to plans/SESSION-NOTES.md, resolves any open questions answered during the work, and surfaces — without applying — proposed CLAUDE.md additions and a commit message. Use when wrapping up work on P0–P18, or when the user says "close out", "wrap up phase X", or "finish phase X".
+description: Close out a phase of plans/MASTER.md. Runs pnpm test/lint/typecheck, walks the phase subplan's §Verification list, updates the phase status in MASTER.md §6 (adds a Status column on first run), appends a section to plans/SESSION-NOTES.md, resolves any open questions answered during the work, applies any CLAUDE.md additions, and commits the changes (no push). Use when wrapping up work on P0–P18, or when the user says "close out", "wrap up phase X", or "finish phase X".
 argument-hint: [phase-number]
-disable-model-invocation: true
-allowed-tools: Bash(pnpm test*) Bash(pnpm lint*) Bash(pnpm typecheck*) Bash(git status*) Bash(git diff*) Bash(git log*)
+allowed-tools: Bash(pnpm test*) Bash(pnpm lint*) Bash(pnpm typecheck*) Bash(git status*) Bash(git diff*) Bash(git log*) Bash(git add*) Bash(git commit*)
 ---
 
 # Close Phase
@@ -77,9 +76,9 @@ Re-read the phase subplan's `**Open questions (§10).**` block. For each OQ:
 - **Deferred unchanged** → leave as-is.
 - **New OQ emerged that wasn't in §10** → surface it to the user and offer to add it to the phase's OQ block AND `plans/MASTER.md` §10 with a recommended default.
 
-## Step 7 — Surface CLAUDE.md additions (do not write)
+## Step 7 — Apply CLAUDE.md additions
 
-If any new convention, invariant, or recurring trip-hazard emerged that future sessions need, propose the exact diff to the user inline. Do NOT edit `CLAUDE.md` without explicit approval. Things that belong here:
+If any new convention, invariant, or recurring trip-hazard emerged that future sessions need, edit `CLAUDE.md` directly to add it. Show the diff in your output for transparency, but do not wait for approval — apply the edit in this step. Things that belong here:
 
 - A new "always do X" / "never do Y" rule discovered the hard way.
 - A new file location or naming convention adopted during this phase.
@@ -90,11 +89,23 @@ Things that do NOT belong in CLAUDE.md (and should stay in subplans or SESSION-N
 - Phase-specific implementation details.
 - One-off decisions that don't apply across phases.
 
-## Step 8 — Propose a commit message (do not commit)
+If nothing qualifies, skip the edit — report `CLAUDE.md: <none>` in the summary.
 
-Run `git status` and `git diff --stat`. If there are uncommitted changes, draft a commit message in the project's style. Do NOT run `git commit` — show the message and wait for the user to trigger their normal commit flow.
+## Step 8 — Commit changes (do not push)
 
-If there are no uncommitted changes, skip this step.
+Run `git status` and `git diff --stat`. If there are uncommitted changes from this phase plus the closeout edits above, draft a commit message in the project's style and create the commit.
+
+Use specific paths with `git add` (never `-A` / `-u` / `.`). The closeout-edit paths are predictable: `plans/MASTER.md`, `plans/SESSION-NOTES.md`, the active phase subplan, `CLAUDE.md` (if Step 7 applied an edit). Combine with the phase's source/test changes shown in `git status`.
+
+Pass the commit message via HEREDOC. Include the trailer:
+
+```
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+```
+
+Do NOT push. Do NOT amend. If a pre-commit hook fails, fix the issue and create a new commit — do not bypass with `--no-verify`.
+
+Skip this step entirely if `git status` is clean.
 
 ## Final output
 
@@ -108,8 +119,6 @@ Verification:    N/N exercised (or list failures)
 MASTER.md:       Status → ✅ done   [or 🚧 in progress: <blocker>]
 SESSION-NOTES:   appended (N lines)
 Open questions:  N resolved / N deferred / N new
-CLAUDE.md:       <none> | <N additions proposed, awaiting OK>
-Commit:          <none> | <message drafted, awaiting OK>
+CLAUDE.md:       <none> | <N additions applied>
+Commit:          <none> | <sha> <subject>
 ```
-
-Below the summary, list any awaiting-OK items (CLAUDE.md diffs, commit message) so the user can approve them in one pass.

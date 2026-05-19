@@ -31,4 +31,4 @@
 
 **Verification.** Vitest: rival action pool distribution matches weights over 10k tick simulation; patroness erosion and audience offset; duel resolver — symmetry of challenger advantage; stalemate-favor-defender invariant; killed-vs-wounded 50/50 over 1000 trials within tolerance.
 
-**Close out.** When the gates and verification items above are green, run `/close-phase P8` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, and surface proposed `CLAUDE.md` additions and a commit message for approval.
+**Close out.** When the gates and verification items above are green, run `/close-phase P8` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, apply any `CLAUDE.md` additions, and commit the changes (no push).

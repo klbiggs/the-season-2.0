@@ -433,7 +433,7 @@ This phase is the third spine vertebra: P0 proved determinism plumbing, P1 prove
 
 **Rollback.** Trivial pre-merge: revert the branch. The save format goes back to v2; any v3 save written during testing becomes unloadable by the rolled-back client (which will then throw `SaveVersionTooNewError` — exactly the path P2 added to handle this case, which is reassuring). For a rollback post-merge with players-in-the-wild who have written v3 saves, a one-shot reverse migration `migrate_v3_to_v2` is required — but P2's pre-merge rollback assumes no such players exist (dev-only surface at P2; real player rollout is later phases).
 
-**Close out.** When the gates and verification items above are green, run `/close-phase P2` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work (P2 doesn't answer any of the §10 open questions — it closes out P1's deferred "corrupt-save banner UX" callout), and surface proposed `CLAUDE.md` additions and a commit message for approval.
+**Close out.** When the gates and verification items above are green, run `/close-phase P2` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work (P2 doesn't answer any of the §10 open questions — it closes out P1's deferred "corrupt-save banner UX" callout), apply any `CLAUDE.md` additions, and commit the changes (no push).
 
 ## Accumulated Risks & Suggestions
 

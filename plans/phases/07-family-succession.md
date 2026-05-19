@@ -37,4 +37,4 @@
 - **#18** — Character lifespans fixed value or rolled per-character (uniform-in-range or trait-modified)? Default: **Rolled per-character** so siblings have varied lifespans.
 - **#23** — Dull-spouse happiness threshold: auto-unlock the discounted-Seduction temptation hook, or only when player explicitly elects from ledger? Default: **Auto-unlock on threshold crossing** (less friction; matches the spec's "deliberate temptation hook" framing).
 
-**Close out.** When the gates and verification items above are green, run `/close-phase P7` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, and surface proposed `CLAUDE.md` additions and a commit message for approval.
+**Close out.** When the gates and verification items above are green, run `/close-phase P7` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, apply any `CLAUDE.md` additions, and commit the changes (no push).

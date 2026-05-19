@@ -34,4 +34,4 @@
 
 **Verification.** Vitest: surfacing roll deterministic across replay; cascade lock applied transactionally; pre-ball snapshot semantics; Treason Framing consumes the forgery exactly once.
 
-**Close out.** When the gates and verification items above are green, run `/close-phase P10` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, and surface proposed `CLAUDE.md` additions and a commit message for approval.
+**Close out.** When the gates and verification items above are green, run `/close-phase P10` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, apply any `CLAUDE.md` additions, and commit the changes (no push).

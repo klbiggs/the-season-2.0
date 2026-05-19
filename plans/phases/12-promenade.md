@@ -21,4 +21,4 @@
 
 **Verification.** Vitest: NPC selection deterministic; mount-bonus stacking; Vitest mock with/without mount artifact.
 
-**Close out.** When the gates and verification items above are green, run `/close-phase P12` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, and surface proposed `CLAUDE.md` additions and a commit message for approval.
+**Close out.** When the gates and verification items above are green, run `/close-phase P12` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, apply any `CLAUDE.md` additions, and commit the changes (no push).
