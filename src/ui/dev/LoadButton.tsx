@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { SeasonStore } from "../../game/store";
 import { DEV_SLOT, load } from "../../persist/dexie";
-import { fromSaveV1 } from "../../persist/schema";
+import { fromSaveV2 } from "../../persist/schema";
 
 type Props = {
   store: SeasonStore;
@@ -18,7 +18,7 @@ export function LoadButton({ store, onStatus }: Props) {
         onStatus("No save in slot 'dev'.");
         return;
       }
-      store.getState().replaceState(fromSaveV1(saved));
+      store.getState().replaceState(fromSaveV2(saved));
       onStatus("Loaded.");
     } catch (err) {
       onStatus(`Load failed: ${err instanceof Error ? err.message : String(err)}`);

@@ -247,7 +247,7 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | # | Phase | Subplan | Depends on | Status |
 |---|---|---|---|---|
 | P0 | Foundation: setup, RNG, save scaffold | [`phases/00-foundation.md`](./phases/00-foundation.md) | — | ✅ done |
-| P1 | Tick Engine & Pure Rules | [`phases/01-tick-engine.md`](./phases/01-tick-engine.md) | P0 | — |
+| P1 | Tick Engine & Pure Rules | [`phases/01-tick-engine.md`](./phases/01-tick-engine.md) | P0 | ✅ done |
 | P2 | Save/Load & Migrations | [`phases/02-save-migrations.md`](./phases/02-save-migrations.md) | P0 | — |
 | P3 | Strategy Map & Locations | [`phases/03-strategy-map.md`](./phases/03-strategy-map.md) | P1 | — |
 | P4 | LLM Conversation & Ballroom | [`phases/04-ballroom-llm.md`](./phases/04-ballroom-llm.md) | P0, P1 | — |
@@ -366,7 +366,7 @@ Carrying forward all 24 open questions with a recommended default for each. Reso
 | 1 | Heirs inherit patroness favor scores or reset? | **Inherit** (continuity > reset) |
 | 2 | Rival-house registry procedurally seeded or canonical? | **Canonical** (matches prior implementation; predictability for testing) |
 | 3 | Sibling-rival mechanic active in v1? | **Yes** (specced detail level suggests intent) |
-| 4 | Archetype classification on mid-life trait acquisition? | **No** — only at succession + child maturation per §3 |
+| 4 | Archetype classification on mid-life trait acquisition? | **No** — only at succession + child maturation per §3. **Resolved at P1** ([phases/01-tick-engine.md](./phases/01-tick-engine.md)); P7 implements full rules. |
 | 5 | LLM routing for proposal/scheme/duel/audience in v1? | **No** — first-meeting only |
 | 6 | Seduction discovery one-shot or multi-tick suspicion? | **One-shot** (matches §3 elopement sprint scope) |
 | 7 | Treason Framing in v1? | **Yes** — ships with P10 |
@@ -380,7 +380,7 @@ Carrying forward all 24 open questions with a recommended default for each. Reso
 | 15 | Streaming dialogue in v1? | **No** — single-shot "thinking..." pattern |
 | 16 | Cross-house marriages with rivals? | **Deferred** |
 | 17 | Pre-adulthood betrothals? | **Deferred** |
-| 18 | Lifespan fixed or per-character rolled? | **Per-character rolled** (varied siblings is good gameplay) |
+| 18 | Lifespan fixed or per-character rolled? | **Per-character rolled**, uniform integer `[70, 95]` (varied siblings is good gameplay). **Resolved at P1** ([phases/01-tick-engine.md](./phases/01-tick-engine.md)); trait modifiers deferred to P7. |
 | 19 | Staff-espionage subsystem in v1? | **Yes** (specced) |
 | 20 | Three weaponization branches simultaneously? | **All three** in v1 |
 | 21 | Cultural-pivot before artifact registry ships? | **N/A** — P10 (artifacts) ships before P13 (events) |

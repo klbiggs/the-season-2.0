@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
+import type { Character, GameState, House, MarriageRecord } from "./entities";
+import type { CharacterId, HouseId, MarriageId, RngState } from "./rng";
 import { serializeRegistry } from "./rng";
-import type { GameState } from "./store";
 
 // Project the store state to a JSON-safe value. Each later phase that adds
 // replay-relevant state extends this projection; non-replay state (UI
@@ -9,11 +10,17 @@ import type { GameState } from "./store";
 // schema's keys.
 export function hashableState(state: GameState): {
   tick: number;
-  rng: ReturnType<typeof serializeRegistry>;
+  rng: Array<[HouseId, RngState]>;
+  houses: Array<[HouseId, House]>;
+  characters: Array<[CharacterId, Character]>;
+  marriages: Array<[MarriageId, MarriageRecord]>;
 } {
   return {
     tick: state.tick,
     rng: serializeRegistry(state.rng),
+    houses: serializeRegistry(state.houses),
+    characters: serializeRegistry(state.characters),
+    marriages: serializeRegistry(state.marriages),
   };
 }
 

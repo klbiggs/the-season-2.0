@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canonicalJSON, hashState, hashableState } from "./hash";
-import type { HouseId, RngState } from "./rng";
-import { createInitialState } from "./store";
+import type { CharacterId, HouseId, MarriageId, RngState } from "./rng";
+import { type Character, type House, type MarriageRecord, createInitialState } from "./store";
 
 describe("canonicalJSON — key order invariance", () => {
   it("sorts object keys lexicographically", () => {
@@ -50,12 +50,23 @@ describe("hashableState", () => {
   it("includes only replay-relevant keys", () => {
     const state = createInitialState("seed");
     const projected = hashableState(state);
-    expect(Object.keys(projected).sort()).toEqual(["rng", "tick"]);
+    // P1: full keyset is characters/houses/marriages/rng/tick. Object.keys().sort()
+    // protects against insertion-order drift in hashableState's projection literal.
+    expect(Object.keys(projected).sort()).toEqual([
+      "characters",
+      "houses",
+      "marriages",
+      "rng",
+      "tick",
+    ]);
   });
   it("converts Map to sorted Array<[K, V]>", () => {
     const state = createInitialState("seed");
     const projected = hashableState(state);
     expect(Array.isArray(projected.rng)).toBe(true);
+    expect(Array.isArray(projected.houses)).toBe(true);
+    expect(Array.isArray(projected.characters)).toBe(true);
+    expect(Array.isArray(projected.marriages)).toBe(true);
   });
 });
 
@@ -68,7 +79,26 @@ describe("hashState — Map reorder invariance", () => {
     const map2 = new Map<HouseId, RngState>();
     map2.set("alpha" as HouseId, rngState);
     map2.set("zebra" as HouseId, rngState);
-    expect(hashState({ tick: 0, rng: map1 })).toBe(hashState({ tick: 0, rng: map2 }));
+    const emptyHouses = new Map<HouseId, House>();
+    const emptyCharacters = new Map<CharacterId, Character>();
+    const emptyMarriages = new Map<MarriageId, MarriageRecord>();
+    expect(
+      hashState({
+        tick: 0,
+        rng: map1,
+        houses: emptyHouses,
+        characters: emptyCharacters,
+        marriages: emptyMarriages,
+      }),
+    ).toBe(
+      hashState({
+        tick: 0,
+        rng: map2,
+        houses: emptyHouses,
+        characters: emptyCharacters,
+        marriages: emptyMarriages,
+      }),
+    );
   });
   it("differs for different tick values", () => {
     const s1 = createInitialState("seed");

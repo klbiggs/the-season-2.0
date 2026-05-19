@@ -6,6 +6,16 @@ import { z } from "zod";
 const alea = seedrandom.alea;
 
 export type HouseId = string & { readonly __brand: "HouseId" };
+export type CharacterId = string & { readonly __brand: "CharacterId" };
+export type MarriageId = string & { readonly __brand: "MarriageId" };
+export type TraitId = string & { readonly __brand: "TraitId" };
+
+// Branded-string Zod schemas use `.transform` (not `.brand`) to match the
+// existing GameStateSchema `rng` map-key form at store.ts.
+export const HouseIdSchema = z.string().transform((s) => s as HouseId);
+export const CharacterIdSchema = z.string().transform((s) => s as CharacterId);
+export const MarriageIdSchema = z.string().transform((s) => s as MarriageId);
+export const TraitIdSchema = z.string().transform((s) => s as TraitId);
 
 export const RngStateSchema = z.object({
   seed: z.string(),
@@ -73,14 +83,17 @@ export function getOrThrow(map: Map<HouseId, RngState>, houseId: HouseId): RngSt
   return state;
 }
 
-// Output is lex-sorted by HouseId. Non-negotiable: keeps hash invariant across
-// Map insertion-order differences that arise from save→load round-trips at P7.
-export function serializeRegistry(map: Map<HouseId, RngState>): Array<[HouseId, RngState]> {
+// Output is lex-sorted by key. Non-negotiable: keeps hash invariant across
+// Map insertion-order differences that arise from save→load round-trips.
+// Generic over branded-string keys (P1: widened from HouseId-only to any
+// `K extends string` so HouseId/CharacterId/MarriageId Maps all serialize via
+// the same helper).
+export function serializeRegistry<K extends string, V>(map: Map<K, V>): Array<[K, V]> {
   return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
 }
 
-export function deserializeRegistry(
-  array: ReadonlyArray<readonly [HouseId, RngState]>,
-): Map<HouseId, RngState> {
+export function deserializeRegistry<K extends string, V>(
+  array: ReadonlyArray<readonly [K, V]>,
+): Map<K, V> {
   return new Map(array);
 }
