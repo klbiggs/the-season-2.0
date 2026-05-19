@@ -2,6 +2,67 @@
 
 Closeout notes per phase. Decisions made during implementation that aren't captured by the subplan or git history. Newest entry on top.
 
+## P4 — closed 2026-05-19
+
+**Decisions made during implementation that the converged plan didn't anticipate:**
+
+- **Spec line 70 vs line 312 disambiguation: pin always overrides.** During manual ballroom testing, a pinned `WittyBanter` was overridden by Gemini's `classifiedTactic: "Flattery"`. Spec §3 line 70 ("a pinned explicit intent overrides any classification the language model produces") and line 312 ("unknown classifications fall back to pinned") disagreed on the common case. Resolved to the line-70 reading: `resolveTactic(received, pinned)` returns `pinned` whenever `pinned !== null`, regardless of whether `received` is a valid enum. The pin button is mechanically a no-op otherwise (Gemini returns valid enum >99% of calls), which makes the player's explicit-intent affordance meaningless. Tests pinned at `src/llm/types.test.ts` (12 tests).
+- **Four SDK-failure-path orchestrator tests deferred.** `conversationOrchestrator.test.ts` ships happy-path + missing-key + session-method tests (8 total). The other three failure paths (timeout / network / schema) are guarded by typed-error classes in `src/llm/errors.ts` with straightforward `instanceof` mapping inside the orchestrator. Initial attempt to per-test-override `vi.mock("@google/genai")` factories ran into vi.mock hoisting (factory swaps don't isolate between tests inside one file). Deferred to dedicated integration test files — flagged below.
+- **`__mocks__/@google/genai.ts` at repo root.** Deterministic hash-derived mock: `canonicalJSON(request)` → SHA-256-prefix → quality multiplier. Replay-harness's 30-run-identical-hashes proves `buildPersonaPrompt` and `buildContents` are pure-by-input transitively; no dedicated unit test was added for that contract.
+- **`ConversationFailure` is a 5-variant discriminated union** (`timeout | network | schema | missing-key | cancelled`). The 5th `cancelled` reason distinguishes user-driven abort (`exitBallroom`, abort button) from timeout-driven abort (15s `AbortController.signal.timeout`). The orchestrator's `timedOut` flag tracks the difference at the abort site.
+- **`runYearPass` rewritten as diff-and-publish for `TargetCharacterDied`.** Old form ran aging→succession→conception in-place; new form snapshots living-NPC IDs before, executes the year-pass left-fold, diffs the after-state for newly-dead NPCs, then publishes `TargetCharacterDied` events from the store-action wrapper (bus-publish discipline: never from inside orchestrator). The orchestrator subscribes at module-load to abort any in-flight conversation against a deceased target.
+- **`BYOK_KEY_SHAPE_REGEX = /^AIza.+/`** in `constants.ts` — relaxed from the originally drafted `/^AIza[A-Za-z0-9_-]{35}$/` to "starts with AIza and has at least one char after." Spec §6 says "shape-only pre-flight, no network round-trip"; Google has rotated their API key length convention historically (29 → 39 chars), and a strict 35-char regex would reject valid future keys. The looser shape is still enough to reject empty / obviously-malformed input before consuming a request budget.
+- **`canonicalJSON` -0 normalization in combat.ts.** `0 * COMBAT_PENALTY_VALUE = -0` in JS, and `Object.is(-0, +0) === false`. Fixed at the multiplication site (`penaltyCount === 0 ? 0 : penaltyCount * COMBAT_PENALTY_VALUE`) for hash stability. Without this, two campaigns identical in every way except for an NPC with zero tactic-relevant penalty traits would hash differently.
+- **Bare+wrap lifter pattern for migration helpers.** `fromSaveV1Bare` / `fromSaveV2Bare` / `fromSaveV3Bare` / `fromSaveV4Bare` are private; `fromSaveV1` / `fromSaveV2` / `fromSaveV3` / `fromSaveV4` are public wrappers that compose the bare lifter with `seedIndependentIntoLegacyState`. This lets `migrate_v4_to_v5` reuse `fromSaveV4Bare` without double-seeding (the migration runner's per-step Zod validation would reject an unexpected `INDEPENDENT_HOUSE_ID` entry on V4 output).
+- **`HousePreV4Schema` `.omit()` chain for `CharacterPreV5Schema`.** Legacy character shape (V2/V3/V4 on-disk) uses `CharacterSchema.omit({ composure: true, maxComposure: true })`. Avoids a parallel hand-maintained Zod object that would drift from the live `CharacterSchema`. Field additions to `CharacterSchema` in future phases auto-flow through (the omit just ignores any post-V5 fields when reading legacy saves).
+
+**Open questions hit (all four resolved at P4, matching MASTER.md §10):**
+
+- **#5 — Model routing for proposal/scheme/duel/audience in v1?** Resolved: **first-meeting only**. `routeModel(history)` is the single decision point — empty `(houseId, targetCharId)` history → `MODEL_FIRST_MEETING` (Gemini Pro), non-empty → `MODEL_DEFAULT` (Gemini Flash). No override seams for proposal/scheme/duel/audience at P4.
+- **#13 — LLM tool surface beyond whisper-generation in v1?** Resolved: **whisper only** (and at P4, NOT EVEN whisper — `respond` only). The `toolCalls?: Array<z.never>` field is reserved on the response schema as `z.array(z.never()).default([])` so P6 can widen without bumping save format.
+- **#14 — NPC-initiated conversations in v1?** Resolved: **deferred**. Conversation round-trip is strictly player-initiated.
+- **#15 — Streaming dialogue in v1?** Resolved: **no**. Non-streaming `ai.models.generateContent(...)` only; single-shot "..." indicator during Sending → Resolving.
+
+**Verification gaps / deferred / next-up (not blocking but flagged):**
+
+- **Four SDK failure paths at orchestrator integration level.** `vi.mock` hoisting prevented per-test factory overrides in `conversationOrchestrator.test.ts`. Missing-key is exercised at the orchestrator boundary; timeout / network / schema are covered by typed-error class tests in isolation. Follow-up: split into dedicated test files (`conversationOrchestrator.timeout.test.ts`, etc.) each with its own top-level `vi.mock` factory.
+- **§7 Heir promotion mid-conversation** — not exercised as an automated test. The pair-key shape (`${houseId}|${characterId}`) guarantees the property by construction (player house is stable across succession; the heir character's promotion doesn't change the player-house half). Save-roundtrip exercises pair-key serialization but not the succession path.
+- **§7 Mood-lock cascade prevention** — not exercised as an automated test. The combat resolver's override branches (Flattery vs Defensive instant-fail; WittyBanter vs Distracted zero-yield) are unit-tested in `combat.test.ts`, but the lock-extension-without-MoodChanged-event path isn't pinned.
+- **Cache-hit verification** — exercised manually during dev (Gemini API key + 2-turn conversation with Lady Aldridge produced in-character Regency dialogue). No automated assertion on `usageMetadata.cachedContentTokenCount` because the mock SDK doesn't emit it.
+- **Mutation-coverage audit** — informally walked during implementation; `rg "set\(\(state\)" src/game/store.ts` shows 4 P4-relevant set-bodies (`enterBallroom`, `exitBallroom`, `sendBallroomMessage`, `abortBallroomRequest`) plus `runYearPass`. No formal coverage report.
+- **Pre-existing lint warnings:** 7 `noNonNullAssertion` warnings in P3 test fixtures (`locationEffects.test.ts`, `v1-to-v4-chain.test.ts`, `v3-to-v4.test.ts`). Synthetic-state knows the keys exist; the bangs are safe. Pre-existing; not P4.
+
+**Final RNG callCount after post-bootstrap seeding:** Independent house RNG seed is derived deterministically as `${playerSeed}::independent`; the 5 BASELINE_NPCs use constant `deathAge` values from the fixture, so the Independent seed advances by 0 during P4 bootstrap. Player RNG callCount is unchanged by Independent seeding (P0 invariant preserved).
+
+**Files of note:**
+
+- `src/game/conversation/types.ts` — shared `ConversationPairKey`, `Exchange`, `ConversationFailure`; brand re-exports avoid `llm/**` importing `game/rng.ts` directly (eslint rule (c)).
+- `src/game/constants.ts:120-260` — P4 constants block: `CONVERSATION_TRAIT_BONUSES`/`PENALTIES` (32-trait × 4-tactic matrices), stance multipliers, model IDs, `BYOK_KEY_SHAPE_REGEX`, `PERSONA_CACHE_TTL_SECONDS`, `COMPOSURE_DEFAULT`.
+- `src/game/entities.ts` — `CharacterSchema` extended with `composure`/`maxComposure`; `GameStateSchema` extended with `conversationHistory`/`affectionMap` (both `z.map(...)` for in-memory; tuple-array forms in `SaveV5Schema`).
+- `src/game/fixtures/npcs.ts` — `BASELINE_NPCS` (5 NPCs, constant `deathAge`), `buildIndependentHouse()`, `buildBaselineNpcCharacter(seed)`.
+- `src/game/rules/combat.ts` — pure combat resolver; override branches for Flattery vs Defensive and WittyBanter vs Distracted; stance multipliers; quality-multiplier modulation (affection only); -0 normalization at penalty site.
+- `src/game/rules/aging.ts` — orphan-prune extension: on NPC death, filter `conversationHistory` + `affectionMap` by `parsePairKey(key).characterId`.
+- `src/game/rng.ts` — `INDEPENDENT_HOUSE_ID`, `BallSessionId` brand, `makeBallSessionId(tick)`.
+- `src/persist/schema.ts` — `CharacterPreV5Schema` via `.omit()`; `seedIndependentIntoLegacyState` idempotent helper; Bare+wrap lifter pattern; `SaveV5Schema`/`toSaveV5`/`fromSaveV5`; `SAVE_VERSION_CURRENT = 5`.
+- `src/persist/migrations/v4-to-v5.ts` — `migrate_v4_to_v5 = toSaveV5 ∘ seedIndependentIntoLegacyState ∘ fromSaveV4Bare`.
+- `src/llm/errors.ts` — typed `MissingKeyError` / `TimeoutError` / `NetworkError` / `SchemaError` / `CancelledError`.
+- `src/llm/types.ts:88` — `resolveTactic` pin-always-overrides (spec §3 line 70 reading).
+- `src/llm/tools.ts` — `RESPOND_TOOL` `FunctionDeclaration` with `parametersJsonSchema`.
+- `src/llm/cache.ts` — `PersonaCacheRegistry` singleton; `caches.create({ config: { ttl: "3600s" } })`.
+- `src/llm/client.ts` — `LlmClient` wraps `GoogleGenAI`; mutually-exclusive `cachedContent` vs `systemInstruction` branching.
+- `src/llm/routing.ts` — `routeModel(history)`: empty → Pro, else Flash.
+- `__mocks__/@google/genai.ts` — deterministic hash-derived mock for replay-harness determinism.
+- `src/runtime/conversationOrchestrator.ts` — `currentRequestId` monotonic counter, per-request `AbortController`, `beginSession`/`endSession`/`abortCurrent`, module-load `TargetCharacterDied` subscription.
+- `src/runtime/events/conversation.ts` — 7-variant `ConversationEvent` union, `conversationBus` singleton, `BallEntryRejection`.
+- `src/game/store.ts` — 4 new actions (`enterBallroom`, `exitBallroom`, `sendBallroomMessage`, `abortBallroomRequest`); `runYearPass` rewritten as diff-and-publish for `TargetCharacterDied`.
+- `src/ui/shared/KeyContext.tsx` — React context for BYOK key; `setKey` clears `personaCacheRegistry`; never persisted.
+- `src/ui/ballroom/` — 10 components (`BallroomView`, `PortraitRing`, `PortraitCard`, `StanceToggle`, `TacticButtons`, `MessageInput`, `ChatLog`, `ComposureBar`, `ThinkingIndicator`, `ConversationFailureBanner`).
+- `src/llm/types.test.ts` — 12 tests pinning the pin-always-overrides semantic.
+
+**Convergence history:** Plan went through 4 fresh cycles + ~22 iterations of `/converge-plan` before implementation. Mid-loop pivot from Anthropic SDK to Google Gemini SDK (architecture preserved). Late pivot to specific model IDs `gemini-3.5-flash` / `gemini-3.1-pro-preview`.
+
+**Verification status:** `pnpm typecheck` clean; `pnpm lint` clean (7 pre-existing stylistic warnings in P3 test fixtures only); `pnpm test` **363/363 passing across 42 files**; manual UI walkthrough exercised end-to-end against a real Gemini key in Chrome — 2-turn Regency dialogue with Lady Aldridge.
+
 ## P3 — closed 2026-05-19
 
 **Decisions made during implementation that the converged plan didn't anticipate:**

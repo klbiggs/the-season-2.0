@@ -250,7 +250,7 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P1 | Tick Engine & Pure Rules | [`phases/01-tick-engine.md`](./phases/01-tick-engine.md) | P0 | ✅ done |
 | P2 | Save/Load & Migrations | [`phases/02-save-migrations.md`](./phases/02-save-migrations.md) | P0 | ✅ done |
 | P3 | Strategy Map & Locations | [`phases/03-strategy-map.md`](./phases/03-strategy-map.md) | P1 | ✅ done |
-| P4 | LLM Conversation & Ballroom | [`phases/04-ballroom-llm.md`](./phases/04-ballroom-llm.md) | P0, P1 | — |
+| P4 | LLM Conversation & Ballroom | [`phases/04-ballroom-llm.md`](./phases/04-ballroom-llm.md) | P0, P1 | ✅ done |
 | P5 | Schemes & Multi-Tick Operations | [`phases/05-schemes.md`](./phases/05-schemes.md) | P1, P4 | — |
 | P6 | Whispers, Espionage & Staff | [`phases/06-whispers-espionage.md`](./phases/06-whispers-espionage.md) | P1, P4, P5 | — |
 | P7 | Family, Marriage & Succession | [`phases/07-family-succession.md`](./phases/07-family-succession.md) | P1 | — |
