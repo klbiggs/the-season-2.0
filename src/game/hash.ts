@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ConversationPairKey, Exchange } from "./conversation/types";
 import type { Character, GameState, House, MarriageRecord } from "./entities";
 import type { CharacterId, HouseId, MarriageId, RngState } from "./rng";
 import { serializeRegistry } from "./rng";
@@ -21,6 +22,8 @@ export function hashableState(state: GameState): {
   marriages: Array<[MarriageId, MarriageRecord]>;
   campaignName: string;
   era: "Earlier" | "Later";
+  conversationHistory: Array<[ConversationPairKey, Exchange[]]>;
+  affectionMap: Array<[ConversationPairKey, number]>;
 } {
   return {
     tick: state.tick,
@@ -30,6 +33,8 @@ export function hashableState(state: GameState): {
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
+    conversationHistory: serializeRegistry(state.conversationHistory),
+    affectionMap: serializeRegistry(state.affectionMap),
   };
 }
 

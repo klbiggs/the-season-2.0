@@ -7,9 +7,9 @@
 //       parity invariant: lifted-from-V1-chain hash equals fresh hash
 
 import { describe, expect, it } from "vitest";
-import { hashState } from "../../game/hash";
 import { NEGATIVE_CONTROL_SEED, REPLAY_SEEDS } from "../../game/rng.seeds";
-import { DEFAULT_CAMPAIGN_NAME, createInitialState } from "../../game/store";
+import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
+import { DEFAULT_CAMPAIGN_NAME } from "../../game/store";
 import { SaveV1Schema, type SaveV4, SaveV4Schema, fromSaveV4 } from "../schema";
 import { MIGRATIONS } from "./index";
 import { runMigrations } from "./runner";
@@ -18,7 +18,7 @@ const PARITY_SEEDS = [...REPLAY_SEEDS, NEGATIVE_CONTROL_SEED] as const;
 
 describe("v1 → v4 chain via runMigrations(MIGRATIONS)", () => {
   it.each(PARITY_SEEDS)(
-    "seed %s: full chain produces valid SaveV4 with era, hash matches fresh",
+    "seed %s: full chain produces valid SaveV4 with era + house defaults",
     (seed) => {
       const v1 = SaveV1Schema.parse({
         version: 1,
@@ -31,15 +31,22 @@ describe("v1 → v4 chain via runMigrations(MIGRATIONS)", () => {
       // (b) era + House defaults present
       expect(v4.era).toBe("Earlier");
       expect(v4.campaignName).toBe(DEFAULT_CAMPAIGN_NAME);
-      const [, house] = v4.houses[0]!;
+      // P4: find by id (Independent is NOT in v4 chain output — it ships at
+      // v4→v5. Player house only here).
+      const playerTuple = v4.houses.find(([id]) => id === PLAYER_HOUSE_ID);
+      expect(playerTuple).toBeDefined();
+      const house = playerTuple![1];
       expect(house.currentLocation).toBe("Capital");
       expect(house.consecutiveTicksAtCurrentLocation).toBe(0);
       expect(house.lastAudienceTick).toBeNull();
       expect(house.wardrobeLastRefreshTick).toBeNull();
       expect(house.blockadeBypassEarned).toBe(false);
-      // (c) lifted hash matches fresh state for the same seed
+      // P4 NOTE: hashState(lifted) === hashState(createInitialState(seed))
+      // parity assertion DROPPED here — fresh state has Independent + 5
+      // NPCs + Independent RNG (P4 additions) which aren't in the v4 chain
+      // output. Full v1↔fresh parity moves to v1-to-v5-chain.test.ts.
       const lifted = fromSaveV4(v4 as SaveV4);
-      expect(hashState(lifted)).toBe(hashState(createInitialState(seed, DEFAULT_CAMPAIGN_NAME)));
+      expect(lifted.tick).toBe(0);
     },
   );
 });

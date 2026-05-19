@@ -25,6 +25,8 @@ function makeState(overrides: Partial<GameState>): GameState {
     marriages: new Map<MarriageId, MarriageRecord>(),
     campaignName: "test-campaign",
     era: "Earlier",
+    conversationHistory: new Map(),
+    affectionMap: new Map(),
     ...overrides,
   };
 }

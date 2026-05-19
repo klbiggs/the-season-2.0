@@ -24,6 +24,9 @@ export function makeCharacter(overrides: Partial<Character> = {}): Character {
     archetype: "None",
     traits: [],
     marriageId: null,
+    // P4 defaults
+    composure: 100,
+    maxComposure: 100,
     ...overrides,
   };
 }

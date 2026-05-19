@@ -9,6 +9,7 @@
 // serializeRegistry / deserializeRegistry.
 
 import { z } from "zod";
+import { ConversationPairKeySchema, ExchangeSchema } from "./conversation/types";
 import { ArchetypeSchema } from "./fixtures/archetypes";
 import { LocationIdSchema } from "./fixtures/locations";
 import { MoodSchema } from "./fixtures/moods";
@@ -56,6 +57,12 @@ export const CharacterSchema = z.object({
   archetype: ArchetypeSchema,
   traits: z.array(TraitIdSchema),
   marriageId: MarriageIdSchema.nullable(),
+  // P4 additions: per-character composure. Clamped [0, maxComposure] at
+  // every mutation site (CLAUDE.md non-negotiable §6). Defaults to 100;
+  // maxComposure is reserved as a per-character ceiling (later phases
+  // may grant trait-based bumps).
+  composure: z.number().int(),
+  maxComposure: z.number().int().positive(),
 });
 export type Character = z.infer<typeof CharacterSchema>;
 
@@ -85,5 +92,11 @@ export const GameStateSchema = z.object({
   // P3: read-only at this phase, hard-locked to "Earlier". P13 ships the
   // transition mechanism.
   era: z.enum(["Earlier", "Later"]),
+  // P4 additions: conversation history + affection map, both keyed on
+  // ConversationPairKey = `${HouseId}|${CharacterId}`. Shared key shape
+  // lets the orphan-prune cascade in aging.ts walk both collections in
+  // a single filter pass on NPC death.
+  conversationHistory: z.map(ConversationPairKeySchema, z.array(ExchangeSchema)),
+  affectionMap: z.map(ConversationPairKeySchema, z.number().int().min(0).max(100)),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

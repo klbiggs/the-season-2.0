@@ -16,7 +16,7 @@ Always reach for the spec and the relevant phase subplan before inferring intent
 
 ## Tech stack (locked — do not second-guess)
 
-React 19 + Vite 6 + TypeScript (strict) · Tailwind v4 + shadcn/ui · Zustand + Immer · XState v5 · Dexie (IndexedDB) + Zod migrations · `@anthropic-ai/sdk` (BYOK, prompt-cached personas, tool-use responses) · Framer Motion · `react-force-graph-2d` for the social web · Biome · Vitest + Playwright · Vercel/Netlify static SPA. **No backend in v1. No PixiJS/Phaser/Three.js. No Tauri/Electron. No Redux. No boardgame.io.** Rationale in `plans/MASTER.md` §2.
+React 19 + Vite 6 + TypeScript (strict) · Tailwind v4 + shadcn/ui · Zustand + Immer · XState v5 · Dexie (IndexedDB) + Zod migrations · `@google/genai` (Gemini SDK; BYOK, context-cached personas, function-calling for structured output) · Framer Motion · `react-force-graph-2d` for the social web · Biome · Vitest + Playwright · Vercel/Netlify static SPA. **No backend in v1. No PixiJS/Phaser/Three.js. No Tauri/Electron. No Redux. No boardgame.io.** Rationale in `plans/MASTER.md` §2.
 
 ## Non-negotiable architectural rules
 
@@ -76,18 +76,18 @@ Build in phases per `plans/MASTER.md` §6. P0–P4 are the spine — get determi
 ## LLM integration specifics
 
 When wiring `src/llm/`:
-- BYOK — user supplies their Anthropic key in the UI; never persist to disk, never log.
-- Pre-flight key check is shape-only (`/^sk-ant-/`), no network round-trip.
-- Structured output via the `respond` tool with `tool_choice: { type: "tool", name: "respond" }`. Validate response with Zod; clamp out-of-range fields defensively.
-- Prompt-cache the per-character persona block (`cache_control: { type: "ephemeral" }`). Recency window (3 exchanges per `(houseId, targetCharId)`) is the dynamic suffix.
-- Model routing: `claude-haiku-4-5` default; `claude-sonnet-4-6` or `claude-opus-4-7` on first-meeting (empty `(houseId, targetCharId)` history).
-- 15-second timeout via `AbortController.signal.timeout()`.
+- BYOK — user supplies their Gemini API key in the UI; never persist to disk, never log.
+- Pre-flight key check is shape-only (`/^AIza/`), no network round-trip. Google API keys conventionally start with `AIza` followed by 35 chars.
+- Structured output via function-calling: a single `FunctionDeclaration` named `respond` declared in `tools[].functionDeclarations`, forced via `config.toolConfig.functionCallingConfig: { mode: FunctionCallingConfigMode.ANY, allowedFunctionNames: ["respond"] }`. Validate `response.functionCalls[0].args` with Zod; clamp out-of-range fields defensively.
+- Context-cache the per-character persona block via `ai.caches.create({ model, config: { systemInstruction, ttl: "3600s" } })` (explicit, stateful — different from Anthropic's per-message implicit `cache_control`). Subsequent `generateContent` calls pass `config.cachedContent: cache.name`. Cache misses fall back to non-cached prompts.
+- Model routing: `gemini-3.5-flash` default; `gemini-3.1-pro-preview` on first-meeting (empty `(houseId, targetCharId)` history).
+- 15-second timeout via `AbortController.signal.timeout(15_000)` passed in `config.abortSignal`.
 - Failure paths (timeout, network, schema, missing key) must: not advance tick, not call combat resolver, not append to history, re-enable UI, surface banner. All four paths have Vitest coverage.
-- Use the `claude-api` skill or Context7 MCP for SDK details — don't guess.
+- Use the Context7 MCP for `@google/genai` SDK details — don't guess.
 
 ## Library documentation
 
-Use the **Context7 MCP server** for library docs on React 19, Vite, Tailwind v4, shadcn, Zustand, Immer, XState v5, Dexie, Zod, the Anthropic SDK, Voyage AI, react-force-graph, Framer Motion, Vitest, Playwright, Biome. Prefer Context7 over web search or training-data recall.
+Use the **Context7 MCP server** for library docs on React 19, Vite, Tailwind v4, shadcn, Zustand, Immer, XState v5, Dexie, Zod, the Google Gen AI SDK (`@google/genai`), Voyage AI, react-force-graph, Framer Motion, Vitest, Playwright, Biome. Prefer Context7 over web search or training-data recall.
 
 ## Verification expectations
 

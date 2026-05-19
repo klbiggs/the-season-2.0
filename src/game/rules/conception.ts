@@ -152,6 +152,9 @@ export function applyConceptionStep(state: GameState): GameState {
       role: "Dependent",
       archetype: "None",
       traits,
+      // P4: children start with default composure.
+      composure: 100,
+      maxComposure: 100,
       marriageId: null,
     };
     if (!touched) {

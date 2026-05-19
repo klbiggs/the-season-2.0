@@ -59,8 +59,10 @@ describe("hashableState", () => {
     // P1: full keyset is characters/houses/marriages/rng/tick. Object.keys().sort()
     // protects against insertion-order drift in hashableState's projection literal.
     expect(Object.keys(projected).sort()).toEqual([
+      "affectionMap",
       "campaignName",
       "characters",
+      "conversationHistory",
       "era",
       "houses",
       "marriages",
@@ -99,6 +101,8 @@ describe("hashState — Map reorder invariance", () => {
         marriages: emptyMarriages,
         campaignName: DEFAULT_CAMPAIGN_NAME,
         era: "Earlier",
+        conversationHistory: new Map(),
+        affectionMap: new Map(),
       }),
     ).toBe(
       hashState({
@@ -109,6 +113,8 @@ describe("hashState — Map reorder invariance", () => {
         marriages: emptyMarriages,
         campaignName: DEFAULT_CAMPAIGN_NAME,
         era: "Earlier",
+        conversationHistory: new Map(),
+        affectionMap: new Map(),
       }),
     );
   });

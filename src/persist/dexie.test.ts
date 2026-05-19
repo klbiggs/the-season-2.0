@@ -54,12 +54,12 @@ describe("load() — InvalidSaveSchemaError", () => {
     await expect(load(SLOT)).rejects.toBeInstanceOf(InvalidSaveSchemaError);
   });
 
-  it("fires when SaveV4 (current-version) fields are malformed", async () => {
-    // Post-P3 the current-version path is SaveV4. Malformed current-version
-    // records hit SaveV4Schema.parse directly and surface as
+  it("fires when SaveV5 (current-version) fields are malformed", async () => {
+    // Post-P4 the current-version path is SaveV5. Malformed current-version
+    // records hit SaveV5Schema.parse directly and surface as
     // InvalidSaveSchemaError (NOT MigrationFailedError — no migration runs).
     await _putRawForTests(SLOT, {
-      version: 4,
+      version: 5,
       tick: "not-a-number",
       rng: [],
       houses: [],
@@ -67,6 +67,8 @@ describe("load() — InvalidSaveSchemaError", () => {
       marriages: [],
       campaignName: "x",
       era: "Earlier",
+      conversationHistory: [],
+      affectionMap: [],
     });
     try {
       await load(SLOT);

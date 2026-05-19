@@ -20,6 +20,10 @@ const elements = [
   { type: "game-rules", pattern: "src/game/rules", mode: "folder" },
   { type: "game-fixtures", pattern: "src/game/fixtures", mode: "folder" },
   { type: "game-util", pattern: "src/game/util", mode: "folder" },
+  // P4: shared conversation types (ConversationPairKey, Exchange,
+  // ConversationFailure). Lives outside game-other so game-rules can
+  // import it without crossing the game-rules → game-other ban.
+  { type: "game-conversation-types", pattern: "src/game/conversation", mode: "folder" },
   { type: "game-other", pattern: "src/game", mode: "folder" },
   { type: "runtime", pattern: "src/runtime", mode: "folder" },
   { type: "llm", pattern: "src/llm", mode: "folder" },
@@ -64,6 +68,9 @@ export default [
               // P1 extends the allow list with game-entities (in-memory entity
               // shapes used by every rule for typed lookups + state shape) and
               // game-util (assertNever + typed-lookup helpers + error classes).
+              // P4 adds game-conversation-types (shared ConversationPairKey +
+              // ExchangeSchema + ConversationFailure consumed by the orphan-
+              // prune cascade in aging.ts).
               allow: [
                 "game-rules",
                 "game-constants",
@@ -71,6 +78,7 @@ export default [
                 "game-rng",
                 "game-entities",
                 "game-util",
+                "game-conversation-types",
               ],
               disallow: [
                 "runtime",

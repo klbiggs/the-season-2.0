@@ -1,0 +1,79 @@
+// Shared conversation types — canonical home for ConversationPairKey,
+// Exchange, Speaker, and ConversationFailure. Both the rules layer (aging.ts
+// orphan-prune) and the LLM layer (client, orchestrator) import from here
+// without crossing the game-rules → llm boundary. The llm/types.ts module
+// re-exports these names so llm/** consumers have a single import surface.
+//
+// Plan: plans/phases/04-ballroom-llm.md "ConversationPairKey shape and
+// discipline" + "Canonical types table".
+
+import { z } from "zod";
+import type { CharacterId, HouseId } from "../rng";
+
+// Branded stringified composite. Template-literal type lets the TS compiler
+// narrow; the runtime form is a plain string. Lex-sort over the full
+// composite string (NOT outer-by-house-then-character) is the canonical
+// iteration order.
+export type ConversationPairKey = `${HouseId}|${CharacterId}` & {
+  readonly __brand: "ConversationPairKey";
+};
+
+export const ConversationPairKeySchema = z
+  .string()
+  .regex(/^[^|]+\|[^|]+$/, "ConversationPairKey must be 'houseId|characterId'")
+  .transform((s) => s as ConversationPairKey);
+
+export function makePairKey(houseId: HouseId, characterId: CharacterId): ConversationPairKey {
+  // Defense-in-depth: assert neither half contains the separator. HouseId
+  // and CharacterId are branded strings (`.transform`, not constrained),
+  // so a future fixture rename or migration could in principle introduce
+  // a `|`. The brand cast below would still succeed for malformed inputs;
+  // the regex check ensures the key round-trips correctly through
+  // ConversationPairKeySchema parse-then-deserialize.
+  if (houseId.includes("|") || characterId.includes("|")) {
+    throw new Error(
+      `makePairKey: id contains "|" separator (houseId=${houseId}, characterId=${characterId})`,
+    );
+  }
+  return `${houseId}|${characterId}` as ConversationPairKey;
+}
+
+export function parsePairKey(key: ConversationPairKey): {
+  houseId: HouseId;
+  characterId: CharacterId;
+} {
+  // The schema regex guarantees exactly one '|' separator with non-empty halves;
+  // the runtime split is therefore safe without further validation.
+  const [h, c] = key.split("|") as [HouseId, CharacterId];
+  return { houseId: h, characterId: c };
+}
+
+// §4 line 552 wording — "house-head" / "other" keeps the term stable
+// across heir-promotion (the actor character ID changes, but the speaker
+// label does not).
+export const ExchangeSchema = z.object({
+  speaker: z.enum(["house-head", "other"]),
+  text: z.string(),
+  classifiedTactic: z.enum(["Flattery", "WittyBanter", "SlyGossip", "DeepEmpathy"]).nullable(),
+  tick: z.number().int().nonnegative(),
+});
+export type Exchange = z.infer<typeof ExchangeSchema>;
+export type Speaker = Exchange["speaker"];
+
+// Five-reason discriminated union shared by orchestrator return type,
+// event-bus payload, store-action result, and UI banner prose mapping.
+// Lives here (NOT in runtime/events/conversation.ts) so game/store.ts can
+// import without crossing into the runtime/events layer.
+export type ConversationFailure =
+  | { reason: "timeout" }
+  | { reason: "network" }
+  | { reason: "schema"; issues: ReadonlyArray<{ path: string; message: string }> }
+  | { reason: "missing-key" }
+  | { reason: "cancelled" };
+
+// Re-export brand types so llm/** consumers reach them via this module
+// (the llm layer is forbidden from importing game/rng directly per
+// eslint rule c). CharacterId and HouseId are needed by ConversationRequest,
+// PersonaCacheRegistry's cache-key composition, and the orchestrator's
+// public types.
+export type { CharacterId, HouseId } from "../rng";

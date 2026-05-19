@@ -28,7 +28,7 @@
 **Hard frame:**
 - Browser-based; no desktop wrapper (Tauri, Electron) in scope.
 - Single-player; offline-capable except for the optional LLM-driven conversation.
-- BYOK credential model for the LLM (the player supplies their own Anthropic key).
+- BYOK credential model for the LLM (the player supplies their own Gemini API key).
 - Static SPA — no backend in v1.
 
 ---
@@ -43,7 +43,7 @@
 | State machines | **XState v5** | §3 explicitly enumerates 6+ state machines; modeling them inline prevents in-between-states bugs |
 | Determinism | **`seedrandom` wrapped in a per-house `Rng` with `{seed, callCount}`** | Round-trips through save/load; one canonical source forbidden from `Math.random` (lint-enforced) |
 | Persistence | **Dexie (IndexedDB) + Zod-validated migrations** | Saves can grow large with embeddings; IndexedDB handles it; migrations are named pure functions per §9 |
-| LLM | **`@anthropic-ai/sdk` browser-direct, BYOK, prompt-cached persona blocks, tool-use responses** | Forces structured outputs (validated by Zod), caches per-character persona between turns, no backend needed |
+| LLM | **`@google/genai` browser-direct, BYOK, context-cached persona blocks, function-calling for structured output** | Forces structured outputs via function-calling (validated by Zod), caches per-character persona via explicit `caches.create` resources between turns, no backend needed |
 | Embeddings (optional, deferred) | **Voyage AI** | Best-in-class retrieval quality; cheap; in-browser cosine similarity over a bounded array — no vector DB needed at this scale |
 | Animations | **Framer Motion** | DOM-native, perfect for portrait slides on faux-pas/sabotage/scheme completion |
 | Social web visualization | **react-force-graph-2d** (canvas-backed, D3-force under the hood, custom node sprites for portraits) | The one spatial surface in the app |
@@ -130,7 +130,7 @@ the-season-2.0/
     │   ├── successionOrchestrator.ts
     │   └── events/                    # Topically partitioned (scheme, conversation, family, scandal, ...)
     ├── llm/
-    │   ├── client.ts                  # Anthropic SDK setup, BYOK, timeout, abort
+    │   ├── client.ts                  # Gemini SDK setup, BYOK, timeout, abort
     │   ├── prompts/                   # Cacheable persona blocks per character
     │   ├── tools.ts                   # `respond` + `generateWhisper` tool schemas
     │   ├── routing.ts                 # Haiku default; Sonnet/Opus for first-meeting
@@ -193,11 +193,11 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 
 ### 5.4 LLM Integration Contract (§5)
 
-- **SDK:** `@anthropic-ai/sdk` in the browser; user supplies API key via UI (BYOK).
+- **SDK:** `@google/genai` in the browser; user supplies Gemini API key via UI (BYOK).
 - **Routing:**
-  - First-meeting (empty `(houseId, targetCharId)` history): `claude-sonnet-4-6` (or `claude-opus-4-7`).
-  - All other turns: `claude-haiku-4-5`.
-- **Structured output via tool use.** Define a single tool `respond` with schema:
+  - First-meeting (empty `(houseId, targetCharId)` history): `gemini-3.1-pro-preview`.
+  - All other turns: `gemini-3.5-flash`.
+- **Structured output via function-calling.** Define a single `FunctionDeclaration` named `respond` with `parametersJsonSchema`:
   ```ts
   {
     dialogue: string,
@@ -207,16 +207,16 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
     toolCalls?: Array<{ name: "generateWhisper", args: {...} }>
   }
   ```
-  Force the model with `tool_choice: { type: "tool", name: "respond" }`. Validate with Zod on receipt.
-- **Prompt caching:** Mark the per-character persona block (traits, mood, archetype, faction, recent biographical notes) with `cache_control: { type: "ephemeral" }`. The dynamic suffix is the recency window (last 3 exchanges per §3 "Data Lifecycle") + the player's freeform message.
+  Force the model with `config.toolConfig.functionCallingConfig: { mode: FunctionCallingConfigMode.ANY, allowedFunctionNames: ["respond"] }`. Validate the returned `response.functionCalls[0].args` with Zod on receipt.
+- **Context caching:** Cache the per-character persona block (traits, mood, archetype, faction, recent biographical notes) via `ai.caches.create({ model, config: { systemInstruction, ttl: "3600s" } })` on first conversation with a target. Subsequent `generateContent` calls reference the cache by name via `config.cachedContent`. The dynamic suffix (recency window + player's freeform message) is passed as `contents` — uncached. **NOTE:** Gemini's caching is EXPLICIT and stateful (vs Anthropic's per-message implicit `cache_control`) — the cache resource has its own lifecycle (TTL, expiration); cache misses fall back to non-cached prompts seamlessly.
 - **System instruction budget under 1500 tokens** (§5).
-- **15-second timeout** via `AbortController.signal.timeout()`.
+- **15-second timeout** via `AbortController.signal.timeout()` passed in `config.abortSignal`.
 - **Failure paths** (timeout, network, schema, missing key) all:
   - Do NOT advance the tick.
   - Do NOT call the combat resolver.
   - Do NOT append to conversation history.
   - DO re-enable UI controls + surface a user-readable banner.
-- **Pre-flight key check:** validate shape (`/^sk-ant-/`, non-empty) — no network roundtrip per §5.
+- **Pre-flight key check:** validate shape (`/^AIza/`, non-empty) — no network roundtrip per §5. Google API keys start with `AIza` followed by 35 characters.
 - **Sticky banner** when key absent — disables only the conversation send affordance.
 - **Out-of-range values clamped defensively**, not errored.
 - **Unknown classifications fall back to the pinned intent (or Flattery if none pinned).**
@@ -367,7 +367,7 @@ Carrying forward all 24 open questions with a recommended default for each. Reso
 | 2 | Rival-house registry procedurally seeded or canonical? | **Canonical** (matches prior implementation; predictability for testing) |
 | 3 | Sibling-rival mechanic active in v1? | **Yes** (specced detail level suggests intent) |
 | 4 | Archetype classification on mid-life trait acquisition? | **No** — only at succession + child maturation per §3. **Resolved at P1** ([phases/01-tick-engine.md](./phases/01-tick-engine.md)); P7 implements full rules. |
-| 5 | LLM routing for proposal/scheme/duel/audience in v1? | **No** — first-meeting only |
+| 5 | LLM routing for proposal/scheme/duel/audience in v1? | **No** — first-meeting only. **Resolved at P4** ([phases/04-ballroom-llm.md](./phases/04-ballroom-llm.md)); `routeModel(history)` is the single decision point — empty `(houseId, targetCharId)` history → Gemini Pro, otherwise Gemini Flash. Pre-wiring (proposal/scheme/duel/audience override seams) is explicitly NOT shipped at P4. |
 | 6 | Seduction discovery one-shot or multi-tick suspicion? | **One-shot** (matches §3 elopement sprint scope) |
 | 7 | Treason Framing in v1? | **Yes** — ships with P10 |
 | 8 | Faction tension graphical visualization? | **No** — numeric in rival ledger only |
@@ -375,9 +375,9 @@ Carrying forward all 24 open questions with a recommended default for each. Reso
 | 10 | Wardrobe decay global tick or per-artifact-family? | **Global tick** (simpler; per-family in v1.5) |
 | 11 | Forged artifacts detectable by Observant NPCs? | **Hidden until per-tick surfacing roll** (simpler) |
 | 12 | Semantic-memory subsystem in v1? | **Deferred to v1.5** (P17 optional) |
-| 13 | LLM tool surface beyond whisper-generation in v1? | **Whisper only** in v1 |
-| 14 | NPC-initiated conversations in v1? | **Deferred** |
-| 15 | Streaming dialogue in v1? | **No** — single-shot "thinking..." pattern |
+| 13 | LLM tool surface beyond whisper-generation in v1? | **Whisper only** in v1. **Resolved at P4** ([phases/04-ballroom-llm.md](./phases/04-ballroom-llm.md)); P4 ships only the structured `respond` function-declaration. The `generateWhisper` function-declaration is wired at P6 once whispers exist (added alongside `respond` in the `tools[].functionDeclarations` array). No grievance/secret-sharing/mood-reveal tools in v1. |
+| 14 | NPC-initiated conversations in v1? | **Deferred**. **Resolved at P4** ([phases/04-ballroom-llm.md](./phases/04-ballroom-llm.md)); the conversation round-trip is strictly player-initiated. No "NPC speaks first" prompt path, no autonomous greeting machine. |
+| 15 | Streaming dialogue in v1? | **No** — single-shot "thinking..." pattern. **Resolved at P4** ([phases/04-ballroom-llm.md](./phases/04-ballroom-llm.md)); the SDK call is `ai.models.generateContent(...)` (non-streaming; the SDK's `generateContentStream` variant is NOT used), gated by a single 15s `AbortController.signal.timeout()` passed via `config.abortSignal`. No partial-token render path, no mid-stream cancellation. |
 | 16 | Cross-house marriages with rivals? | **Deferred** |
 | 17 | Pre-adulthood betrothals? | **Deferred** |
 | 18 | Lifespan fixed or per-character rolled? | **Per-character rolled**, uniform integer `[70, 95]` (varied siblings is good gameplay). **Resolved at P1** ([phases/01-tick-engine.md](./phases/01-tick-engine.md)); trait modifiers deferred to P7. |
@@ -391,4 +391,4 @@ Carrying forward all 24 open questions with a recommended default for each. Reso
 
 ## TL;DR
 
-> **React 19 + Vite + TS + Tailwind/shadcn + Zustand/Immer + XState v5 + Dexie + Zod + Anthropic SDK (BYOK, prompt-cached personas, tool-use responses) + react-force-graph for the social web.** Static SPA, no backend. Pure-logic rules layer with seeded RNG round-tripping through versioned save migrations. Build in 19 phases (17 required + 2 optional), each independently shippable. P0 → P4 form the spine that proves determinism, separation, state machines, migrations, and the LLM round-trip. After that, every phase fills in rules and views over a sound foundation.
+> **React 19 + Vite + TS + Tailwind/shadcn + Zustand/Immer + XState v5 + Dexie + Zod + Google Gen AI SDK (BYOK, context-cached personas, function-calling for structured output) + react-force-graph for the social web.** Static SPA, no backend. Pure-logic rules layer with seeded RNG round-tripping through versioned save migrations. Build in 19 phases (17 required + 2 optional), each independently shippable. P0 → P4 form the spine that proves determinism, separation, state machines, migrations, and the LLM round-trip. After that, every phase fills in rules and views over a sound foundation.

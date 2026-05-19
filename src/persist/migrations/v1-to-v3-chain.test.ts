@@ -12,9 +12,8 @@
 // Seed list mirrors v1-to-v2.parity.test.ts: PARITY_SEEDS with 6 entries.
 
 import { describe, expect, it } from "vitest";
-import { hashState } from "../../game/hash";
 import { NEGATIVE_CONTROL_SEED, REPLAY_SEEDS } from "../../game/rng.seeds";
-import { DEFAULT_CAMPAIGN_NAME, createInitialState } from "../../game/store";
+import { DEFAULT_CAMPAIGN_NAME } from "../../game/store";
 import { SaveV1Schema, type SaveV3, SaveV3Schema, fromSaveV3 } from "../schema";
 import { MIGRATIONS } from "./index";
 import { runMigrations } from "./runner";
@@ -35,12 +34,14 @@ describe("v1 → v3 chain via runMigrations(MIGRATIONS)", () => {
       const v3 = SaveV3Schema.parse(migrated);
       // (c) final state has DEFAULT_CAMPAIGN_NAME
       expect(v3.campaignName).toBe(DEFAULT_CAMPAIGN_NAME);
-      // (d) final hash matches fresh state with the same seed + default
-      // campaign name (the runner walked the chain, the per-step Zod
-      // validation passed, and the lifted GameState equals fresh GameState
-      // for callCount: 0)
+      // (d) final shape lifts to a valid GameState (no throw, schema-clean).
+      // P4 NOTE: the v1→v3 chain output STOPS BEFORE the Independent house
+      // is introduced (that's a v4→v5 migration). Fresh createInitialState
+      // has 2 houses (player + Independent); the lifted v3 chain output has
+      // 1 house (player only). So `hashState(lifted) === hashState(fresh)`
+      // no longer holds. Full v1↔fresh parity moves to v1-to-v5-chain.test.ts.
       const lifted = fromSaveV3(v3 as SaveV3);
-      expect(hashState(lifted)).toBe(hashState(createInitialState(seed, DEFAULT_CAMPAIGN_NAME)));
+      expect(lifted.tick).toBe(0);
     },
   );
 });

@@ -1,6 +1,7 @@
 import { enableMapSet } from "immer";
 import { type StoreApi, type UseBoundStore, create } from "zustand";
 import { immer } from "zustand/middleware/immer";
+import type { ConversationPairKey, Exchange } from "./conversation/types";
 import {
   type Character,
   CharacterSchema,
@@ -15,6 +16,7 @@ import type { LocationId } from "./fixtures/locations";
 import {
   type CharacterId,
   type HouseId,
+  INDEPENDENT_HOUSE_ID,
   type MarriageId,
   PLAYER_HOUSE_ID,
   type RngState,
@@ -59,10 +61,16 @@ export function createInitialState(
   const seeded = seedStartingFamily(playerRng);
   const rng = new Map<HouseId, RngState>();
   rng.set(PLAYER_HOUSE_ID, seeded.rngState);
+  // P4: Independent's RNG state is deterministically derived from the
+  // player seed. Required because applyMoodDriftPhase iterates every house
+  // and calls getOrThrow(state.rng, houseId). Same derivation in
+  // seedIndependentIntoLegacyState so fresh-state and migration paths
+  // produce byte-identical Independent RNG.
+  rng.set(INDEPENDENT_HOUSE_ID, createRngState(`${seed}|independent`));
   const houses = new Map<HouseId, House>();
-  houses.set(seeded.house.id, seeded.house);
+  for (const h of seeded.houses) houses.set(h.id, h);
   const characters = new Map<CharacterId, Character>();
-  characters.set(seeded.character.id, seeded.character);
+  for (const c of seeded.characters) characters.set(c.id, c);
   return {
     tick: 0,
     rng,
@@ -71,6 +79,9 @@ export function createInitialState(
     marriages: new Map<MarriageId, MarriageRecord>(),
     campaignName,
     era: "Earlier",
+    // P4: empty per-pair-key collections on fresh state.
+    conversationHistory: new Map<ConversationPairKey, Exchange[]>(),
+    affectionMap: new Map<ConversationPairKey, number>(),
   };
 }
 
@@ -109,6 +120,11 @@ function overwriteFromGameState(draft: GameState, next: GameState): void {
   draft.marriages = next.marriages;
   draft.campaignName = next.campaignName;
   draft.era = next.era;
+  // P4 additions — pair-keyed collections shared by the orphan-prune
+  // cascade in aging.ts. Schema↔projection↔selector triple-sync gate
+  // (schema-projection-selector-extension.test.ts) enforces this.
+  draft.conversationHistory = next.conversationHistory;
+  draft.affectionMap = next.affectionMap;
 }
 
 export function createStore({ seed }: { seed: string }): SeasonStore {
@@ -246,5 +262,8 @@ export function selectGameState(state: StoreState): GameState {
     marriages: state.marriages,
     campaignName: state.campaignName,
     era: state.era,
+    // P4 additions — schema↔projection↔selector triple-sync.
+    conversationHistory: state.conversationHistory,
+    affectionMap: state.affectionMap,
   };
 }

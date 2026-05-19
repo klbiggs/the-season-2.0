@@ -5,28 +5,38 @@
 // SaveV1.callCount = 0 — depends on this helper being the byte-identical
 // shared bootstrap math.
 //
-// Both call sites invoke seedStartingFamily as a bare call with NO surrounding
-// setup — no pre-call rngState modifications, no post-call adjustments to the
-// returned house/character.
+// P4: returns PLURAL arrays { rngState, houses, characters } so both the
+// player house AND the Independent house's 5 baseline NPCs can be seeded
+// in one call. Both arrays are in deterministic order: houses[0] is the
+// player house, houses[1] is Independent. characters[0] is the player
+// head, characters[1..5] are the 5 NPCs in BASELINE_NPCS order.
+// migrate_v1_to_v2 filters to player-only (V2 saves predate Independent);
+// createInitialState includes both.
+//
+// NPC deathAges are CONSTANTS from the BASELINE_NPCS fixture — ZERO RNG
+// draws for NPC construction. The bootstrap draw budget stays at 1
+// (player head's deathAge only), unchanged from P3.
 
 import { LIFESPAN_RANGE } from "./constants";
 import type { Character, House } from "./entities";
 import { STARTING_HEAD_CHARACTER_ID, STARTING_HEAD_NAME } from "./fixtures/names";
+import { BASELINE_NPCS, buildBaselineNpcCharacter, buildIndependentHouse } from "./fixtures/npcs";
 import { type RngState, drawInt } from "./rng";
 import { PLAYER_HOUSE_ID } from "./rng";
 
 export function seedStartingFamily(rngState: RngState): {
   rngState: RngState;
-  house: House;
-  character: Character;
+  houses: ReadonlyArray<House>;
+  characters: ReadonlyArray<Character>;
 } {
   // Roll deathAge ∈ [70, 95] inclusive via drawInt(_, 26) + 70.
-  // This is the ONLY draw consumed by this helper. callCount advances by 1.
+  // This is the ONLY draw consumed by this helper (NPC deathAges are
+  // constants from the fixture). callCount advances by 1.
   const range = LIFESPAN_RANGE[1] - LIFESPAN_RANGE[0] + 1; // = 26
   const { next: deathOffset, rngState: postDeathRoll } = drawInt(rngState, range);
   const deathAge = deathOffset + LIFESPAN_RANGE[0];
 
-  const character: Character = {
+  const playerCharacter: Character = {
     id: STARTING_HEAD_CHARACTER_ID,
     houseId: PLAYER_HOUSE_ID,
     name: STARTING_HEAD_NAME,
@@ -41,9 +51,11 @@ export function seedStartingFamily(rngState: RngState): {
     archetype: "None",
     traits: [],
     marriageId: null,
+    composure: 100,
+    maxComposure: 100,
   };
 
-  const house: House = {
+  const playerHouse: House = {
     id: PLAYER_HOUSE_ID,
     wealth: 100,
     reputation: 50,
@@ -61,5 +73,13 @@ export function seedStartingFamily(rngState: RngState): {
     blockadeBypassEarned: false,
   };
 
-  return { rngState: postDeathRoll, house, character };
+  // P4: Independent house + 5 NPCs. Built from constants — no RNG draws.
+  const independentHouse = buildIndependentHouse();
+  const npcs = BASELINE_NPCS.map(buildBaselineNpcCharacter);
+
+  return {
+    rngState: postDeathRoll,
+    houses: [playerHouse, independentHouse],
+    characters: [playerCharacter, ...npcs],
+  };
 }

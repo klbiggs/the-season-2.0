@@ -9,12 +9,25 @@ export type HouseId = string & { readonly __brand: "HouseId" };
 export type CharacterId = string & { readonly __brand: "CharacterId" };
 export type MarriageId = string & { readonly __brand: "MarriageId" };
 export type TraitId = string & { readonly __brand: "TraitId" };
+// P4: branded session ID for ballroom sessions. Tick-derived (zero RNG
+// consumption); see plans/phases/04-ballroom-llm.md "BallSessionId".
+export type BallSessionId = string & { readonly __brand: "BallSessionId" };
 
 // P3 (B1 fix): PLAYER_HOUSE_ID lives here, not in rng.seeds.ts, so that
 // src/game/rules/** can import it. rules → game-other is disallowed per
 // eslint.config.js rule (a); rules → game-rng is allowed. rng.seeds.ts
 // re-exports PLAYER_HOUSE_ID for test-side imports (boundary-exempt).
 export const PLAYER_HOUSE_ID = "player" as HouseId;
+// P4: society NPCs (5 baseline + Lord Blackwood as head) live under this
+// placeholder house until P8 introduces rival-house affiliations.
+export const INDEPENDENT_HOUSE_ID = "independent" as HouseId;
+
+// Tick-derived deterministic session ID. Within-tick ball sessions can only
+// be open at one tick, so `ball-${tick}` is unique across a save's lifetime.
+// Zero RNG consumption keeps the bootstrap budget at 1 (player head only).
+export function makeBallSessionId(tick: number): BallSessionId {
+  return `ball-${tick}` as BallSessionId;
+}
 
 // Branded-string Zod schemas use `.transform` (not `.brand`) to match the
 // existing GameStateSchema `rng` map-key form at store.ts.
