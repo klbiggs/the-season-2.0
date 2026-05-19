@@ -1,7 +1,18 @@
 import { enableMapSet } from "immer";
 import { type StoreApi, type UseBoundStore, create } from "zustand";
 import { immer } from "zustand/middleware/immer";
-import type { ConversationPairKey, Exchange } from "./conversation/types";
+import {
+  CONVERSATION_HISTORY_LIMIT_PER_PAIR,
+  FAUX_PAS_LOCK_DURATION_IN_TICKS,
+  type Stance,
+  type Tactic,
+} from "./constants";
+import {
+  type ConversationFailure,
+  type ConversationPairKey,
+  type Exchange,
+  makePairKey,
+} from "./conversation/types";
 import {
   type Character,
   CharacterSchema,
@@ -14,6 +25,7 @@ import {
 } from "./entities";
 import type { LocationId } from "./fixtures/locations";
 import {
+  type BallSessionId,
   type CharacterId,
   type HouseId,
   INDEPENDENT_HOUSE_ID,
@@ -24,11 +36,13 @@ import {
 } from "./rng";
 import { applyBankruptcyEscape, canEscapeBankruptcy } from "./rules/bankruptcyEscape";
 import type { EscapeRejection } from "./rules/bankruptcyEscape";
+import { resolveCombat } from "./rules/combat";
 import { type AudienceOutcome, applyAudience } from "./rules/monarchsAudience";
 import { applyTravel, canTravel } from "./rules/travel";
 import type { TravelRejection } from "./rules/travel";
 import { applyWardrobeRefresh, canRefreshWardrobe } from "./rules/wardrobeRefresh";
 import type { WardrobeRejection } from "./rules/wardrobeRefresh";
+import { clamp } from "./util/clamp";
 import { getHouseOrThrow } from "./util/lookups";
 
 // Re-exports for convenience: existing call sites import entity types and
@@ -85,6 +99,14 @@ export function createInitialState(
   };
 }
 
+// P4: input for sendBallroomMessage. UI builds this from form state.
+export type BallroomMessageInput = {
+  targetCharacterId: CharacterId;
+  pinnedTactic: Tactic | null;
+  stance: Stance;
+  freeformMessage: string;
+};
+
 export type StoreActions = {
   advanceTick: () => void;
   runYearPass: () => void;
@@ -97,12 +119,33 @@ export type StoreActions = {
   requestAudience: () => { outcome: AudienceOutcome };
   escapeBankruptcy: () => { ok: true } | { ok: false; reason: EscapeRejection };
   refreshWardrobe: () => { ok: true } | { ok: false; reason: WardrobeRejection };
+  // P4 ballroom actions. enterBallroom/exitBallroom manage session state on
+  // the orchestrator. sendBallroomMessage threads the BYOK API key in from
+  // the React caller (read via useContext(KeyContext)). All four return
+  // typed discriminated unions for UI prose rendering.
+  enterBallroom: () =>
+    | { ok: true; sessionId: BallSessionId }
+    | { ok: false; reason: BallEntryRejection };
+  exitBallroom: (playerComposureAtExit: number) => void;
+  sendBallroomMessage: (
+    input: BallroomMessageInput,
+    apiKey: string,
+  ) => Promise<
+    { ok: true; outcome: ConversationResponse } | { ok: false; reason: ConversationFailure }
+  >;
+  abortBallroomRequest: () => void;
 };
 
 export type StoreState = GameState & StoreActions;
 
 export type SeasonStore = UseBoundStore<StoreApi<StoreState>>;
 
+import { buildPersonaPrompt } from "../llm/prompts/persona";
+import { routeModel } from "../llm/routing";
+import type { ConversationResponse } from "../llm/types";
+import { conversationOrchestrator } from "../runtime/conversationOrchestrator";
+import { conversationBus } from "../runtime/events/conversation";
+import type { BallEntryRejection } from "../runtime/events/conversation";
 import { locationBus } from "../runtime/events/location";
 // Re-import here at the bottom of the file (cycle-avoidance pattern) — the
 // runtime layer imports rules layer, which is OK after store.ts symbols
@@ -135,10 +178,31 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         set((state) => {
           overwriteFromGameState(state, advanceTickPure(get()));
         }),
-      runYearPass: () =>
+      runYearPass: () => {
+        const before = get();
+        const after = runYearPassPure(before);
         set((state) => {
-          overwriteFromGameState(state, runYearPassPure(get()));
-        }),
+          overwriteFromGameState(state, after);
+        });
+        // P4: detect newly-dead NPCs and publish TargetCharacterDied so
+        // PersonaCacheRegistry can invalidate stale entries. Use
+        // BEFORE.houses to capture the dying player head's ID (after
+        // succession ran inside runYearPassPure, AFTER's player head is
+        // already the heir). Excluding the player head ensures heir
+        // promotion doesn't fire the event (heir inherits via stable
+        // playerHouseId half of the pair key).
+        const playerHeadIdBefore = before.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId;
+        for (const [id, c] of after.characters) {
+          const wasAlive = before.characters.get(id)?.alive ?? false;
+          if (wasAlive && !c.alive && id !== playerHeadIdBefore) {
+            conversationBus.publish({
+              kind: "TargetCharacterDied",
+              tick: after.tick,
+              targetCharacterId: id,
+            });
+          }
+        }
+      },
       replaceState: (next: GameState) =>
         set((state) => {
           overwriteFromGameState(state, next);
@@ -244,6 +308,181 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           houseId: PLAYER_HOUSE_ID,
         });
         return { ok: true };
+      },
+      // ── P4 ballroom actions ───────────────────────────────────────────
+      enterBallroom: () => {
+        const stateBefore = get();
+        const player = stateBefore.houses.get(PLAYER_HOUSE_ID);
+        if (player === undefined || player.currentLocation !== "Capital") {
+          return {
+            ok: false,
+            reason: {
+              kind: "WrongLocation",
+              current: player?.currentLocation ?? "Capital",
+            } as const,
+          };
+        }
+        const sessionId = conversationOrchestrator.beginSession(stateBefore.tick);
+        conversationBus.publish({
+          kind: "BallroomEntered",
+          tick: stateBefore.tick,
+          houseId: PLAYER_HOUSE_ID,
+          sessionId,
+        });
+        return { ok: true, sessionId };
+      },
+      exitBallroom: (playerComposureAtExit: number) => {
+        const sessionId = conversationOrchestrator.currentSessionId();
+        if (sessionId === null) return; // no-op if not in a session
+        // Abort any in-flight conversation BEFORE committing composure.
+        conversationOrchestrator.abortCurrent();
+        const stateBefore = get();
+        // Re-fetch playerHeadId at commit time (defense-in-depth against
+        // future async-tick triggers).
+        const playerHeadId = stateBefore.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId;
+        set((state) => {
+          if (playerHeadId === undefined) return;
+          const head = state.characters.get(playerHeadId);
+          if (head === undefined) return;
+          head.composure = clamp(playerComposureAtExit, 0, head.maxComposure);
+        });
+        conversationOrchestrator.endSession();
+        conversationBus.publish({
+          kind: "BallroomExited",
+          tick: stateBefore.tick,
+          houseId: PLAYER_HOUSE_ID,
+          sessionId,
+          finalPlayerComposure: playerComposureAtExit,
+        });
+      },
+      sendBallroomMessage: async (input, apiKey) => {
+        const stateBefore = get();
+        // Defensive — UI should never reach this without an open session.
+        if (conversationOrchestrator.currentSessionId() === null) {
+          return { ok: false, reason: { reason: "cancelled" } };
+        }
+        if (!apiKey) {
+          return { ok: false, reason: { reason: "missing-key" } };
+        }
+        const target = stateBefore.characters.get(input.targetCharacterId);
+        const playerHead = stateBefore.houses.get(PLAYER_HOUSE_ID);
+        if (target === undefined || !target.alive || playerHead === undefined) {
+          return { ok: false, reason: { reason: "cancelled" } };
+        }
+        const pairKey = makePairKey(PLAYER_HOUSE_ID, target.id);
+        const history = stateBefore.conversationHistory.get(pairKey) ?? [];
+        const request = {
+          targetCharacterId: target.id,
+          playerHouseId: PLAYER_HOUSE_ID,
+          pinnedIntent: input.pinnedTactic,
+          freeformMessage: input.freeformMessage,
+          history,
+          persona: buildPersonaPrompt(target),
+          cacheName: null,
+          model: routeModel(history),
+        };
+
+        // Publish ConversationSent BEFORE awaiting the LLM (per
+        // bus-publishing discipline — fires from store-action wrappers).
+        conversationBus.publish({
+          kind: "ConversationSent",
+          tick: stateBefore.tick,
+          pairKey,
+          tactic: input.pinnedTactic,
+          stance: input.stance,
+        });
+
+        const result = await conversationOrchestrator.send(request, apiKey, target);
+        if (result.kind === "Failed") {
+          conversationBus.publish({
+            kind: "ConversationFailed",
+            tick: stateBefore.tick,
+            pairKey,
+            failure: result.failure,
+          });
+          return { ok: false, reason: result.failure };
+        }
+        const response = result.response;
+
+        // Resolve combat synchronously via the pure rule.
+        const outcome = resolveCombat({
+          tactic: response.classifiedTactic,
+          stance: input.stance,
+          qualityMultiplier: response.qualityMultiplier,
+          targetMood: target.mood,
+          targetTraits: target.traits,
+          isAgainstPinnedTarget: input.pinnedTactic !== null,
+        });
+
+        // Build the two Exchange records.
+        const playerExchange: Exchange = {
+          speaker: "house-head",
+          text: input.freeformMessage,
+          classifiedTactic: response.classifiedTactic,
+          tick: stateBefore.tick,
+        };
+        const npcExchange: Exchange = {
+          speaker: "other",
+          text: response.dialogue,
+          classifiedTactic: null,
+          tick: stateBefore.tick,
+        };
+
+        // Capture wasAlreadyLocked BEFORE the set body so the post-set
+        // publish sees the pre-extension lock state.
+        const wasAlreadyLocked = target.moodLockUntilTick > stateBefore.tick;
+        const fauxPasFired = outcome.kind === "InstantFail";
+
+        // Apply combat delta atomically in one set body. enableMapSet()
+        // precondition already satisfied at this module's top.
+        set((state) => {
+          const t = state.characters.get(target.id);
+          if (t !== undefined) {
+            t.composure = clamp(t.composure + outcome.composureDelta, 0, t.maxComposure);
+            if (fauxPasFired) {
+              t.moodLockUntilTick = state.tick + FAUX_PAS_LOCK_DURATION_IN_TICKS;
+              if (!wasAlreadyLocked) t.mood = "Defensive";
+            } else if (response.moodHint !== null && t.moodLockUntilTick <= state.tick) {
+              // Pure assignment, no PRNG draws. Within-tick conversation
+              // overrides the prior year-pass mood-drift roll.
+              t.mood = response.moodHint;
+            }
+          }
+          // Affection — Map.set (NOT Map.get-as-lvalue).
+          const affPrev = state.affectionMap.get(pairKey) ?? 0;
+          state.affectionMap.set(pairKey, clamp(affPrev + outcome.affectionDelta, 0, 100));
+          // Conversation history append + truncate.
+          const hist = state.conversationHistory.get(pairKey) ?? [];
+          const nextHist = [...hist, playerExchange, npcExchange].slice(
+            -CONVERSATION_HISTORY_LIMIT_PER_PAIR,
+          );
+          state.conversationHistory.set(pairKey, nextHist);
+        });
+
+        // Publish AFTER set returns (per bus-publishing discipline).
+        conversationBus.publish({
+          kind: "ConversationResolved",
+          tick: stateBefore.tick,
+          pairKey,
+          classifiedTactic: response.classifiedTactic,
+          affectionDelta: outcome.affectionDelta,
+          composureDelta: outcome.composureDelta,
+          synergy: outcome.kind === "Normal" ? outcome.synergy : false,
+          moodHint: response.moodHint,
+        });
+        if (fauxPasFired) {
+          conversationBus.publish({
+            kind: "FauxPasFired",
+            tick: stateBefore.tick,
+            targetCharacterId: target.id,
+            lockUntilTick: stateBefore.tick + FAUX_PAS_LOCK_DURATION_IN_TICKS,
+            wasAlreadyLocked,
+          });
+        }
+        return { ok: true, outcome: response };
+      },
+      abortBallroomRequest: () => {
+        conversationOrchestrator.abortCurrent();
       },
     })),
   );
