@@ -14,7 +14,8 @@ import {
   createRngState,
 } from "../game/rng";
 import { PLAYER_HOUSE_ID } from "../game/rng.seeds";
-import { advanceTickPure } from "./tickOrchestrator";
+import { createPhaseOrderTracker } from "./__test-utils__/phaseOrderTracker";
+import { advanceTickPure, runOrchestratorWithPhases } from "./tickOrchestrator";
 
 function makeState(overrides: Partial<GameState>): GameState {
   return {
@@ -24,6 +25,7 @@ function makeState(overrides: Partial<GameState>): GameState {
     characters: new Map<CharacterId, Character>(),
     marriages: new Map<MarriageId, MarriageRecord>(),
     campaignName: "test-campaign",
+    era: "Earlier",
     ...overrides,
   };
 }
@@ -54,5 +56,43 @@ describe("advanceTickPure — phase-array ordering", () => {
     const next = advanceTickPure(state);
     const after = next.rng.get(PLAYER_HOUSE_ID)?.callCount ?? 0;
     expect(after).toBeGreaterThan(before);
+  });
+
+  // P3: location-effects phase must fire AFTER economy and BEFORE
+  // courier-draining (which is still a stub). Use runOrchestratorWithPhases
+  // + phaseOrderTracker to assert the call order directly — the same
+  // pattern P8 will inherit for the §7 audience-before-rival test when
+  // real rival-action effects ship.
+  it("location-effects phase fires after economy and before courier-draining", () => {
+    const tracker = createPhaseOrderTracker();
+    const phases = [
+      tracker.trackedPhase("advance-tick"),
+      tracker.trackedPhase("economy"),
+      tracker.trackedPhase("location-effects"),
+      tracker.trackedPhase("courier-draining"),
+      tracker.trackedPhase("scheme-resolution"),
+      tracker.trackedPhase("global-event-roll"),
+      tracker.trackedPhase("mood-drift"),
+      tracker.trackedPhase("rival-action"),
+    ];
+    runOrchestratorWithPhases(makeState({}), phases);
+    expect(tracker.trace).toEqual([
+      "advance-tick",
+      "economy",
+      "location-effects",
+      "courier-draining",
+      "scheme-resolution",
+      "global-event-roll",
+      "mood-drift",
+      "rival-action",
+    ]);
+    // Specifically pin the two adjacencies that the plan calls out: economy
+    // → location-effects (so bankruptcy-tier classification uses pre-effects
+    // wealth) and location-effects → courier-draining (P6 will lean on this).
+    const economyIdx = tracker.trace.indexOf("economy");
+    const locIdx = tracker.trace.indexOf("location-effects");
+    const courierIdx = tracker.trace.indexOf("courier-draining");
+    expect(locIdx).toBe(economyIdx + 1);
+    expect(courierIdx).toBe(locIdx + 1);
   });
 });

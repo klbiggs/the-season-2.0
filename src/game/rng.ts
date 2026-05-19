@@ -10,6 +10,12 @@ export type CharacterId = string & { readonly __brand: "CharacterId" };
 export type MarriageId = string & { readonly __brand: "MarriageId" };
 export type TraitId = string & { readonly __brand: "TraitId" };
 
+// P3 (B1 fix): PLAYER_HOUSE_ID lives here, not in rng.seeds.ts, so that
+// src/game/rules/** can import it. rules → game-other is disallowed per
+// eslint.config.js rule (a); rules → game-rng is allowed. rng.seeds.ts
+// re-exports PLAYER_HOUSE_ID for test-side imports (boundary-exempt).
+export const PLAYER_HOUSE_ID = "player" as HouseId;
+
 // Branded-string Zod schemas use `.transform` (not `.brand`) to match the
 // existing GameStateSchema `rng` map-key form at store.ts.
 export const HouseIdSchema = z.string().transform((s) => s as HouseId);

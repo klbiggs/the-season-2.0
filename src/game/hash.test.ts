@@ -61,6 +61,7 @@ describe("hashableState", () => {
     expect(Object.keys(projected).sort()).toEqual([
       "campaignName",
       "characters",
+      "era",
       "houses",
       "marriages",
       "rng",
@@ -97,6 +98,7 @@ describe("hashState — Map reorder invariance", () => {
         characters: emptyCharacters,
         marriages: emptyMarriages,
         campaignName: DEFAULT_CAMPAIGN_NAME,
+        era: "Earlier",
       }),
     ).toBe(
       hashState({
@@ -106,6 +108,7 @@ describe("hashState — Map reorder invariance", () => {
         characters: emptyCharacters,
         marriages: emptyMarriages,
         campaignName: DEFAULT_CAMPAIGN_NAME,
+        era: "Earlier",
       }),
     );
   });

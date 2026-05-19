@@ -115,3 +115,48 @@ describe("P1 positive controls — cross-element permission pins", () => {
     expect(fired).toBe(false);
   });
 });
+
+// P3 positive controls — new cross-element edges introduced at P3.
+describe("P3 positive controls — cross-element permission pins", () => {
+  it("ui → game-store is permitted", async () => {
+    const source = `import type { SeasonStore } from "../../game/store";\nexport function x(_s: SeasonStore): number { return 1; }\n`;
+    const result = await lint(source, "src/ui/map/MapView.tsx");
+    const fired = result.messages.some((m) => m.ruleId === "boundaries/element-types");
+    expect(fired).toBe(false);
+  });
+
+  it("ui → game-fixtures is permitted", async () => {
+    const source = `import { LOCATION_LABELS } from "../../game/fixtures/locations";\nexport function x() { return LOCATION_LABELS; }\n`;
+    const result = await lint(source, "src/ui/map/LocationPin.tsx");
+    const fired = result.messages.some((m) => m.ruleId === "boundaries/element-types");
+    expect(fired).toBe(false);
+  });
+
+  it("ui → runtime (events) is permitted", async () => {
+    const source = `import { locationBus } from "../../runtime/events/location";\nexport function x() { return locationBus; }\n`;
+    const result = await lint(source, "src/ui/map/MapView.tsx");
+    const fired = result.messages.some((m) => m.ruleId === "boundaries/element-types");
+    expect(fired).toBe(false);
+  });
+
+  it("runtime (events) → game-entities is permitted", async () => {
+    const source = `import type { GameState } from "../../game/entities";\nexport function x(_s: GameState): number { return 1; }\n`;
+    const result = await lint(source, "src/runtime/events/location.ts");
+    const fired = result.messages.some((m) => m.ruleId === "boundaries/element-types");
+    expect(fired).toBe(false);
+  });
+});
+
+// P3 negative control — guards against a future refactor relocating
+// PLAYER_HOUSE_ID back to rng.seeds.ts (which is the game-other element).
+// The game-rules → game-other edge is explicitly disallowed at
+// eslint.config.js's rule (a). If this test ever passes (i.e., the import
+// is accepted), the boundary discipline has broken.
+describe("P3 negative control — game-rules → game-other is rejected", () => {
+  it("errors when game-rules imports from rng.seeds.ts (a game-other file)", async () => {
+    const source = `import { PLAYER_HOUSE_ID } from "../rng.seeds";\nexport function x() { return PLAYER_HOUSE_ID; }\n`;
+    const result = await lint(source, "src/game/rules/locationEffects.ts");
+    const fired = result.messages.some((m) => m.ruleId === "boundaries/element-types");
+    expect(fired).toBe(true);
+  });
+});

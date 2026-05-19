@@ -29,6 +29,7 @@ function makeState(overrides: Partial<GameState>): GameState {
     characters: new Map<CharacterId, Character>(),
     marriages: new Map<MarriageId, MarriageRecord>(),
     campaignName: "test-campaign",
+    era: "Earlier",
     ...overrides,
   };
 }
@@ -174,6 +175,7 @@ describe("applyConceptionStep — multi-marriage RNG isolation (synthetic fixtur
         characters: makeCharactersMap([spouseA1, spouseB1, spouseA2, spouseB2]),
         marriages: makeMarriagesMap([m1, m2]),
         campaignName: "test-campaign",
+        era: "Earlier",
       };
       const next1 = applyConceptionStep(state);
       const next2 = applyConceptionStep(state);

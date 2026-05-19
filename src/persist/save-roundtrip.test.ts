@@ -7,10 +7,9 @@ import { hashState } from "../game/hash";
 import { REPLAY_SEEDS } from "../game/rng.seeds";
 import { createStore, selectGameState } from "../game/store";
 import { DEV_SLOT, _resetForTests, load, save } from "./dexie";
-// P2: legacy SaveV1/V2 migration is covered by dedicated v1-to-v2.*.test.ts
-// and v2-to-v3.*.test.ts suites; this round-trip test exercises the SaveV3
-// on-disk path (live save format).
-import { fromSaveV3 } from "./schema";
+// P3: legacy SaveV1/V2/V3 migration is covered by dedicated suites; this
+// round-trip test exercises the SaveV4 on-disk path (live save format).
+import { fromSaveV4 } from "./schema";
 
 const N_BEFORE_SAVE = 500;
 const N_AFTER_LOAD = 500;
@@ -35,7 +34,7 @@ describe("save → load → advance matches no-detour control", () => {
     if (loaded === undefined) throw new Error("load returned undefined");
 
     const restored = createStore({ seed: SEED });
-    restored.getState().replaceState(fromSaveV3(loaded));
+    restored.getState().replaceState(fromSaveV4(loaded));
     for (let i = 0; i < N_AFTER_LOAD; i += 1) restored.getState().advanceTick();
 
     const control = createStore({ seed: SEED });

@@ -8,6 +8,11 @@ import { serializeRegistry } from "./rng";
 // selection, derived caches) is excluded. The hashable-state-extension test
 // (see GameStateSchema) enforces that this keyset stays in sync with the
 // schema's keys.
+// House-field additions (e.g., P3's currentLocation/lastAudienceTick/etc.)
+// project automatically via serializeRegistry — no per-House-field edits
+// needed here. Only top-level GameState additions (e.g., P3's `era`) need
+// extending this projection. The hashable-state-extension.test.ts trip-wire
+// catches forgetting to add new GameState keys here.
 export function hashableState(state: GameState): {
   tick: number;
   rng: Array<[HouseId, RngState]>;
@@ -15,6 +20,7 @@ export function hashableState(state: GameState): {
   characters: Array<[CharacterId, Character]>;
   marriages: Array<[MarriageId, MarriageRecord]>;
   campaignName: string;
+  era: "Earlier" | "Later";
 } {
   return {
     tick: state.tick,
@@ -23,6 +29,7 @@ export function hashableState(state: GameState): {
     characters: serializeRegistry(state.characters),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
+    era: state.era,
   };
 }
 

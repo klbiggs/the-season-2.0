@@ -1,19 +1,14 @@
-import type { SeasonStore } from "../../game/store";
-import { createInitialState } from "../../game/store";
+import { type SeasonStore, createInitialState } from "../../game/store";
 import type { SaveLoadError } from "../../persist/errors";
 
-// Renders a sticky alert banner when a load attempt produces a typed
-// SaveLoadError. "Start New Game" calls replaceState with a fresh
-// createInitialState, using the seed threaded down from main.tsx → DevApp
-// → here (the store doesn't track a top-level campaign seed; the original
-// launch-time seed is the source of truth).
+// Player-shell corrupt-save banner. Identical aria/data-testid contract to
+// the deleted dev-shell banner (testIds carry forward verbatim so the
+// Playwright corrupt-save block keeps working).
 //
-// Note: "Start New Game" does NOT delete the corrupt IndexedDB record.
-// A re-Load will re-surface the banner. Auto-delete needs explicit consent
-// UI; P3+ may add that affordance. For P2 (dev-only), this is acceptable.
-//
-// Styling is plain Tailwind, matching the rest of src/ui/dev/. Real-shell
-// banner successor (P3+) may use shadcn's <Alert>.
+// "Start New Game" calls replaceState with a fresh createInitialState using
+// the launch-time seed threaded from main.tsx. Does NOT delete the corrupt
+// IndexedDB record — a re-Load can re-surface the banner.
+
 type Props = {
   error: SaveLoadError | null;
   store: SeasonStore;

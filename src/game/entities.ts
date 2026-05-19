@@ -10,6 +10,7 @@
 
 import { z } from "zod";
 import { ArchetypeSchema } from "./fixtures/archetypes";
+import { LocationIdSchema } from "./fixtures/locations";
 import { MoodSchema } from "./fixtures/moods";
 import { RoleSchema } from "./fixtures/roles";
 import {
@@ -29,6 +30,12 @@ export const HouseSchema = z.object({
   generation: z.number().int().nonnegative(),
   ancestorSummary: z.array(z.string()),
   heirless: z.boolean(),
+  // P3 additions:
+  currentLocation: LocationIdSchema,
+  consecutiveTicksAtCurrentLocation: z.number().int().nonnegative(),
+  lastAudienceTick: z.number().int().nullable(),
+  wardrobeLastRefreshTick: z.number().int().nullable(),
+  blockadeBypassEarned: z.boolean(),
 });
 export type House = z.infer<typeof HouseSchema>;
 
@@ -75,5 +82,8 @@ export const GameStateSchema = z.object({
   characters: z.map(CharacterIdSchema, CharacterSchema),
   marriages: z.map(MarriageIdSchema, MarriageRecordSchema),
   campaignName: z.string(),
+  // P3: read-only at this phase, hard-locked to "Earlier". P13 ships the
+  // transition mechanism.
+  era: z.enum(["Earlier", "Later"]),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

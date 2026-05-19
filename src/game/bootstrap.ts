@@ -13,7 +13,7 @@ import { LIFESPAN_RANGE } from "./constants";
 import type { Character, House } from "./entities";
 import { STARTING_HEAD_CHARACTER_ID, STARTING_HEAD_NAME } from "./fixtures/names";
 import { type RngState, drawInt } from "./rng";
-import { PLAYER_HOUSE_ID } from "./rng.seeds";
+import { PLAYER_HOUSE_ID } from "./rng";
 
 export function seedStartingFamily(rngState: RngState): {
   rngState: RngState;
@@ -52,6 +52,13 @@ export function seedStartingFamily(rngState: RngState): {
     generation: 0,
     ancestorSummary: [],
     heirless: false,
+    // P3 additions — defaults match migrate_v3_to_v4's lift values so a
+    // fresh-state + serialized-to-v4 hash equals a migrated-v3-to-v4 hash.
+    currentLocation: "Capital",
+    consecutiveTicksAtCurrentLocation: 0,
+    lastAudienceTick: null,
+    wardrobeLastRefreshTick: null,
+    blockadeBypassEarned: false,
   };
 
   return { rngState: postDeathRoll, house, character };

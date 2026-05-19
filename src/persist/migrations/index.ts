@@ -6,14 +6,16 @@
 // P1: v1 → v2 (extends with houses/characters/marriages, seeded by
 // seedStartingFamily).
 // P2: v2 → v3 (adds campaignName: DEFAULT_CAMPAIGN_NAME).
+// P3: v3 → v4 (adds GameState.era + 5 new House fields).
 //
 // assertMonotonic runs at module load — a misconfigured registry fails
 // Vitest boot rather than during a real player load.
 
-import { SaveV1Schema, SaveV2Schema, SaveV3Schema } from "../schema";
+import { SaveV1Schema, SaveV2Schema, SaveV3Schema, SaveV4Schema } from "../schema";
 import { type Migration, assertMonotonic } from "./runner";
 import { migrate_v1_to_v2 } from "./v1-to-v2";
 import { migrate_v2_to_v3 } from "./v2-to-v3";
+import { migrate_v3_to_v4 } from "./v3-to-v4";
 
 export const MIGRATIONS: readonly Migration[] = [
   {
@@ -27,6 +29,12 @@ export const MIGRATIONS: readonly Migration[] = [
     to: 3,
     migrate: (s: unknown) => migrate_v2_to_v3(SaveV2Schema.parse(s)),
     outputSchema: SaveV3Schema,
+  },
+  {
+    from: 3,
+    to: 4,
+    migrate: (s: unknown) => migrate_v3_to_v4(SaveV3Schema.parse(s)),
+    outputSchema: SaveV4Schema,
   },
 ] as const;
 
