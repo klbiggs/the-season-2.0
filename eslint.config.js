@@ -106,6 +106,32 @@ export default [
               message:
                 "game/rng must not be imported from UI / LLM / app entry — route through the store or pure rules layer (rule b)",
             },
+            {
+              // Rule (c) P4: src/llm/** is the only non-deterministic
+              // subsystem. It MUST NOT import gameplay state, rules, or
+              // persistence — outputs route through the orchestrator (which
+              // calls rules on the orchestrator's behalf). game-constants
+              // is allowed (model IDs, budgets) and game-conversation-types
+              // is allowed (ConversationPairKey + Exchange + brand
+              // re-exports). game-entities is allowed for typed parameter
+              // shapes (Character) since the LLM layer reads-but-doesn't-
+              // mutate state.
+              from: ["llm"],
+              disallow: [
+                "game-rules",
+                "game-store",
+                "game-hash",
+                "game-bootstrap",
+                "game-other",
+                "persist",
+                "runtime",
+                "runtime-tick-orchestrator",
+                "ui",
+                "app-main",
+              ],
+              message:
+                "src/llm/** must not import gameplay state — route through the orchestrator (rule c)",
+            },
           ],
         },
       ],
