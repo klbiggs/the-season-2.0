@@ -71,12 +71,23 @@ export type ConversationResponse = {
 
 const TACTIC_SET = new Set<string>(["Flattery", "WittyBanter", "SlyGossip", "DeepEmpathy"]);
 
-// resolveTactic: returns received if valid enum, else pinned, else "Flattery".
-// Spec §3 line 312: unknown classifications fall back to pinned intent or
-// "Flattery" if none pinned.
+// resolveTactic: PIN ALWAYS OVERRIDES. If pinned is non-null, return pinned
+// (regardless of whether received is a valid enum). If pinned is null, use
+// received when it's a valid enum, else fall back to "Flattery".
+//
+// Spec §3 line 70 is the authoritative reading: "A pinned explicit intent
+// overrides any classification the language model produces." Line 312's
+// "fall back to pinned" wording is the defensive edge case for when the
+// model returns garbage AND no pin is set.
+//
+// Why pin-overrides: the pin is the player's explicit declaration of
+// intent. Different tactics route to different bonus/penalty trait maps,
+// so the choice of tactic changes the combat math. If the model could
+// always win the tactic-choice argument, the pin button would be
+// mechanically a no-op in the common case (models return valid enum >99%).
 export function resolveTactic(received: string, pinned: Tactic | null): Tactic {
-  if (TACTIC_SET.has(received)) return received as Tactic;
   if (pinned !== null) return pinned;
+  if (TACTIC_SET.has(received)) return received as Tactic;
   return "Flattery";
 }
 
