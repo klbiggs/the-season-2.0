@@ -78,3 +78,53 @@ Closeout notes per phase. Decisions made during implementation that aren't captu
 - `eslint.config.js:50` — boundary rule (b) narrowed to UI/LLM/app-main with inline rationale.
 - `eslint/boundaries.test.ts:23` — `ESLint.lintText` synthetic-source pattern for boundary verification.
 - `tests/e2e/dev-smoke.spec.ts:6` — mandatory Playwright smoke; the only end-to-end UI proof at P0.
+
+## P2 — closed 2026-05-19
+
+**Decisions made:**
+
+- **SaveV3 is production-registered, current save format.** P1 shipped SaveV2 + `migrate_v1_to_v2`; P2 ships SaveV3 + `migrate_v2_to_v3` registered alongside it. Bump exists to prove the multi-step migration chain works (single-step is structurally indistinguishable from no-chain), and `campaignName` is a forward-compatible discipline-validation field.
+- **`GameState.campaignName: string` is on the hash projection.** Renaming a campaign advances the hash. The alternative (an "excluded-from-hash" mechanism) was rejected to preserve the simple `hashable-state-extension.test.ts` invariant for future fields. `// excluded-from-hash: <reason>` is reserved for explicit one-off exceptions documented at the projection.
+- **`fromSaveV1` / `fromSaveV2` default `campaignName` on lift.** SaveV1 and SaveV2 have no such field; defaulting at the lift boundary (analogous to `migrate_v2_to_v3`'s default) keeps the existing `v1-to-v2.parity.test.ts` green without rewriting it.
+- **Per-step `outputSchema` Zod validation is the discipline lynchpin.** The runner Zod-parses each migration's output against the next version's schema before the next step runs. Catches malformed intermediate shapes that would otherwise silently propagate.
+- **5-variant `SaveLoadError` taxonomy** lives in `src/persist/errors.ts`: abstract base + `InvalidSaveSchemaError` / `UnknownSaveVersionError` / `SaveVersionTooNewError` / `MigrationFailedError` / `MissingMigrationError`. Each carries `userMessage` (banner) and `message` (log). `assertMonotonic` module-load errors are explicitly NOT part of this contract — programmer errors throw plain `Error`.
+- **`MigrationFailedError.inner`, not `.cause`.** Field renamed to avoid override of the built-in ES2022 `Error.cause`. The inner-error chain is not structured-clone-safe — documented inline.
+- **Banner styling: plain Tailwind, not shadcn `<Alert>`.** Matches existing dev-UI; shadcn `<Alert>` requires a separate `pnpm dlx shadcn@latest add alert` step that isn't justified for a dev-only surface deleted at P3.
+- **Corrupt-save "Start New Game" uses prop-threaded seed from `main.tsx`.** Avoids adding a top-level "campaign seed" field to `GameState` (which would force another save-format bump). Tradeoff: Start-New-Game always restarts with the original launch-time seed, not a custom one entered via `<SeedPrompt />` later. Documented in `CorruptSaveBanner.tsx` as the extension point.
+- **Single coordinated commit (no Commit A / Commit B split like P1).** P2's surface is narrower (one field, one migration, one error file, one banner); the hashable-state-extension test forces atomic schema-and-projection extension (steps 2–3); everything else is additive.
+
+**Open questions hit:**
+
+- None of the §10 open questions resolved at P2 — none were save/load-specific. The "corrupt-save banner UX" callout P1 deferred to P2 is now closed (banner shipped on `<DevApp />`).
+
+**Deferred / next-up:**
+
+- **`<CorruptSaveBanner />` successor in real shell** — banner is in `src/ui/dev/`; deleted with the rest of the dev UI at P3. P3 must mount a player-facing successor before deleting. Flagged for the P3 author — typed errors and `<LoadButton />`'s catch survive the deletion, but rendering does not.
+- **Delete-corrupt-save affordance.** "Start New Game" creates fresh state but does NOT delete the corrupt IndexedDB record. A user can re-Load and re-hit the banner. Destructive auto-delete needs explicit consent UI; P3+ may add a "Delete corrupt save" button.
+- **Absolute-tick scheduled-event invariant tests.** P2 documents the invariant in CLAUDE.md but has no scheduled-event subsystem to test (couriers P6, schemes P5, global events P13). Each phase introducing a scheduled-event class ships its own absolute-tick test.
+- **`MigrationFailedError.inner` structured-clone safety.** If a future error-logging surface tries to serialize errors to IndexedDB or postMessage across workers, the `inner` chain degrades to `{}`. Documented inline in `errors.ts`.
+
+**Files of note:**
+
+- `src/game/store.ts:30` — `DEFAULT_CAMPAIGN_NAME` constant; `createInitialState(seed, campaignName?)` signature extension.
+- `src/game/entities.ts:77` — `GameStateSchema.campaignName: z.string()` field addition.
+- `src/game/hash.ts:11` — `hashableState` projection now includes `campaignName` (replay-relevant).
+- `src/persist/schema.ts:21` — `SAVE_VERSION_CURRENT = 3 as const`; `SaveV3Schema`, `toSaveV3`, `fromSaveV3` at file tail.
+- `src/persist/schema.ts:46` — `fromSaveV1` defaults `campaignName: DEFAULT_CAMPAIGN_NAME` on lift.
+- `src/persist/schema.ts:92` — `fromSaveV2` defaults `campaignName: DEFAULT_CAMPAIGN_NAME` on lift.
+- `src/persist/errors.ts:1` — 5-variant typed taxonomy under `SaveLoadError` abstract base.
+- `src/persist/migrations/runner.ts:25` — `Migration.outputSchema` field; per-step Zod validation in `runMigrations`.
+- `src/persist/migrations/runner.ts:30` — `assertMonotonic` module-load guard.
+- `src/persist/migrations/v2-to-v3.ts:1` — pure idempotent migration; zero RNG draws by construction.
+- `src/persist/migrations/index.ts:14` — `MIGRATIONS` extended; `assertMonotonic(MIGRATIONS)` at module load.
+- `src/persist/dexie.ts:70` — `load()` version pre-check + typed-error routing; `_putRawForTests` test-only export.
+- `src/ui/dev/CorruptSaveBanner.tsx:1` — `role="alert"` + `aria-live="assertive"` + "Start New Game" handler.
+- `src/ui/dev/LoadButton.tsx:14` — three-prop `LoadButton`: `store`, `onStatus`, `onLoadError`; typed `SaveLoadError` catch.
+- `src/ui/dev/DevApp.tsx:23` — `seed` prop threaded through from `main.tsx`; `<CorruptSaveBanner />` mounted above readout.
+- `src/main.tsx:21` — `__putRawForTests` exposed on `window` in dev mode for Playwright corruption setup.
+- `tests/e2e/dev-smoke.spec.ts:32` — P2 Playwright spec: corruption setup → banner aria contract → Start-New-Game recovery.
+- `src/persist/migrations/v1-to-v3-chain.test.ts:1` — multi-step chain test (the actual reason for shipping v2→v3 at P2).
+- `src/persist/migrations/runner.test.ts:1` — failure-mode coverage (typed errors, re-wrap suppression, assertMonotonic).
+- `src/persist/dexie.test.ts:1` — load-path corruption coverage (all 5 SaveLoadError variants).
+- `src/persist/errors.test.ts:1` — class-hierarchy + throw/catch narrowing per variant.
+- `src/persist/migrations/__test-utils__/idempotence.ts:1` — `assertMigrationIdempotent` helper; future migrations reuse.

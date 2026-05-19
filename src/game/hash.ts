@@ -14,6 +14,7 @@ export function hashableState(state: GameState): {
   houses: Array<[HouseId, House]>;
   characters: Array<[CharacterId, Character]>;
   marriages: Array<[MarriageId, MarriageRecord]>;
+  campaignName: string;
 } {
   return {
     tick: state.tick,
@@ -21,6 +22,7 @@ export function hashableState(state: GameState): {
     houses: serializeRegistry(state.houses),
     characters: serializeRegistry(state.characters),
     marriages: serializeRegistry(state.marriages),
+    campaignName: state.campaignName,
   };
 }
 

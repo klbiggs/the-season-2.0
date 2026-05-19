@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { canonicalJSON, hashState, hashableState } from "./hash";
 import type { CharacterId, HouseId, MarriageId, RngState } from "./rng";
-import { type Character, type House, type MarriageRecord, createInitialState } from "./store";
+import {
+  type Character,
+  DEFAULT_CAMPAIGN_NAME,
+  type House,
+  type MarriageRecord,
+  createInitialState,
+} from "./store";
 
 describe("canonicalJSON — key order invariance", () => {
   it("sorts object keys lexicographically", () => {
@@ -53,6 +59,7 @@ describe("hashableState", () => {
     // P1: full keyset is characters/houses/marriages/rng/tick. Object.keys().sort()
     // protects against insertion-order drift in hashableState's projection literal.
     expect(Object.keys(projected).sort()).toEqual([
+      "campaignName",
       "characters",
       "houses",
       "marriages",
@@ -89,6 +96,7 @@ describe("hashState — Map reorder invariance", () => {
         houses: emptyHouses,
         characters: emptyCharacters,
         marriages: emptyMarriages,
+        campaignName: DEFAULT_CAMPAIGN_NAME,
       }),
     ).toBe(
       hashState({
@@ -97,6 +105,7 @@ describe("hashState — Map reorder invariance", () => {
         houses: emptyHouses,
         characters: emptyCharacters,
         marriages: emptyMarriages,
+        campaignName: DEFAULT_CAMPAIGN_NAME,
       }),
     );
   });

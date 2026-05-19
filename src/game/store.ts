@@ -26,6 +26,12 @@ import { PLAYER_HOUSE_ID } from "./rng.seeds";
 export type { Character, GameState, House, MarriageRecord };
 export { CharacterSchema, GameStateSchema, HouseSchema, MarriageRecordSchema };
 
+// P2: default campaign name written into every new save and used by
+// migrate_v2_to_v3 + fromSaveV1/fromSaveV2 default-on-lift. Lives here
+// (not in game/constants.ts) because it's an initialization string,
+// not a designer-tuned gameplay value.
+export const DEFAULT_CAMPAIGN_NAME = "Unnamed Campaign";
+
 // Immer needs explicit opt-in for Map/Set mutation tracking.
 enableMapSet();
 
@@ -36,7 +42,10 @@ enableMapSet();
 // rng.ts + fixtures + constants.)
 import { seedStartingFamily } from "./bootstrap";
 
-export function createInitialState(seed: string): GameState {
+export function createInitialState(
+  seed: string,
+  campaignName: string = DEFAULT_CAMPAIGN_NAME,
+): GameState {
   const playerRng = createRngState(seed);
   const seeded = seedStartingFamily(playerRng);
   const rng = new Map<HouseId, RngState>();
@@ -51,6 +60,7 @@ export function createInitialState(seed: string): GameState {
     houses,
     characters,
     marriages: new Map<MarriageId, MarriageRecord>(),
+    campaignName,
   };
 }
 
@@ -90,6 +100,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           state.houses = next.houses;
           state.characters = next.characters;
           state.marriages = next.marriages;
+          state.campaignName = next.campaignName;
         }),
       runYearPass: () =>
         set((state) => {
@@ -99,6 +110,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           state.houses = next.houses;
           state.characters = next.characters;
           state.marriages = next.marriages;
+          state.campaignName = next.campaignName;
         }),
       replaceState: (next: GameState) =>
         set((state) => {
@@ -107,6 +119,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           state.houses = next.houses;
           state.characters = next.characters;
           state.marriages = next.marriages;
+          state.campaignName = next.campaignName;
         }),
     })),
   );
@@ -121,5 +134,6 @@ export function selectGameState(state: StoreState): GameState {
     houses: state.houses,
     characters: state.characters,
     marriages: state.marriages,
+    campaignName: state.campaignName,
   };
 }

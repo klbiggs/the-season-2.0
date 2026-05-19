@@ -74,5 +74,6 @@ export const GameStateSchema = z.object({
   houses: z.map(HouseIdSchema, HouseSchema),
   characters: z.map(CharacterIdSchema, CharacterSchema),
   marriages: z.map(MarriageIdSchema, MarriageRecordSchema),
+  campaignName: z.string(),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

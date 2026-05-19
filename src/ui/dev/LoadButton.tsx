@@ -1,14 +1,16 @@
 import { useState } from "react";
 import type { SeasonStore } from "../../game/store";
 import { DEV_SLOT, load } from "../../persist/dexie";
-import { fromSaveV2 } from "../../persist/schema";
+import { SaveLoadError } from "../../persist/errors";
+import { fromSaveV3 } from "../../persist/schema";
 
 type Props = {
   store: SeasonStore;
   onStatus: (message: string) => void;
+  onLoadError: (err: SaveLoadError | null) => void;
 };
 
-export function LoadButton({ store, onStatus }: Props) {
+export function LoadButton({ store, onStatus, onLoadError }: Props) {
   const [busy, setBusy] = useState(false);
   const onClick = async () => {
     setBusy(true);
@@ -18,10 +20,15 @@ export function LoadButton({ store, onStatus }: Props) {
         onStatus("No save in slot 'dev'.");
         return;
       }
-      store.getState().replaceState(fromSaveV2(saved));
+      store.getState().replaceState(fromSaveV3(saved));
+      onLoadError(null);
       onStatus("Loaded.");
     } catch (err) {
-      onStatus(`Load failed: ${err instanceof Error ? err.message : String(err)}`);
+      if (err instanceof SaveLoadError) {
+        onLoadError(err);
+      } else {
+        onStatus(`Load failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     } finally {
       setBusy(false);
     }

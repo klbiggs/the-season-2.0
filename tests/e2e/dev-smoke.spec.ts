@@ -29,6 +29,34 @@ test("dev smoke (P0): tick + save + reload restores", async ({ page }) => {
   await expect(readout).toHaveText("2");
 });
 
+test("dev smoke (P2): corrupt save surfaces typed banner with aria contract", async ({ page }) => {
+  await page.goto("/");
+
+  // Setup: write a hand-crafted {version: 99} record via the dev-only helper
+  // exposed on window. Timing: goto returns → corruption write → click load.
+  await page.evaluate(async () => {
+    const win = window as unknown as {
+      __putRawForTests: (slot: string, data: unknown) => Promise<void>;
+    };
+    await win.__putRawForTests("dev", { version: 99 });
+  });
+
+  // Trigger the corrupt-save flow.
+  await page.getByTestId("load-button").click();
+
+  // Banner contract: visible, role=alert, aria-live=assertive,
+  // SaveVersionTooNewError userMessage.
+  const banner = page.getByRole("alert");
+  await expect(banner).toBeVisible();
+  await expect(banner).toHaveAttribute("aria-live", "assertive");
+  await expect(banner).toContainText("newer version of the game");
+
+  // Recovery: Start New Game clears banner + tick=0.
+  await page.getByTestId("corrupt-save-start-new").click();
+  await expect(page.getByTestId("corrupt-save-banner")).not.toBeVisible();
+  await expect(page.getByTestId("tick-readout")).toHaveText("0");
+});
+
 test("dev smoke (P1): year-pass + save + reload + load restores head age", async ({ page }) => {
   await page.goto("/");
 
