@@ -10,7 +10,8 @@ import { getHouseOrThrow } from "../util/lookups";
 
 export type EscapeRejection =
   | { kind: "WrongLocation"; current: LocationId }
-  | { kind: "NotInsolvent"; wealth: number };
+  | { kind: "NotInsolvent"; wealth: number }
+  | { kind: "PlayerExiled" }; // P6 exile-gate variant
 
 export class InvalidEscapeError extends Error {
   constructor(reason: EscapeRejection) {

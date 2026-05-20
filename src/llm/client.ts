@@ -17,7 +17,7 @@ import {
   SchemaError,
   zodIssuesFrom,
 } from "./errors";
-import { RESPOND_TOOL } from "./tools";
+import { GENERATE_WHISPER_TOOL, RESPOND_TOOL } from "./tools";
 import {
   type ConversationRequest,
   type ConversationResponseRaw,
@@ -53,7 +53,7 @@ export class LlmClient {
         contents: buildContents(req),
         config: {
           ...cachingConfig,
-          tools: [{ functionDeclarations: [RESPOND_TOOL] }],
+          tools: [{ functionDeclarations: [RESPOND_TOOL, GENERATE_WHISPER_TOOL] }],
           toolConfig: {
             functionCallingConfig: {
               mode: FunctionCallingConfigMode.ANY,

@@ -13,7 +13,9 @@ import type { LocationId } from "../fixtures/locations";
 import type { HouseId } from "../rng";
 import { getHouseOrThrow } from "../util/lookups";
 
-export type WardrobeRejection = { kind: "WrongLocation"; current: LocationId };
+export type WardrobeRejection =
+  | { kind: "WrongLocation"; current: LocationId }
+  | { kind: "PlayerExiled" }; // P6 exile-gate variant
 
 export class InvalidWardrobeError extends Error {
   constructor(reason: WardrobeRejection) {

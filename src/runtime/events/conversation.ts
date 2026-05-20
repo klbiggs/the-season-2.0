@@ -30,7 +30,9 @@ export type { ConversationFailure };
 
 // Discriminated union returned by enterBallroom when validation fails.
 // P4 only has the WrongLocation variant; P8 will add PatronessVeto.
-export type BallEntryRejection = { kind: "WrongLocation"; current: LocationId };
+export type BallEntryRejection =
+  | { kind: "WrongLocation"; current: LocationId }
+  | { kind: "PlayerExiled" }; // P6 exile-gate variant
 
 export type ConversationEvent =
   | {

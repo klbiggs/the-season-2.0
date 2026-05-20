@@ -53,7 +53,8 @@ export type StartSchemeRejection =
   | { kind: "UnclaimedSmugglingPass" }
   | { kind: "SmugglingPastEraEdge"; completionTick: number; eraTransitionTick: number }
   | { kind: "TargetIsDead"; targetId: CharacterId }
-  | { kind: "SelfTarget"; targetId: CharacterId };
+  | { kind: "SelfTarget"; targetId: CharacterId }
+  | { kind: "PlayerExiled" }; // P6 exile-gate variant
 // P8+ forward-compat reservation: when rival heads can die mid-tick (P11
 // sibling-rival action paths, P13 WarEffort officer deaths), add
 // `| { kind: "HeadOfHouseDead"; ownerHouseId: HouseId }` to this union AND
@@ -67,7 +68,8 @@ export type StartSchemeResult =
 
 export type CancelSchemeRejection =
   | { kind: "SchemeNotFound"; schemeId: SchemeId }
-  | { kind: "SchemeNotActive"; schemeId: SchemeId; currentStatus: SchemeStatus };
+  | { kind: "SchemeNotActive"; schemeId: SchemeId; currentStatus: SchemeStatus }
+  | { kind: "PlayerExiled" }; // P6 exile-gate variant
 
 export type CancelSchemeResult =
   | { ok: true; state: GameState }

@@ -25,6 +25,7 @@ const baseRequest = (): ConversationRequest => ({
   persona: "You are a test NPC.",
   cacheName: null,
   model: "gemini-3.5-flash",
+  otherCharactersInScene: [],
 });
 
 const target = (): Character => makeCharacter({ id: "npc-test" as CharacterId });

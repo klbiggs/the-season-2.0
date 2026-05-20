@@ -12,6 +12,10 @@ import {
   type Tactic,
 } from "../game/constants";
 import type { MODEL_DEFAULT, MODEL_FIRST_MEETING } from "../game/constants";
+// P6: Character type imported directly per boundary rule (c) at
+// eslint.config.js:117-118 — llm element is allowed to import from
+// game-entities for typed parameter shapes.
+import type { Character } from "../game/entities";
 import type { Mood } from "../game/fixtures/moods";
 import { MOODS } from "../game/fixtures/moods";
 
@@ -45,18 +49,33 @@ export type ConversationRequest = {
   // (or first-call, or registry-create failure) → use persona directly.
   cacheName: string | null;
   model: Model;
+  // P6: scene composition — non-target NPCs whose names + ids the persona
+  // prompt embeds so the model can reference valid CharacterIds in its
+  // generateWhisper toolCall payloads.
+  otherCharactersInScene: ReadonlyArray<Character>;
 };
 
 // Widen-and-validate: enum fields parsed as z.string() so unknown values
 // don't trigger SchemaError. Post-parse resolvers (resolveTactic /
 // resolveMoodHint) apply the enum check + fallback per spec §7 line 664
 // "clamp out-of-range fields defensively rather than erroring."
+// P6: widened toolCalls schema — generateWhisper variant promoted from P4's
+// schema-present-contents-empty reservation.
+const GenerateWhisperToolCallSchema = z.object({
+  name: z.literal("generateWhisper"),
+  args: z.object({
+    subjectCharacterId: z.string(),
+    text: z.string(),
+  }),
+});
+export type GenerateWhisperToolCall = z.infer<typeof GenerateWhisperToolCallSchema>;
+
 export const ConversationResponseSchema = z.object({
   dialogue: z.string().min(1),
   classifiedTactic: z.string(),
   qualityMultiplier: z.number(),
   moodHint: z.string().optional(),
-  toolCalls: z.array(z.never()).default([]),
+  toolCalls: z.array(GenerateWhisperToolCallSchema).default([]),
 });
 export type ConversationResponseRaw = z.infer<typeof ConversationResponseSchema>;
 
@@ -66,7 +85,8 @@ export type ConversationResponse = {
   classifiedTactic: Tactic;
   qualityMultiplier: number; // clamped to [0.5, 1.5]
   moodHint: Mood | null;
-  toolCalls: never[];
+  // P6: widened from never[] — narrowResponse below drops the P4 cast.
+  toolCalls: ReadonlyArray<GenerateWhisperToolCall>;
 };
 
 const TACTIC_SET = new Set<string>(["Flattery", "WittyBanter", "SlyGossip", "DeepEmpathy"]);
@@ -117,7 +137,8 @@ export function narrowResponse(
     classifiedTactic: resolveTactic(raw.classifiedTactic, pinnedIntent),
     qualityMultiplier,
     moodHint: resolveMoodHint(raw.moodHint),
-    toolCalls: raw.toolCalls as never[],
+    // P6: cast removed — schema is now properly typed; pass-through.
+    toolCalls: raw.toolCalls,
   };
 }
 

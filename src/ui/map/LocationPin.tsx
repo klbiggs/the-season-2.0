@@ -20,6 +20,8 @@ function rejectionProse(reason: TravelRejection): string {
       return "You are already here.";
     case "EraBlockaded":
       return "The route is blockaded during wartime.";
+    case "PlayerExiled":
+      return "Your house is exiled — no travel possible.";
   }
 }
 

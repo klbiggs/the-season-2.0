@@ -13,7 +13,8 @@ import { getHouseOrThrow } from "../util/lookups";
 
 export type TravelRejection =
   | { kind: "SameLocation"; current: LocationId }
-  | { kind: "EraBlockaded"; era: "Earlier"; target: LocationId };
+  | { kind: "EraBlockaded"; era: "Earlier"; target: LocationId }
+  | { kind: "PlayerExiled" }; // P6 exile-gate variant — store wrapper rejects
 
 export class InvalidTravelError extends Error {
   constructor(reason: TravelRejection) {

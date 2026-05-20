@@ -2,10 +2,13 @@ import { enableMapSet } from "immer";
 import { type StoreApi, type UseBoundStore, create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import {
+  ACCIDENTAL_SLIP_DRIP_PER_CONVERSATION,
   CONVERSATION_HISTORY_LIMIT_PER_PAIR,
   FAUX_PAS_LOCK_DURATION_IN_TICKS,
+  type StaffAssignment,
   type Stance,
   type Tactic,
+  type WeaponizationBranch,
 } from "./constants";
 import {
   type ConversationFailure,
@@ -55,10 +58,26 @@ import {
   cancelScheme as cancelSchemePure,
   tryStartScheme,
 } from "./rules/schemes";
+import {
+  type AssignStaffRejection,
+  type SpymasterInterceptRejection,
+  tryAssignStaff,
+  trySpymasterMailIntercept,
+} from "./rules/staff";
 import { applyTravel, canTravel } from "./rules/travel";
 import type { TravelRejection } from "./rules/travel";
 import { applyWardrobeRefresh, canRefreshWardrobe } from "./rules/wardrobeRefresh";
 import type { WardrobeRejection } from "./rules/wardrobeRefresh";
+import {
+  type DismissWhisperRejection,
+  type WeaponizeWhisperRejection,
+  dismissWhisper as dismissWhisperPure,
+  generateSynergyWhisper,
+  generateWhisperCourier,
+  ingestLlmAdditiveWhisper,
+  pickWallflowerBonusSubject,
+  tryWeaponizeWhisper,
+} from "./rules/whispers";
 import { clamp } from "./util/clamp";
 import { getHouseOrThrow } from "./util/lookups";
 
@@ -172,6 +191,21 @@ export type StoreActions = {
     input: StartSchemeInput,
   ) => { ok: true; schemeId: SchemeId } | { ok: false; reason: StartSchemeRejection };
   cancelScheme: (schemeId: SchemeId) => { ok: true } | { ok: false; reason: CancelSchemeRejection };
+  // P6 espionage actions. All FREE ACTIONS — no tick advance. Per
+  // CLAUDE.md non-negotiable §5: validate → mutate atomic; rejection
+  // unions include { kind: "PlayerExiled" } gated at the action top.
+  weaponizeWhisper: (
+    whisperId: WhisperId,
+    branch: WeaponizationBranch,
+  ) => { ok: true } | { ok: false; reason: WeaponizeWhisperRejection };
+  dismissWhisper: (
+    whisperId: WhisperId,
+  ) => { ok: true } | { ok: false; reason: DismissWhisperRejection };
+  assignStaff: (
+    staffId: StaffId,
+    newAssignment: StaffAssignment,
+  ) => { ok: true } | { ok: false; reason: AssignStaffRejection };
+  spymasterIntercept: () => { ok: true } | { ok: false; reason: SpymasterInterceptRejection };
 };
 
 export type StoreState = GameState & StoreActions;
@@ -186,6 +220,7 @@ import { conversationBus, publishCharacterDeaths } from "../runtime/events/conve
 import type { BallEntryRejection } from "../runtime/events/conversation";
 import { locationBus } from "../runtime/events/location";
 import { publishSchemeTransitions, schemeBus } from "../runtime/events/scheme";
+import { publishWhisperTransitions, whisperBus } from "../runtime/events/whispers";
 // Re-import here at the bottom of the file (cycle-avoidance pattern) — the
 // runtime layer imports rules layer, which is OK after store.ts symbols
 // have been declared above.
@@ -237,6 +272,15 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
       // publishSchemeTransitions detects scheme status transitions and
       // grievance-array appends.
       advanceTick: () => {
+        const exileGate = get();
+        if (exileGate.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          whisperBus.publish({
+            kind: "PlayerExileBlocked",
+            tick: exileGate.tick,
+            action: "advanceTick",
+          });
+          return;
+        }
         const before = get();
         const after = advanceTickPure(before);
         set((state) => {
@@ -244,21 +288,29 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         });
         publishCharacterDeaths(before, after);
         publishSchemeTransitions(before, after);
+        publishWhisperTransitions(before, after);
       },
       runYearPass: () => {
+        const exileGate = get();
+        if (exileGate.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          whisperBus.publish({
+            kind: "PlayerExileBlocked",
+            tick: exileGate.tick,
+            action: "runYearPass",
+          });
+          return;
+        }
         const before = get();
         const after = runYearPassPure(before);
         set((state) => {
           overwriteFromGameState(state, after);
         });
-        // P5: extracted to publishCharacterDeaths shared helper. The pre-P5
-        // inline TargetCharacterDied loop is REPLACED — keeping both would
-        // double-publish for every death. heir-promotion safety is preserved
-        // (helper reads playerHeadIdBefore from `before`).
         publishCharacterDeaths(before, after);
-        // NO publishSchemeTransitions: runYearPassPure never mutates
-        // state.schemes or house.grievances (verified yearPass.ts composes
-        // aging + succession + conception, none of which touch those surfaces).
+        // P6: runYearPassPure's applyAgingStep calls pruneOrphanedConversationKeys
+        // which CAN flip whispers to Dismissed on subject death — distinct from
+        // the P5 publishSchemeTransitions discipline (year-pass doesn't touch
+        // schemes/grievances; runYearPass STILL skips publishSchemeTransitions).
+        publishWhisperTransitions(before, after);
       },
       replaceState: (next: GameState) =>
         set((state) => {
@@ -266,6 +318,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         }),
       travel: (to: LocationId) => {
         const stateBefore = get();
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
         const check = canTravel(stateBefore, PLAYER_HOUSE_ID, to);
         if (!check.ok) {
           locationBus.publish({
@@ -294,10 +349,24 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // during this travel's advanceTickPure phase chain.
         publishCharacterDeaths(stateBefore, afterTick);
         publishSchemeTransitions(stateBefore, afterTick);
+        publishWhisperTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       requestAudience: () => {
         const stateBefore = get();
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          const exiledOutcome: AudienceOutcome = {
+            kind: "Denied",
+            reason: { kind: "PlayerExiled" },
+          };
+          locationBus.publish({
+            kind: "RequestedAudience",
+            tick: stateBefore.tick,
+            houseId: PLAYER_HOUSE_ID,
+            outcome: exiledOutcome,
+          });
+          return { outcome: exiledOutcome };
+        }
         const { state: afterAudience, outcome } = applyAudience(stateBefore, PLAYER_HOUSE_ID);
         // Denied path: state unchanged; no tick advance per cost-paid-only-on-
         // success contract. Publish so UI can show the rejection toast.
@@ -322,10 +391,14 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         });
         publishCharacterDeaths(stateBefore, afterTick);
         publishSchemeTransitions(stateBefore, afterTick);
+        publishWhisperTransitions(stateBefore, afterTick);
         return { outcome };
       },
       escapeBankruptcy: () => {
         const stateBefore = get();
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
         const check = canEscapeBankruptcy(stateBefore, PLAYER_HOUSE_ID);
         if (!check.ok) {
           locationBus.publish({
@@ -348,10 +421,14 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         });
         publishCharacterDeaths(stateBefore, afterTick);
         publishSchemeTransitions(stateBefore, afterTick);
+        publishWhisperTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       refreshWardrobe: () => {
         const stateBefore = get();
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
         const check = canRefreshWardrobe(stateBefore, PLAYER_HOUSE_ID);
         if (!check.ok) {
           locationBus.publish({
@@ -374,11 +451,15 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         });
         publishCharacterDeaths(stateBefore, afterTick);
         publishSchemeTransitions(stateBefore, afterTick);
+        publishWhisperTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       // ── P4 ballroom actions ───────────────────────────────────────────
       enterBallroom: () => {
         const stateBefore = get();
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
         const player = stateBefore.houses.get(PLAYER_HOUSE_ID);
         if (player === undefined || player.currentLocation !== "Capital") {
           return {
@@ -438,15 +519,22 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         }
         const pairKey = makePairKey(PLAYER_HOUSE_ID, target.id);
         const history = stateBefore.conversationHistory.get(pairKey) ?? [];
+        // P6: scene composition — lex-sorted living non-player non-target
+        // NPCs so the persona prompt + generateWhisper toolCall validation
+        // see deterministic ordering across replay-harness runs.
+        const otherCharactersInScene = [...stateBefore.characters.values()]
+          .filter((c) => c.alive && c.id !== target.id && c.houseId !== PLAYER_HOUSE_ID)
+          .sort((a, b) => a.id.localeCompare(b.id));
         const request = {
           targetCharacterId: target.id,
           playerHouseId: PLAYER_HOUSE_ID,
           pinnedIntent: input.pinnedTactic,
           freeformMessage: input.freeformMessage,
           history,
-          persona: buildPersonaPrompt(target),
+          persona: buildPersonaPrompt(target, otherCharactersInScene),
           cacheName: null,
           model: routeModel(history),
+          otherCharactersInScene,
         };
 
         // Publish ConversationSent BEFORE awaiting the LLM (per
@@ -574,6 +662,78 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
               targetHouse.grievances.push(fauxPasGrievance);
             }
           }
+
+          // ─── P6: whisper-creation inline block ─────────────────────────
+          // CRITICAL ordering: whisper creation runs BEFORE the AccidentalSlip
+          // drip block (a same-tick weaponized AccidentalSlip whisper about
+          // the conversation subject would otherwise drip on the JUST-created
+          // synergy whisper if order were reversed — semantically inconsistent).
+          //
+          // The pure-rule functions (generateSynergyWhisper / pickWallflower
+          // BonusSubject / ingestLlmAdditiveWhisper / generateWhisperCourier)
+          // read state.whispers via makeWhisperId's index walk; the Immer
+          // draft mutations (state.whispers.set / state.couriers.set) are
+          // visible to subsequent calls within this producer body, so two
+          // same-message whispers from the same source about different
+          // subjects get distinct ids (the (source, subject) partition in
+          // makeWhisperId increments per pair).
+          if (outcome.kind === "Normal" && outcome.synergy) {
+            // (1) Synergy whisper — source = target NPC, subject = target.
+            const w = generateSynergyWhisper(state, target.id, target.id, state.tick);
+            state.whispers.set(w.id, w);
+            const c = generateWhisperCourier(state, w, "Capital", PLAYER_HOUSE_ID);
+            state.couriers.set(c.id, c);
+            // (2) Wallflower-bonus whisper — ONLY on Wallflower + SlyGossip
+            // + synergy. Subject = lex-smallest non-target living non-player.
+            if (input.stance === "Wallflower" && response.classifiedTactic === "SlyGossip") {
+              const bonusSubject = pickWallflowerBonusSubject(state, target.id);
+              if (bonusSubject !== null) {
+                const wb = generateSynergyWhisper(state, target.id, bonusSubject.id, state.tick);
+                state.whispers.set(wb.id, wb);
+                const cb = generateWhisperCourier(state, wb, "Capital", PLAYER_HOUSE_ID);
+                state.couriers.set(cb.id, cb);
+              }
+            }
+          }
+          // (3) LLM-additive whisper — survives three-predicate validation
+          // (exists + not-target + not-player-house). Synergy not required.
+          for (const tc of response.toolCalls) {
+            if (tc.name !== "generateWhisper") continue;
+            const subjectId = tc.args.subjectCharacterId as CharacterId;
+            const subjChar = state.characters.get(subjectId);
+            if (subjChar === undefined) continue;
+            if (subjectId === target.id) continue;
+            if (subjChar.houseId === PLAYER_HOUSE_ID) continue;
+            const wL = ingestLlmAdditiveWhisper(state, target.id, subjectId, tc.args.text);
+            state.whispers.set(wL.id, wL);
+            const cL = generateWhisperCourier(state, wL, "Capital", PLAYER_HOUSE_ID);
+            state.couriers.set(cL.id, cL);
+          }
+
+          // ─── P6: AccidentalSlip drip block ─────────────────────────────
+          // Walks state.whispers for active Slips targeting the conversation
+          // subject; applies -2 reputation to the subject's house per drip
+          // AND decrements accidentalSlipDripsRemaining by 1. Pure-rule
+          // mirror at applyAccidentalSlipDripOnConversation; this inlined
+          // form must stay semantically identical (Vitest assertion).
+          for (const [, w] of state.whispers) {
+            if (
+              w.status === "Weaponized" &&
+              w.weaponizedAs === "AccidentalSlip" &&
+              w.accidentalSlipDripsRemaining > 0 &&
+              w.subjectCharacterId === target.id
+            ) {
+              const subjectHouse = state.houses.get(target.houseId);
+              if (subjectHouse !== undefined) {
+                subjectHouse.reputation = clamp(
+                  subjectHouse.reputation + ACCIDENTAL_SLIP_DRIP_PER_CONVERSATION,
+                  0,
+                  100,
+                );
+              }
+              w.accidentalSlipDripsRemaining -= 1;
+            }
+          }
         });
 
         // Publish AFTER set returns (per bus-publishing discipline).
@@ -610,6 +770,13 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             });
           }
         }
+        // P6: publish WhisperCreated for any synergy / wallflower-bonus /
+        // LLM-additive whispers emitted inside the set body's whisper-
+        // creation block. The diff helper sees new ids in after.whispers
+        // and emits WhisperCreated; no skip needed (sendBallroomMessage
+        // doesn't direct-publish these).
+        const afterMsg = get();
+        publishWhisperTransitions(stateBefore, afterMsg);
         return { ok: true, outcome: response };
       },
       abortBallroomRequest: () => {
@@ -621,6 +788,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
       // with no time cost. Publishers fire after set returns.
       startScheme: (input: StartSchemeInput) => {
         const state = get();
+        if (state.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
         const result = tryStartScheme(state, PLAYER_HOUSE_ID, input);
         if (!result.ok) return { ok: false, reason: result.reason };
         set((draft) => {
@@ -642,6 +812,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
       },
       cancelScheme: (schemeId: SchemeId) => {
         const state = get();
+        if (state.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
         // P5 INVARIANT: cancellation ONLY mutates `status` + `resolvedAtTick`;
         // kind/owner/target fields unchanged. Reading from pre-set snapshot
         // is equivalent. If a future phase extends cancellation with
@@ -663,6 +836,129 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             cancelSource: "Player",
           });
         }
+        return { ok: true };
+      },
+      // ── P6 espionage actions ──────────────────────────────────────────
+      weaponizeWhisper: (whisperId: WhisperId, branch: WeaponizationBranch) => {
+        const before = get();
+        if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        // PINNED: ownerHouseId passed explicitly (PLAYER_HOUSE_ID at v1; P8
+        // may extend to rival-owned whispers).
+        const result = tryWeaponizeWhisper(before, PLAYER_HOUSE_ID, whisperId, branch);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((draft) => {
+          overwriteFromGameState(draft, result.state);
+        });
+        // Direct publish: wrapper owns the WhisperWeaponized event for this
+        // whisperId. The diff helper below SKIPs via wrapperPublishedKeys.
+        const weaponized = result.state.whispers.get(whisperId);
+        if (weaponized !== undefined) {
+          whisperBus.publish({
+            kind: "WhisperWeaponized",
+            tick: result.state.tick,
+            whisperId,
+            branch,
+            subjectCharacterId: weaponized.subjectCharacterId,
+            scandalSheetAttribution:
+              branch === "ScandalSheet" ? weaponized.scandalSheetAttribution : null,
+          });
+          if (branch === "ScandalSheet" && weaponized.scandalSheetAttribution === true) {
+            whisperBus.publish({
+              kind: "PlayerExiled",
+              tick: result.state.tick,
+              reason: "ScandalSheetAttribution",
+              whisperId,
+            });
+          }
+        }
+        // Diff helper picks up any other side effects (e.g., the ScandalSheet
+        // RNG draw doesn't surface as an event; the wrapper-owned skip is
+        // applied so we don't double-publish WhisperWeaponized).
+        publishWhisperTransitions(before, result.state, new Set([`weaponize:${whisperId}`]));
+        return { ok: true };
+      },
+      dismissWhisper: (whisperId: WhisperId) => {
+        const before = get();
+        if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        const result = dismissWhisperPure(before, whisperId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((draft) => {
+          overwriteFromGameState(draft, result.state);
+        });
+        whisperBus.publish({
+          kind: "WhisperDismissed",
+          tick: result.state.tick,
+          whisperId,
+        });
+        publishWhisperTransitions(before, result.state, new Set([`dismiss:${whisperId}`]));
+        return { ok: true };
+      },
+      assignStaff: (staffId: StaffId, newAssignment: StaffAssignment) => {
+        const before = get();
+        if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        const fromAssignment = before.staff.get(staffId)?.assignment;
+        const result = tryAssignStaff(before, staffId, newAssignment);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((draft) => {
+          overwriteFromGameState(draft, result.state);
+        });
+        if (fromAssignment !== undefined) {
+          whisperBus.publish({
+            kind: "StaffReassigned",
+            tick: result.state.tick,
+            staffId,
+            from: fromAssignment,
+            to: newAssignment,
+          });
+        }
+        publishWhisperTransitions(before, result.state, new Set([`reassign:${staffId}`]));
+        return { ok: true };
+      },
+      spymasterIntercept: () => {
+        const before = get();
+        if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        const result = trySpymasterMailIntercept(before);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((draft) => {
+          overwriteFromGameState(draft, result.state);
+        });
+        // Determine which courier was intercepted (the diff between before
+        // and after — exactly one InFlight → Intercepted transition).
+        let interceptedId: string | null = null;
+        for (const [cid, afterC] of result.state.couriers) {
+          const beforeC = before.couriers.get(cid);
+          if (
+            beforeC !== undefined &&
+            beforeC.status === "InFlight" &&
+            afterC.status === "Intercepted"
+          ) {
+            interceptedId = cid;
+            break;
+          }
+        }
+        const wrapperKeys =
+          interceptedId !== null ? new Set([`intercept:${interceptedId}`]) : new Set<string>();
+        if (interceptedId !== null) {
+          const intercepted = result.state.couriers.get(interceptedId as never);
+          if (intercepted !== undefined) {
+            whisperBus.publish({
+              kind: "CourierIntercepted",
+              tick: result.state.tick,
+              courierId: intercepted.id,
+              whisperId: intercepted.whisperId,
+              source: "SpymasterAction",
+            });
+          }
+        }
+        publishWhisperTransitions(before, result.state, wrapperKeys);
         return { ok: true };
       },
     })),

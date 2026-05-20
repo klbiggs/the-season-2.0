@@ -92,6 +92,7 @@ class ConversationOrchestrator {
         target,
         request.model,
         abortController.signal,
+        request.otherCharactersInScene,
       );
       const requestWithCache: ConversationRequest = { ...request, cacheName };
 
