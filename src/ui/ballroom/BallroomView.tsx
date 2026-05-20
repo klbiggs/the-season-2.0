@@ -17,6 +17,7 @@ import { ComposureBar } from "./ComposureBar";
 import { ConversationFailureBanner } from "./ConversationFailureBanner";
 import { MessageInput } from "./MessageInput";
 import { PortraitRing } from "./PortraitRing";
+import { SchemeButtons } from "./SchemeButtons";
 import { StanceToggle } from "./StanceToggle";
 import { TacticButtons } from "./TacticButtons";
 import { ThinkingIndicator } from "./ThinkingIndicator";
@@ -157,6 +158,9 @@ export function BallroomView({ store, onExit }: Props) {
               setDraftMessage(prefill);
             }}
           />
+          {/* P5: scheme launch buttons. Free action — does NOT advance the
+              tick (the tick advances via map travel/audience/etc). */}
+          <SchemeButtons store={store} selectedTargetId={selectedTargetId} />
           {inFlight ? (
             <>
               <ThinkingIndicator />

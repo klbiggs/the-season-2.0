@@ -6,6 +6,7 @@ import type { SeasonStore } from "../../game/store";
 import { locationBus } from "../../runtime/events/location";
 import { useBusEvent } from "../../runtime/events/useBusEvent";
 import { ActionRejectionToast } from "./ActionRejectionToast";
+import { ActiveSchemesPanel } from "../ledger/ActiveSchemesPanel";
 import { LocationDetailsPanel } from "./LocationDetailsPanel";
 import { LocationPin } from "./LocationPin";
 import { MapBackdrop } from "./MapBackdrop";
@@ -106,12 +107,15 @@ export function MapView({ store, onEnterBallroom }: Props) {
           );
         })}
       </div>
-      <div className="w-80">
+      <div className="w-80 space-y-4">
         <LocationDetailsPanel
           store={store}
           location={currentLocation}
           onEnterBallroom={onEnterBallroom}
         />
+        {/* P5: Active Schemes ledger panel — inline summary on the map
+            sidebar. P14 ships the full tabbed ledger view. */}
+        <ActiveSchemesPanel store={store} />
       </div>
       {toast !== null && (
         <ActionRejectionToast message={toast.message} onDismiss={() => setToast(null)} />
