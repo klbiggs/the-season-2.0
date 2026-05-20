@@ -20,6 +20,7 @@
 import { applyEconomyPhase } from "../game/rules/economy";
 import { applyLocationEffectsPhase } from "../game/rules/locationEffects";
 import { applyMoodDriftPhase } from "../game/rules/moods";
+import { applySchemeResolutionPhase } from "../game/rules/schemes";
 import type { GameState } from "../game/store";
 
 function identityPhase(state: GameState): GameState {
@@ -39,7 +40,7 @@ const PHASES: readonly TickPhase[] = [
   applyEconomyPhase, // 2. economy
   applyLocationEffectsPhase, // 3. location effects (NEW at P3)
   identityPhase, // 4. courier draining (P1 stub)
-  identityPhase, // 5. scheme resolution (P1 stub)
+  applySchemeResolutionPhase, // 5. scheme resolution (P5)
   identityPhase, // 6. global-event roll (P1 stub)
   applyMoodDriftPhase, // 7. mood drift
   identityPhase, // 8. rival-house action roll (P1 stub — ALWAYS last)

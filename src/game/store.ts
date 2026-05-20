@@ -40,6 +40,13 @@ import { applyBankruptcyEscape, canEscapeBankruptcy } from "./rules/bankruptcyEs
 import type { EscapeRejection } from "./rules/bankruptcyEscape";
 import { resolveCombat } from "./rules/combat";
 import { type AudienceOutcome, applyAudience } from "./rules/monarchsAudience";
+import {
+  type CancelSchemeRejection,
+  type StartSchemeInput,
+  type StartSchemeRejection,
+  cancelScheme as cancelSchemePure,
+  tryStartScheme,
+} from "./rules/schemes";
 import { applyTravel, canTravel } from "./rules/travel";
 import type { TravelRejection } from "./rules/travel";
 import { applyWardrobeRefresh, canRefreshWardrobe } from "./rules/wardrobeRefresh";
@@ -139,6 +146,14 @@ export type StoreActions = {
     { ok: true; outcome: ConversationResponse } | { ok: false; reason: ConversationFailure }
   >;
   abortBallroomRequest: () => void;
+  // P5 scheme actions. startScheme and cancelScheme are FREE ACTIONS — they
+  // do NOT advance the tick (unlike P3 pre-tick actions). The wealth cost
+  // IS the cost; no tick consumed at start. Per CLAUDE.md non-negotiable §5:
+  // validate → mutate (atomic). Rejections returned as typed unions.
+  startScheme: (
+    input: StartSchemeInput,
+  ) => { ok: true; schemeId: SchemeId } | { ok: false; reason: StartSchemeRejection };
+  cancelScheme: (schemeId: SchemeId) => { ok: true } | { ok: false; reason: CancelSchemeRejection };
 };
 
 export type StoreState = GameState & StoreActions;
@@ -149,9 +164,10 @@ import { buildPersonaPrompt } from "../llm/prompts/persona";
 import { routeModel } from "../llm/routing";
 import type { ConversationResponse } from "../llm/types";
 import { conversationOrchestrator } from "../runtime/conversationOrchestrator";
-import { conversationBus } from "../runtime/events/conversation";
+import { conversationBus, publishCharacterDeaths } from "../runtime/events/conversation";
 import type { BallEntryRejection } from "../runtime/events/conversation";
 import { locationBus } from "../runtime/events/location";
+import { publishSchemeTransitions, schemeBus } from "../runtime/events/scheme";
 // Re-import here at the bottom of the file (cycle-avoidance pattern) — the
 // runtime layer imports rules layer, which is OK after store.ts symbols
 // have been declared above.
@@ -186,34 +202,35 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
   return create<StoreState>()(
     immer((set, get) => ({
       ...createInitialState(seed),
-      advanceTick: () =>
+      // P5: arrow→block-form refactor with `before` snapshot capture for
+      // publishSchemeTransitions + publishCharacterDeaths diff helpers.
+      // Both helpers fire per tick-advance — publishCharacterDeaths detects
+      // Assassination kills (Active→alive=false in characters Map);
+      // publishSchemeTransitions detects scheme status transitions and
+      // grievance-array appends.
+      advanceTick: () => {
+        const before = get();
+        const after = advanceTickPure(before);
         set((state) => {
-          overwriteFromGameState(state, advanceTickPure(get()));
-        }),
+          overwriteFromGameState(state, after);
+        });
+        publishCharacterDeaths(before, after);
+        publishSchemeTransitions(before, after);
+      },
       runYearPass: () => {
         const before = get();
         const after = runYearPassPure(before);
         set((state) => {
           overwriteFromGameState(state, after);
         });
-        // P4: detect newly-dead NPCs and publish TargetCharacterDied so
-        // PersonaCacheRegistry can invalidate stale entries. Use
-        // BEFORE.houses to capture the dying player head's ID (after
-        // succession ran inside runYearPassPure, AFTER's player head is
-        // already the heir). Excluding the player head ensures heir
-        // promotion doesn't fire the event (heir inherits via stable
-        // playerHouseId half of the pair key).
-        const playerHeadIdBefore = before.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId;
-        for (const [id, c] of after.characters) {
-          const wasAlive = before.characters.get(id)?.alive ?? false;
-          if (wasAlive && !c.alive && id !== playerHeadIdBefore) {
-            conversationBus.publish({
-              kind: "TargetCharacterDied",
-              tick: after.tick,
-              targetCharacterId: id,
-            });
-          }
-        }
+        // P5: extracted to publishCharacterDeaths shared helper. The pre-P5
+        // inline TargetCharacterDied loop is REPLACED — keeping both would
+        // double-publish for every death. heir-promotion safety is preserved
+        // (helper reads playerHeadIdBefore from `before`).
+        publishCharacterDeaths(before, after);
+        // NO publishSchemeTransitions: runYearPassPure never mutates
+        // state.schemes or house.grievances (verified yearPass.ts composes
+        // aging + succession + conception, none of which touch those surfaces).
       },
       replaceState: (next: GameState) =>
         set((state) => {
@@ -245,6 +262,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           from,
           to,
         });
+        // P5 diff publishers — Assassination/scheme completions can land
+        // during this travel's advanceTickPure phase chain.
+        publishCharacterDeaths(stateBefore, afterTick);
+        publishSchemeTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       requestAudience: () => {
@@ -271,6 +292,8 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           houseId: PLAYER_HOUSE_ID,
           outcome,
         });
+        publishCharacterDeaths(stateBefore, afterTick);
+        publishSchemeTransitions(stateBefore, afterTick);
         return { outcome };
       },
       escapeBankruptcy: () => {
@@ -295,6 +318,8 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           tick: afterTick.tick,
           houseId: PLAYER_HOUSE_ID,
         });
+        publishCharacterDeaths(stateBefore, afterTick);
+        publishSchemeTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       refreshWardrobe: () => {
@@ -319,6 +344,8 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           tick: afterTick.tick,
           houseId: PLAYER_HOUSE_ID,
         });
+        publishCharacterDeaths(stateBefore, afterTick);
+        publishSchemeTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       // ── P4 ballroom actions ───────────────────────────────────────────
@@ -495,6 +522,56 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
       },
       abortBallroomRequest: () => {
         conversationOrchestrator.abortCurrent();
+      },
+      // ── P5 scheme actions ─────────────────────────────────────────────
+      // Free actions: NO advanceTickPure call. Starting a scheme is a
+      // free action (wealth IS the cost); cancelling is a status flip
+      // with no time cost. Publishers fire after set returns.
+      startScheme: (input: StartSchemeInput) => {
+        const state = get();
+        const result = tryStartScheme(state, PLAYER_HOUSE_ID, input);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((draft) => {
+          overwriteFromGameState(draft, result.state);
+        });
+        const scheme = result.state.schemes.get(result.schemeId);
+        if (scheme !== undefined) {
+          schemeBus.publish({
+            kind: "SchemeStarted",
+            tick: result.state.tick,
+            schemeId: result.schemeId,
+            schemeKind: scheme.kind,
+            ownerHouseId: PLAYER_HOUSE_ID,
+            targetCharacterId: scheme.targetCharacterId,
+            endsAtTick: scheme.endsAtTick,
+          });
+        }
+        return { ok: true, schemeId: result.schemeId };
+      },
+      cancelScheme: (schemeId: SchemeId) => {
+        const state = get();
+        // P5 INVARIANT: cancellation ONLY mutates `status` + `resolvedAtTick`;
+        // kind/owner/target fields unchanged. Reading from pre-set snapshot
+        // is equivalent. If a future phase extends cancellation with
+        // side-mutations (e.g., wealth rebate), switch to post-set reads.
+        const cancelled = state.schemes.get(schemeId);
+        const result = cancelSchemePure(state, schemeId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((draft) => {
+          overwriteFromGameState(draft, result.state);
+        });
+        if (cancelled !== undefined) {
+          schemeBus.publish({
+            kind: "SchemeCancelled",
+            tick: result.state.tick,
+            schemeId,
+            schemeKind: cancelled.kind,
+            ownerHouseId: cancelled.ownerHouseId,
+            targetCharacterId: cancelled.targetCharacterId,
+            cancelSource: "Player",
+          });
+        }
+        return { ok: true };
       },
     })),
   );

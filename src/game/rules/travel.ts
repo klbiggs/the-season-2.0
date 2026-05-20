@@ -44,6 +44,14 @@ export function applyTravel(state: GameState, houseId: HouseId, to: LocationId):
   const check = canTravel(state, houseId, to);
   if (!check.ok) throw new InvalidTravelError(check.reason);
   const house = getHouseOrThrow(state, houseId);
+  // P5: consume the blockade-bypass flag when traveling to ForeignCapital in
+  // the Earlier era with the flag set. Spec lines 357 + 360: "one-shot"
+  // bypass + "cannot start if previous Smuggling pass is still unclaimed" —
+  // the "unclaimed" framing implies the flag is consumed at the claim point
+  // (traveling to ForeignCapital). In the Later era the flag is irrelevant
+  // (blockade no longer active); the flag stays put.
+  const shouldConsumeBypass =
+    to === "ForeignCapital" && state.era === "Earlier" && house.blockadeBypassEarned;
   const houses = new Map(state.houses);
   houses.set(houseId, {
     ...house,
@@ -51,6 +59,7 @@ export function applyTravel(state: GameState, houseId: HouseId, to: LocationId):
     // Reset on every travel — destination is a new location, counter starts
     // over. The post-travel tick's location-effects phase increments to 1.
     consecutiveTicksAtCurrentLocation: 0,
+    blockadeBypassEarned: shouldConsumeBypass ? false : house.blockadeBypassEarned,
   });
   return { ...state, houses };
 }

@@ -2,7 +2,7 @@
 // sprawl. EmptyArrayError and RngNotRegisteredError stay in rng.ts because
 // they're intrinsic to that module's contract.
 
-import type { CharacterId, HouseId, MarriageId } from "../rng";
+import type { CharacterId, HouseId, MarriageId, SchemeId } from "../rng";
 
 export class CharacterNotFoundError extends Error {
   constructor(id: CharacterId) {
@@ -29,5 +29,14 @@ export class UnknownLocationPairError extends Error {
   constructor(a: string, b: string) {
     super(`Unknown location pair: ${a} ↔ ${b}`);
     this.name = "UnknownLocationPairError";
+  }
+}
+
+// P5: scheme lookup error. Used by getSchemeOrThrow in lookups.ts for the
+// schemes registry on GameState. Mirrors HouseNotFoundError / etc.
+export class SchemeNotFoundError extends Error {
+  constructor(id: SchemeId) {
+    super(`Scheme not found: ${id}`);
+    this.name = "SchemeNotFoundError";
   }
 }

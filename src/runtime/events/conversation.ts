@@ -14,9 +14,10 @@
 
 import type { Stance, Tactic } from "../../game/constants";
 import type { ConversationPairKey } from "../../game/conversation/types";
+import type { GameState } from "../../game/entities";
 import type { LocationId } from "../../game/fixtures/locations";
 import type { Mood } from "../../game/fixtures/moods";
-import type { BallSessionId, CharacterId, HouseId } from "../../game/rng";
+import { type BallSessionId, type CharacterId, type HouseId, PLAYER_HOUSE_ID } from "../../game/rng";
 import { EventBus } from "./bus";
 
 import type { ConversationFailure } from "../../game/conversation/types";
@@ -77,3 +78,31 @@ export type ConversationEvent =
     };
 
 export const conversationBus = new EventBus<ConversationEvent>();
+
+// ── publishCharacterDeaths (P5 extraction) ────────────────────────────────
+// Walks before/after character maps; for each character whose `alive` flipped
+// from true to false (and is NOT the player's pre-tick head-of-house),
+// publishes TargetCharacterDied on conversationBus. Called from:
+//   - runYearPass store action (replacing the previously-inlined loop)
+//   - every tick-advancing store action (advanceTick / travel / requestAudience
+//     / escapeBankruptcy / refreshWardrobe) — at P5 the only tick-phase death
+//     path is the Assassination resolver; the helper's heir-promotion guard
+//     is trivially-satisfied for tick paths because tick-advancing actions
+//     don't run succession.
+//
+// Heir-promotion safety: read playerHeadIdBefore from BEFORE so heir promotion
+// (which flips the old head's alive=false during runYearPass's succession step)
+// does NOT fire a stale TargetCharacterDied for the inherited identity.
+export function publishCharacterDeaths(before: GameState, after: GameState): void {
+  const playerHeadIdBefore = before.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId;
+  for (const [id, c] of after.characters) {
+    const wasAlive = before.characters.get(id)?.alive ?? false;
+    if (wasAlive && !c.alive && id !== playerHeadIdBefore) {
+      conversationBus.publish({
+        kind: "TargetCharacterDied",
+        tick: after.tick,
+        targetCharacterId: id,
+      });
+    }
+  }
+}
