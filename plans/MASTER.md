@@ -167,7 +167,7 @@ the-season-2.0/
 | Machine | States | Triggers |
 |---|---|---|
 | Whisper | Unverified → Verified → Weaponized \| Dismissed | Tick verification progress; player action |
-| Scheme | Active → Completed \| Cancelled \| Failed | Tick countdown; player cancel; prerequisite invalidation |
+| Scheme | Active → Completed \| Cancelled \| Failed | Tick countdown; player cancel; prerequisite invalidation. **P5: implemented as a `Scheme.status` field on the entity, NOT a literal XState actor** — per-scheme actors would multiply ref counts by N-active-schemes and complicate save/load serialization with no behavioral benefit. The pure resolver in `applySchemeResolutionPhase` + `cancelScheme` gates the transitions. |
 | Marriage | Active → Dissolved | Spouse death |
 | Era | Earlier → Later | Fixed tick threshold (one-way) |
 | Mood (per NPC) | Receptive \| Defensive(locked) \| Distracted \| Jealous \| Grieving | Per-tick drift roll; reactive on faux-pas |
@@ -251,7 +251,7 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P2 | Save/Load & Migrations | [`phases/02-save-migrations.md`](./phases/02-save-migrations.md) | P0 | ✅ done |
 | P3 | Strategy Map & Locations | [`phases/03-strategy-map.md`](./phases/03-strategy-map.md) | P1 | ✅ done |
 | P4 | LLM Conversation & Ballroom | [`phases/04-ballroom-llm.md`](./phases/04-ballroom-llm.md) | P0, P1 | ✅ done |
-| P5 | Schemes & Multi-Tick Operations | [`phases/05-schemes.md`](./phases/05-schemes.md) | P1, P4 | — |
+| P5 | Schemes & Multi-Tick Operations | [`phases/05-schemes.md`](./phases/05-schemes.md) | P1, P4 | 🚧 in progress |
 | P6 | Whispers, Espionage & Staff | [`phases/06-whispers-espionage.md`](./phases/06-whispers-espionage.md) | P1, P4, P5 | — |
 | P7 | Family, Marriage & Succession | [`phases/07-family-succession.md`](./phases/07-family-succession.md) | P1 | — |
 | P8 | Rival Houses, Patronesses & Duels | [`phases/08-rivals-patronesses.md`](./phases/08-rivals-patronesses.md) | P1, P5 | — |
@@ -368,7 +368,7 @@ Carrying forward all 24 open questions with a recommended default for each. Reso
 | 3 | Sibling-rival mechanic active in v1? | **Yes** (specced detail level suggests intent) |
 | 4 | Archetype classification on mid-life trait acquisition? | **No** — only at succession + child maturation per §3. **Resolved at P1** ([phases/01-tick-engine.md](./phases/01-tick-engine.md)); P7 implements full rules. |
 | 5 | LLM routing for proposal/scheme/duel/audience in v1? | **No** — first-meeting only. **Resolved at P4** ([phases/04-ballroom-llm.md](./phases/04-ballroom-llm.md)); `routeModel(history)` is the single decision point — empty `(houseId, targetCharId)` history → Gemini Pro, otherwise Gemini Flash. Pre-wiring (proposal/scheme/duel/audience override seams) is explicitly NOT shipped at P4. |
-| 6 | Seduction discovery one-shot or multi-tick suspicion? | **One-shot** (matches §3 elopement sprint scope) |
+| 6 | Seduction discovery one-shot or multi-tick suspicion? | **Resolved at P5** ([phases/05-schemes.md](./phases/05-schemes.md)): one-shot binary at completion with `SEDUCTION_DISCOVERY_PROBABILITY = 0.2`. Multi-tick suspicion is a v1.5 candidate — its surface area (per-tick rolls, NPC suspicion levels, mid-flight cancellation paths) doesn't fit the v1 elopement-sprint scope and would force a save-format change. `accumulatedAffection` field reserved on the Scheme entity for the eventual v1.5 transition. |
 | 7 | Treason Framing in v1? | **Yes** — ships with P10 |
 | 8 | Faction tension graphical visualization? | **No** — numeric in rival ledger only |
 | 9 | Social Web replaces textual ledgers? | **Coexist** in v1 |

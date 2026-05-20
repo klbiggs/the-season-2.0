@@ -247,3 +247,58 @@ Closeout notes per phase. Decisions made during implementation that aren't captu
 - `src/persist/dexie.test.ts:1` — load-path corruption coverage (all 5 SaveLoadError variants).
 - `src/persist/errors.test.ts:1` — class-hierarchy + throw/catch narrowing per variant.
 - `src/persist/migrations/__test-utils__/idempotence.ts:1` — `assertMigrationIdempotent` helper; future migrations reuse.
+
+## P5 — closed 2026-05-20
+
+**Decisions made:**
+- Save format v5 → v6. New top-level `GameState.schemes: Map<SchemeId, Scheme>` and `House.grievances: Grievance[]`. Bare+wrap lifter discipline extended across V1–V5 with two strip helpers (`stripGrievancesForLegacyEmit` for V4/V5; `stripV6FieldsForLegacyEmit` for V2/V3 — the latter composes the former with the existing 5-P3-field drop). HousePreV6Schema mirrors the P3 HousePreV4 precedent.
+- `failureReason` on the Scheme entity (not threaded transition-array) is the diff-helper's discriminator for Seduction's two Failed paths (Discovered → SeductionDiscovered event; TargetDied → SchemeFailed). Round-trip contract for `failureReason: "Discovered"`: persists; helper reads in switch BEFORE invoking mapFailureReasonToPayload's defensive throw.
+- Two-pass `applySchemeResolutionPhase` (Chaperone partition first, then other-kinds) structurally enforces spec §7 "Chaperone preempts Seduction" — independent of SchemeId lex-sort ordering. P8 forward-compat: with rival-owned schemes, single-pass lex-sort by `${owner}:${kind}:...` would let a rival's Chaperone sort AFTER the player's Seduction.
+- `pruneOrphanedConversationKeys` extraction from `applyAgingStep` into a shared helper called from BOTH year-pass aging AND tick-phase Assassination resolver. The heir-promotion safety comment block (aging.ts:8-14 pre-P5) migrated VERBATIM to the new helper's top-of-function block.
+- `flipSchemeStatus` overload signatures require `failureReason` for `"Failed"` transitions; 3-arg form fails typecheck — the prior bug-class (silent state-corruption from `flipSchemeStatus(state, id, "Failed")` storing null) is eliminated structurally.
+- Module-wide `getHouseOrThrow` defense convention in `src/game/rules/schemes.ts` — NEVER `state.houses.get(...)!`. Consistent defense across all branches; uses `getRngStateOrThrow` (rng.ts already exports `getOrThrow`) and the new `getSchemeOrThrow` in util/lookups.ts.
+- `schemes.ts` imports `clamp` from `src/game/util/clamp` (the canonical helper) — breaks the duplicate-local-fn drift of older rules (bankruptcyEscape/economy/locationEffects/monarchsAudience). Centralization on a new module is the right cut; older rules untouched at P5 (cleanup PR deferred).
+- `ERA_TRANSITION_TICK = 200` placeholder pinned in `constants.ts` as designer-tunable per-build constant; NOT in `hashableState` (P13 may revise without a save-version bump).
+- `SCHEME_KINDS.length === 6` module-load assertion guards against P10's Treason Framing addition slipping in without a save-version bump.
+- Free-action invariant: `startScheme` and `cancelScheme` do NOT call `advanceTickPure`. Pre-tick action pattern (travel/audience/etc.) consumes a tick; schemes are mid-ballroom free actions per spec §3 line 73.
+- Two new typed lookup helpers added to util/lookups.ts (`getSchemeOrThrow`) and util/errors.ts (`SchemeNotFoundError`). RNG lookup unchanged — uses rng.ts's pre-existing `getOrThrow`.
+- `publishCharacterDeaths` extracted from inline runYearPass loop into a shared helper in `runtime/events/conversation.ts`; called from BOTH runYearPass (replacing the inline loop) AND every tick-advancing store action (Assassination is the first tick-phase death path).
+- `publishSchemeTransitions` walks BOTH scheme-status transitions AND grievance-array appends in one helper; runYearPass intentionally does NOT call it (`runYearPassPure` mutates neither surface).
+- `replaceState` (load-path) intentionally publishes nothing — load-time UIs query state directly via Zustand selectors.
+
+**Open questions hit:**
+- OQ #6 (Seduction discovery: one-shot vs multi-tick suspicion) — RESOLVED as **one-shot binary at completion** with `SEDUCTION_DISCOVERY_PROBABILITY = 0.2`. Pinned as designer-tunable; P15 dynasty perk that "halves discovery-scandal" applies downstream as a multiplier, NOT to this probability directly.
+
+**Deferred / next-up:**
+- **Material gap (Sabotage wired; FauxPas NOT):** spec §3 line 122 says both Sabotage success AND public faux-pas record grievances. P5 ships Sabotage's grievance path fully; FauxPas grievance recording inside `sendBallroomMessage`'s `set` body is described in the plan but NOT implemented at commit 2 (acknowledged in commit message). Implementer addresses in a P5-followup or P6 surface-wide pass: pre-set capture of `fauxPasIndexOnThisTick`, Immer in-place push into the target's house.grievances, post-set `schemeBus.publish({ kind: "GrievanceRecorded", source: "FauxPas", ... })`. P4's `FauxPasFired` event variant exists; the wiring is the only missing piece.
+- Advisory Vitests deferred (all polish-grade defensive tests against future-maintainer drift; tracked in plan §"Accumulated Risks & Suggestions" tail):
+  - `startScheme` no-tick-advance invariant Vitest
+  - `SchemeStarted` tick-equivalence Vitest
+  - `aggressorCharacterId` + `accumulatedAffection` hash-relevance Vitests (lock the dead-at-v1 hash slots against "cleaning unused fields" refactors)
+  - `selectAggressor` walk-divergence Vitest (the load-bearing "validation walk == aggressor walk" invariant)
+  - `pruneOrphanedConversationKeys` idempotence + extraction parity Vitests
+  - `runYearPass` event-count parity Vitest (locks `publishCharacterDeaths` refactor)
+  - `runYearPassPure` no-op-for-schemes invariant Vitest (locks the dropped-call rationale)
+  - Tick-advance never-flips-player-head Vitest (locks `publishCharacterDeaths` heir-skip-guard's trivial-satisfaction)
+  - `Object.is` rejection-path identity preservation Vitests (stronger than hash equality)
+  - `ERA_TRANSITION_TICK` hash-irrelevance via `vi.mock`
+  - `runtime/events/scheme.test.ts` (event wiring + subscription tests)
+  - `tickOrchestrator.test.ts` extended to assert `applySchemeResolutionPhase` at slot 5
+  - 30-run replay harness extended to launch one of each scheme kind on tick 0
+  - `eslint/boundaries.test.ts` positive-control for `src/game/rules/schemes.ts`
+  - Playwright UI smoke (marked optional in plan)
+- `clamp` centralization cleanup for the four older rules files (bankruptcyEscape/economy/locationEffects/monarchsAudience) — deferred as a separate PR; not P5 scope.
+- C-tail still has ~90 advisory entries (C1–C29) not folded inline. Many overlap with the deferred Vitests above; some are documentation polish (lex-sort intuition, monotonic-keyset comments). The plan body folded all load-bearing items; the tail is the audit trail.
+
+**Files of note:**
+- `src/game/rules/schemes.ts:1` — the resolver module (~430 lines): tryStartScheme, cancelScheme, applySchemeResolutionPhase (two-pass), per-kind resolvers, selectAggressor, flipSchemeStatus overloads.
+- `src/game/rules/aging.ts:21` — extracted `pruneOrphanedConversationKeys` with verbatim heir-comment migration.
+- `src/persist/schema.ts:60-105` — HousePreV6Schema + defaultHouseV6Fields + liftLegacyHousesFromV6Pre; `:107-128` strip helpers; `:140-175` seedSchemesAndGrievances; SaveV6Schema at `:404`.
+- `src/runtime/events/scheme.ts:1` — schemeBus + publishSchemeTransitions diff helper (walks BOTH scheme-status AND grievance-array surfaces).
+- `src/runtime/events/conversation.ts:85` — `publishCharacterDeaths` extraction.
+- `src/game/fixtures/schemeIdFactory.ts:1` — deterministic makeSchemeId.
+- `src/game/store.ts:187-211` — advanceTick arrow→block refactor + per-tick diff publishers; `:495-575` startScheme/cancelScheme actions.
+- `src/ui/ballroom/SchemeButtons.tsx:1` + `src/ui/ledger/ActiveSchemesPanel.tsx:1` — UI surfaces.
+- `src/persist/migrations/v5-to-v6.ts:1` — the migration.
+- `src/persist/migrations/v1-to-v6-chain.test.ts:1` — load-bearing full-chain hash-equivalence regression.
+- `src/game/constants.ts:268-365` — SCHEME_KINDS (with module-load assertion), SCHEME_TUNING, SCHEME_PREREQUISITES, SEDUCTION_DISCOVERY_PROBABILITY, ERA_TRANSITION_TICK.
