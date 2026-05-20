@@ -6,6 +6,9 @@ import type { SeasonStore } from "../../game/store";
 import { locationBus } from "../../runtime/events/location";
 import { useBusEvent } from "../../runtime/events/useBusEvent";
 import { ActiveSchemesPanel } from "../ledger/ActiveSchemesPanel";
+import { SpymasterInterceptCard } from "../ledger/SpymasterInterceptCard";
+import { StaffPanel } from "../ledger/StaffPanel";
+import { WhisperLedgerPanel } from "../ledger/WhisperLedgerPanel";
 import { ActionRejectionToast } from "./ActionRejectionToast";
 import { LocationDetailsPanel } from "./LocationDetailsPanel";
 import { LocationPin } from "./LocationPin";
@@ -87,39 +90,61 @@ export function MapView({ store, onEnterBallroom }: Props) {
     });
   });
 
+  // P6: exile terminal-state banner. Renders above the map when the
+  // player house is exiled via Scandal Sheet attribution. The rule-layer
+  // exile gates block all player-elected mutations; the banner is the
+  // user-visible signal.
+  const isExiled = house?.exiled === true;
+
   return (
-    <div className="flex gap-4 p-6" data-testid="map-view">
-      <div className="relative flex-1 aspect-[4/3] min-h-[400px]">
-        <MapBackdrop />
-        {LOCATIONS.map((loc) => {
-          const r = reachability.get(loc);
-          const reason = r?.reason;
-          return (
-            <LocationPin
-              key={loc}
-              location={loc}
-              coords={LOCATION_PIN_COORDS[loc]}
-              isCurrent={loc === currentLocation}
-              isReachable={r?.reachable ?? false}
-              rejectionReason={reason !== undefined && !reason.ok ? reason.reason : undefined}
-              onTravel={(target) => store.getState().travel(target)}
-            />
-          );
-        })}
-      </div>
-      <div className="w-80 space-y-4">
-        <LocationDetailsPanel
-          store={store}
-          location={currentLocation}
-          onEnterBallroom={onEnterBallroom}
-        />
-        {/* P5: Active Schemes ledger panel — inline summary on the map
-            sidebar. P14 ships the full tabbed ledger view. */}
-        <ActiveSchemesPanel store={store} />
-      </div>
-      {toast !== null && (
-        <ActionRejectionToast message={toast.message} onDismiss={() => setToast(null)} />
+    <div className="flex flex-col" data-testid="map-view">
+      {isExiled && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="bg-red-900 text-white px-6 py-3 font-bold text-center"
+          data-testid="exile-banner"
+        >
+          House Exiled — Campaign Ended. Start a new game from the Settings menu.
+        </div>
       )}
+      <div className="flex gap-4 p-6">
+        <div className="relative flex-1 aspect-[4/3] min-h-[400px]">
+          <MapBackdrop />
+          {LOCATIONS.map((loc) => {
+            const r = reachability.get(loc);
+            const reason = r?.reason;
+            return (
+              <LocationPin
+                key={loc}
+                location={loc}
+                coords={LOCATION_PIN_COORDS[loc]}
+                isCurrent={loc === currentLocation}
+                isReachable={r?.reachable ?? false}
+                rejectionReason={reason !== undefined && !reason.ok ? reason.reason : undefined}
+                onTravel={(target) => store.getState().travel(target)}
+              />
+            );
+          })}
+        </div>
+        <div className="w-80 space-y-4">
+          <LocationDetailsPanel
+            store={store}
+            location={currentLocation}
+            onEnterBallroom={onEnterBallroom}
+          />
+          {/* P5: Active Schemes ledger panel — inline summary on the map
+            sidebar. P14 ships the full tabbed ledger view. */}
+          <ActiveSchemesPanel store={store} />
+          {/* P6: Whispers / Staff / Spymaster panels — inline. P14 tabs. */}
+          <WhisperLedgerPanel store={store} />
+          <StaffPanel store={store} />
+          <SpymasterInterceptCard store={store} />
+        </div>
+        {toast !== null && (
+          <ActionRejectionToast message={toast.message} onDismiss={() => setToast(null)} />
+        )}
+      </div>
     </div>
   );
 }
