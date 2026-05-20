@@ -3,8 +3,9 @@
 //   1. time advance (tick += 1)
 //   2. economy (bankruptcy-tier deltas)
 //   3. location effects (P3: per-tick deltas + trait acquisition rolls)
-//   4. courier draining (P1 stub; no payloads exist)
-//   5. scheme resolution (P1 stub; schemes ship in P5)
+//   4. courier + verification + staff (P6: drain arriving couriers, verify
+//      Unverified whispers, roll staff loyalty drift + bribery + cadence)
+//   5. scheme resolution (P5)
 //   6. global-event roll (P1 stub; events ship in P13)
 //   7. mood drift (15% reroll per active non-locked character)
 //   8. rival-house action roll (P1 stub; rivals ship in P8 — ALWAYS last)
@@ -17,6 +18,7 @@
 // `runYearPass` lives in ./yearPass.ts as a separate composer (not part of
 // the tick phase chain). Year-pass and tick-advance are distinct triggers.
 
+import { applyCourierAndStaffPhase } from "../game/rules/courier";
 import { applyEconomyPhase } from "../game/rules/economy";
 import { applyLocationEffectsPhase } from "../game/rules/locationEffects";
 import { applyMoodDriftPhase } from "../game/rules/moods";
@@ -39,7 +41,7 @@ const PHASES: readonly TickPhase[] = [
   advanceTickPhase, // 1. time advance
   applyEconomyPhase, // 2. economy
   applyLocationEffectsPhase, // 3. location effects (NEW at P3)
-  identityPhase, // 4. courier draining (P1 stub)
+  applyCourierAndStaffPhase, // 4. courier + verify + staff (NEW at P6)
   applySchemeResolutionPhase, // 5. scheme resolution (P5)
   identityPhase, // 6. global-event roll (P1 stub)
   applyMoodDriftPhase, // 7. mood drift

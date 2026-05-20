@@ -50,7 +50,28 @@ export function pruneOrphanedConversationKeys(
   for (const key of affFiltered.keys()) {
     if (newlyDeadCharIds.has(parsePairKey(key).characterId)) affFiltered.delete(key);
   }
-  return { ...state, conversationHistory: histFiltered, affectionMap: affFiltered };
+  // P6: dismiss whispers about newly dead subjects (Regency-flavor — "de
+  // mortuis nil nisi bonum"). Already-Weaponized whispers persist past
+  // subject death (a published Scandal Sheet doesn't unprint). Already-
+  // Dismissed whispers stay dismissed (no double-flip).
+  let whispersChanged = false;
+  const newWhispers = new Map(state.whispers);
+  for (const [id, w] of newWhispers) {
+    if (
+      newlyDeadCharIds.has(w.subjectCharacterId) &&
+      w.status !== "Weaponized" &&
+      w.status !== "Dismissed"
+    ) {
+      newWhispers.set(id, { ...w, status: "Dismissed" });
+      whispersChanged = true;
+    }
+  }
+  return {
+    ...state,
+    conversationHistory: histFiltered,
+    affectionMap: affFiltered,
+    ...(whispersChanged ? { whispers: newWhispers } : {}),
+  };
 }
 
 export function applyAgingStep(state: GameState): GameState {

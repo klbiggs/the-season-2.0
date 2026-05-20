@@ -24,7 +24,11 @@ import { getHouseOrThrow } from "../util/lookups";
 export type AudienceRejection =
   | { kind: "WrongLocation"; current: LocationId }
   | { kind: "InsufficientReputation"; reputation: number; required: number }
-  | { kind: "CooldownActive"; lastAttemptTick: number; ticksUntilAvailable: number };
+  | { kind: "CooldownActive"; lastAttemptTick: number; ticksUntilAvailable: number }
+  // P6: exile-gate variant. requestAudience returns
+  // { outcome: { kind: "Denied", reason: { kind: "PlayerExiled" } } }
+  // when the player house is exiled (Scandal Sheet attribution endgame).
+  | { kind: "PlayerExiled" };
 
 export type AudienceOutcome =
   | { kind: "Denied"; reason: AudienceRejection }
