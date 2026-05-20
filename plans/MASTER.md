@@ -166,7 +166,9 @@ the-season-2.0/
 
 | Machine | States | Triggers |
 |---|---|---|
-| Whisper | Unverified → Verified → Weaponized \| Dismissed | Tick verification progress; player action |
+| Whisper (P6) | Unverified → Verified → Weaponized \| Dismissed; subject-death cascade auto-flips Unverified/Verified → Dismissed (Weaponized whispers persist past subject death) | Tick verification progress (+10/tick toward 100 once arrived); player weaponize/dismiss action; subject-death cascade via `pruneOrphanedConversationKeys` |
+| CourierPayload (P6) | InFlight → Delivered \| Intercepted \| Cancelled | Absolute `arrivalTick` reached; InterceptMail staff cadence; Spymaster player action |
+| Staff (P6) | `assignment: Snoop \| BribeDriver \| InterceptMail \| None` ↔ each other (player) → `BribedByRival` (terminal — fire-staff action ships P15+) | Per-tick loyalty drift on `wealth < 0` (Greedy -2/tick; base -1/tick); per-tick bribery roll (5% × Greedy × loyalty<30); player reassignment via `assignStaff` |
 | Scheme | Active → Completed \| Cancelled \| Failed | Tick countdown; player cancel; prerequisite invalidation. **P5: implemented as a `Scheme.status` field on the entity, NOT a literal XState actor** — per-scheme actors would multiply ref counts by N-active-schemes and complicate save/load serialization with no behavioral benefit. The pure resolver in `applySchemeResolutionPhase` + `cancelScheme` gates the transitions. |
 | Marriage | Active → Dissolved | Spouse death |
 | Era | Earlier → Later | Fixed tick threshold (one-way) |
@@ -252,7 +254,7 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P3 | Strategy Map & Locations | [`phases/03-strategy-map.md`](./phases/03-strategy-map.md) | P1 | ✅ done |
 | P4 | LLM Conversation & Ballroom | [`phases/04-ballroom-llm.md`](./phases/04-ballroom-llm.md) | P0, P1 | ✅ done |
 | P5 | Schemes & Multi-Tick Operations | [`phases/05-schemes.md`](./phases/05-schemes.md) | P1, P4 | ✅ done |
-| P6 | Whispers, Espionage & Staff | [`phases/06-whispers-espionage.md`](./phases/06-whispers-espionage.md) | P1, P4, P5 | — |
+| P6 | Whispers, Espionage & Staff | [`phases/06-whispers-espionage.md`](./phases/06-whispers-espionage.md) | P1, P4, P5 | 📝 planned |
 | P7 | Family, Marriage & Succession | [`phases/07-family-succession.md`](./phases/07-family-succession.md) | P1 | — |
 | P8 | Rival Houses, Patronesses & Duels | [`phases/08-rivals-patronesses.md`](./phases/08-rivals-patronesses.md) | P1, P5 | — |
 | P9 | Elopement Sprint Overlay | [`phases/09-elopement.md`](./phases/09-elopement.md) | P5 | — |
@@ -381,8 +383,8 @@ Carrying forward all 24 open questions with a recommended default for each. Reso
 | 16 | Cross-house marriages with rivals? | **Deferred** |
 | 17 | Pre-adulthood betrothals? | **Deferred** |
 | 18 | Lifespan fixed or per-character rolled? | **Per-character rolled**, uniform integer `[70, 95]` (varied siblings is good gameplay). **Resolved at P1** ([phases/01-tick-engine.md](./phases/01-tick-engine.md)); trait modifiers deferred to P7. |
-| 19 | Staff-espionage subsystem in v1? | **Yes** (specced) |
-| 20 | Three weaponization branches simultaneously? | **All three** in v1 |
+| 19 | Staff-espionage subsystem in v1? | **Yes** — specced. **Resolved at P6** ([phases/06-whispers-espionage.md](./phases/06-whispers-espionage.md)). Ships 4 baseline staff (Mrs. Hudson / Thompson / Greer / Pell), 5 assignment slots (Snoop / BribeDriver / InterceptMail / None / BribedByRival), per-tick loyalty drift on underpayment (Greedy faster), per-tick bribery roll for Greedy sub-threshold staff, cadence-based outputs per assignment. Bribed-staff outbound whispers route to `INDEPENDENT_HOUSE_ID` at P6 (inert consumer); P8 routes to real rivals. Spymaster mail-intercept rule-layer ships; UI disabled until P7 produces a real archetype. |
+| 20 | Three weaponization branches simultaneously? | **All three** in v1. **Resolved at P6** ([phases/06-whispers-espionage.md](./phases/06-whispers-espionage.md)). Each branch has a distinct decision-tree shape (Blackmail = small certain cost / certain reward; Scandal Sheet = no scandal cost / large damage / 15% self-exile attribution; Accidental Slip = no scandal cost / slow drip across 5 conversation turns). Shipping one at a time would leave the player with a single tactical shape until subsequent phases ship the others, defeating the spec's "three meaningful choices" intent. |
 | 21 | Cultural-pivot before artifact registry ships? | **N/A** — P10 (artifacts) ships before P13 (events) |
 | 22 | Dynasty perks retroactive? | **No** — going-forward only |
 | 23 | Dull-spouse temptation hook auto-unlocks or ledger-elected? | **Auto-unlock on threshold crossing** (less friction) |
