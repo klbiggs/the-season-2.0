@@ -3,12 +3,15 @@ import { ConversationPairKeySchema, ExchangeSchema } from "../game/conversation/
 import {
   type Character,
   CharacterSchema,
+  CourierPayloadSchema,
   type GameState,
   type Grievance,
   type House,
   HouseSchema,
   MarriageRecordSchema,
   SchemeSchema,
+  StaffMemberSchema,
+  WhisperSchema,
 } from "../game/entities";
 import {
   BASELINE_NPCS,
@@ -18,11 +21,14 @@ import {
 import { buildBaselineStaffMap } from "../game/fixtures/staff";
 import {
   CharacterIdSchema,
+  CourierPayloadIdSchema,
   HouseIdSchema,
   INDEPENDENT_HOUSE_ID,
   MarriageIdSchema,
   RngStateSchema,
   SchemeIdSchema,
+  StaffIdSchema,
+  WhisperIdSchema,
   createRngState,
   deserializeRegistry,
   serializeRegistry,
@@ -30,11 +36,12 @@ import {
 import { PLAYER_HOUSE_ID } from "../game/rng";
 import { DEFAULT_CAMPAIGN_NAME } from "../game/store";
 
-// Live save-format version. P5 bumps to 6 with `schemes` top-level GameState
-// field, `grievances` array on House, and the SchemeSchema + GrievanceSchema
-// entity additions. Legacy toSaveV1..V5 retain their literal `version: N`
-// writes; only toSaveV6 references SAVE_VERSION_CURRENT.
-export const SAVE_VERSION_CURRENT = 6 as const;
+// Live save-format version. P6 bumps to 7 with `whispers`/`couriers`/`staff`
+// top-level GameState fields, `exiled: boolean` on House, and the new
+// Whisper/CourierPayload/StaffMember entity schemas. Legacy toSaveV1..V6
+// retain their literal `version: N` writes; only toSaveV7 references
+// SAVE_VERSION_CURRENT.
+export const SAVE_VERSION_CURRENT = 7 as const;
 
 // ── HousePreV4 (legacy on-disk House shape for V1/V2/V3 saves) ────────────
 // Omits the 5 P3-added fields (currentLocation, etc.) AND the P5 grievances
@@ -77,14 +84,17 @@ function liftLegacyHouses(
   return out;
 }
 
-// ── HousePreV6 (P5): legacy on-disk House shape for V4/V5 saves ───────────
-// V4/V5 houses contain the 5 P3 fields but predate grievances. HousePreV6
-// = HouseSchema.omit({ grievances: true }). Used by SaveV4Schema + SaveV5Schema.
-const HousePreV6Schema = HouseSchema.omit({ grievances: true });
+// ── HousePreV6 (P5; P6 extension): legacy on-disk House shape for V4/V5 ──
+// V4/V5 houses contain the 5 P3 fields but predate grievances AND exiled.
+// HousePreV6 = HouseSchema.omit({ grievances: true, exiled: true }) — P6
+// extends the omit to also drop the new `exiled` field so legacy V4/V5
+// saves (which never carried exiled) still parse cleanly. Used by
+// SaveV4Schema + SaveV5Schema.
+const HousePreV6Schema = HouseSchema.omit({ grievances: true, exiled: true });
 type HousePreV6 = z.infer<typeof HousePreV6Schema>;
 
 function defaultHouseV6Fields(h: HousePreV6): House {
-  return { ...h, grievances: [], exiled: false }; // P6 adds exiled: false
+  return { ...h, grievances: [], exiled: false }; // P6 lifts BOTH new fields
 }
 
 function liftLegacyHousesFromV6Pre(
@@ -97,15 +107,42 @@ function liftLegacyHousesFromV6Pre(
   return out;
 }
 
+// ── HousePreV7 (P6): legacy on-disk House shape for V6 saves ──────────────
+// V6 houses contain the 5 P3 fields + grievances but predate exiled.
+// HousePreV7 = HouseSchema.omit({ exiled: true }). Used by SaveV6Schema
+// (which becomes legacy at P6+). NOT exported — private to lift/migrate.
+const HousePreV7Schema = HouseSchema.omit({ exiled: true });
+type HousePreV7 = z.infer<typeof HousePreV7Schema>;
+
+function defaultHouseV7Fields(h: HousePreV7): House {
+  return { ...h, exiled: false }; // P6 adds the terminal-state flag
+}
+
+function liftLegacyHousesFromV7Pre(
+  serialized: ReadonlyArray<readonly [string, HousePreV7]>,
+): GameState["houses"] {
+  const out: GameState["houses"] = new Map();
+  for (const [, h] of serialized) {
+    out.set(h.id, defaultHouseV7Fields(h));
+  }
+  return out;
+}
+
 // ── Strip helpers for legacy emitters (P5) ────────────────────────────────
 // After P5 widens HouseSchema with `grievances`, toSaveV2/V3/V4/V5 must
 // strip the field (and the P3 fields for V2/V3) so the legacy save records
 // parse against their pre-V6 schemas. Symmetric inverse of the lift helpers.
+// P6 adds stripExiledForLegacyEmit for the only new strip site at P6
+// (toSaveV6 — SaveV6 predates the exiled field).
 function stripGrievancesForLegacyEmit(
   entries: ReadonlyArray<readonly [string, House]>,
 ): Array<[string, HousePreV6]> {
   return entries.map(([id, h]) => {
-    const { grievances: _g, ...rest } = h;
+    // P6 extension: drop exiled too — HousePreV6 (V4/V5 target) predates BOTH
+    // grievances and exiled. Without exiled-drop, post-P6 toSaveV4/V5 emit
+    // houses-with-exiled which the (now exiled-omitting) HousePreV6Schema
+    // rejects on re-parse.
+    const { grievances: _g, exiled: _e, ...rest } = h;
     return [id, rest as HousePreV6];
   });
 }
@@ -116,6 +153,7 @@ function stripV6FieldsForLegacyEmit(
   return entries.map(([id, h]) => {
     const {
       grievances: _g,
+      exiled: _e, // P6 extension — HousePreV4 (V2/V3 target) predates exiled too
       currentLocation: _cl,
       consecutiveTicksAtCurrentLocation: _cttcl,
       lastAudienceTick: _lat,
@@ -124,6 +162,19 @@ function stripV6FieldsForLegacyEmit(
       ...rest
     } = h;
     return [id, rest as HousePreV4];
+  });
+}
+
+// P6: the only NEW strip site at P6. Used by toSaveV6 — SaveV6 predates
+// the exiled field; the post-P6 live HouseSchema includes it, so toSaveV6
+// must drop exiled before SaveV6Schema (which now uses HousePreV7Schema =
+// HouseSchema.omit({exiled:true})) parses the emit.
+function stripExiledForLegacyEmit(
+  entries: ReadonlyArray<readonly [string, House]>,
+): Array<[string, HousePreV7]> {
+  return entries.map(([id, h]) => {
+    const { exiled: _e, ...rest } = h;
+    return [id, rest as HousePreV7];
   });
 }
 
@@ -242,7 +293,7 @@ function seedSchemesAndGrievancesIntoLegacyState(state: GameState): GameState {
 // size-check `state.staff.size === 0` is the load-bearing branch — a
 // reassigned/bribed runtime state through the migration runner must NOT
 // reset to the baseline four).
-function seedWhispersCouriersStaffIntoLegacyState(state: GameState): GameState {
+export function seedWhispersCouriersStaffIntoLegacyState(state: GameState): GameState {
   const needsWhispersDefault = (state as GameState & { whispers?: unknown }).whispers === undefined;
   const needsCouriersDefault = (state as GameState & { couriers?: unknown }).couriers === undefined;
   const staffRaw = (state as GameState & { staff?: GameState["staff"] }).staff;
@@ -574,15 +625,17 @@ export function fromSaveV5(save: SaveV5): GameState {
   );
 }
 
-// ── SaveV6 (P5, live save format) ─────────────────────────────────────────
-// Adds `schemes` top-level Map (as tuple-array) and `grievances` on every
-// House. Houses use the LIVE HouseSchema (grievances required at V6).
+// ── SaveV6 (P5 on-disk format — legacy at P6+) ────────────────────────────
+// V6 houses contain the 5 P3 fields + grievances but predate exiled.
+// Houses tuple value swaps from LIVE HouseSchema to HousePreV7Schema
+// at P6 (which omits exiled). emitter strips exiled via stripExiledForLegacyEmit;
+// reader lifts via liftLegacyHousesFromV7Pre.
 
 export const SaveV6Schema = z.object({
   version: z.literal(6),
   tick: z.number().int().nonnegative(),
   rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
-  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HousePreV7Schema])),
   characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
   marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
   campaignName: z.string(),
@@ -594,11 +647,14 @@ export const SaveV6Schema = z.object({
 export type SaveV6 = z.infer<typeof SaveV6Schema>;
 
 export function toSaveV6(state: GameState): SaveV6 {
+  // P6: only NEW strip site at P6 — drops exiled from live House shape
+  // before SaveV6Schema (HousePreV7Schema houses) parses the emit.
+  const housesLegacy = stripExiledForLegacyEmit(serializeRegistry(state.houses));
   return SaveV6Schema.parse({
-    version: SAVE_VERSION_CURRENT,
+    version: 6,
     tick: state.tick,
     rng: serializeRegistry(state.rng),
-    houses: serializeRegistry(state.houses),
+    houses: housesLegacy,
     characters: serializeRegistry(state.characters),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
@@ -609,14 +665,13 @@ export function toSaveV6(state: GameState): SaveV6 {
   });
 }
 
-// Bare V6 reader — pure deserialization with empty defaults for the
-// post-P6 GameState fields (whispers/couriers/staff). Composed with the
-// seeder by the public fromSaveV6 wrapper.
-function fromSaveV6Bare(save: SaveV6): GameState {
+// Exported (NEW at P6) — migrate_v6_to_v7 imports this Bare core directly
+// so the migration runner doesn't double-invoke seedWhispersCouriersStaff.
+export function fromSaveV6Bare(save: SaveV6): GameState {
   return {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
-    houses: deserializeRegistry(save.houses) as GameState["houses"],
+    houses: liftLegacyHousesFromV7Pre(save.houses),
     characters: deserializeRegistry(save.characters) as GameState["characters"],
     marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
     campaignName: save.campaignName,
@@ -637,6 +692,69 @@ export function fromSaveV6(save: SaveV6): GameState {
   // staff and empty whispers/couriers so the resulting GameState matches a
   // fresh-state hash post-P6.
   return seedWhispersCouriersStaffIntoLegacyState(fromSaveV6Bare(save));
+}
+
+// ── SaveV7 (P6, live save format) ─────────────────────────────────────────
+// Adds `whispers` / `couriers` / `staff` top-level Maps (as tuple-arrays)
+// and `exiled: boolean` on every House. Houses use the LIVE HouseSchema
+// (exiled required at V7).
+
+export const SaveV7Schema = z.object({
+  version: z.literal(7),
+  tick: z.number().int().nonnegative(),
+  rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
+  characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
+  marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
+  campaignName: z.string(),
+  era: z.enum(["Earlier", "Later"]),
+  conversationHistory: z.array(z.tuple([ConversationPairKeySchema, z.array(ExchangeSchema)])),
+  affectionMap: z.array(z.tuple([ConversationPairKeySchema, z.number().int().min(0).max(100)])),
+  schemes: z.array(z.tuple([SchemeIdSchema, SchemeSchema])),
+  whispers: z.array(z.tuple([WhisperIdSchema, WhisperSchema])),
+  couriers: z.array(z.tuple([CourierPayloadIdSchema, CourierPayloadSchema])),
+  staff: z.array(z.tuple([StaffIdSchema, StaffMemberSchema])),
+});
+export type SaveV7 = z.infer<typeof SaveV7Schema>;
+
+export function toSaveV7(state: GameState): SaveV7 {
+  return SaveV7Schema.parse({
+    version: SAVE_VERSION_CURRENT,
+    tick: state.tick,
+    rng: serializeRegistry(state.rng),
+    houses: serializeRegistry(state.houses),
+    characters: serializeRegistry(state.characters),
+    marriages: serializeRegistry(state.marriages),
+    campaignName: state.campaignName,
+    era: state.era,
+    conversationHistory: serializeRegistry(state.conversationHistory),
+    affectionMap: serializeRegistry(state.affectionMap),
+    schemes: serializeRegistry(state.schemes),
+    whispers: serializeRegistry(state.whispers),
+    couriers: serializeRegistry(state.couriers),
+    staff: serializeRegistry(state.staff),
+  });
+}
+
+export function fromSaveV7(save: SaveV7): GameState {
+  // V7 is the live format — pure deserialization with no seed helpers.
+  return {
+    tick: save.tick,
+    rng: deserializeRegistry(save.rng) as GameState["rng"],
+    houses: deserializeRegistry(save.houses) as GameState["houses"],
+    characters: deserializeRegistry(save.characters) as GameState["characters"],
+    marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
+    campaignName: save.campaignName,
+    era: save.era,
+    conversationHistory: deserializeRegistry(
+      save.conversationHistory,
+    ) as GameState["conversationHistory"],
+    affectionMap: deserializeRegistry(save.affectionMap) as GameState["affectionMap"],
+    schemes: deserializeRegistry(save.schemes) as GameState["schemes"],
+    whispers: deserializeRegistry(save.whispers) as GameState["whispers"],
+    couriers: deserializeRegistry(save.couriers) as GameState["couriers"],
+    staff: deserializeRegistry(save.staff) as GameState["staff"],
+  };
 }
 
 // Internal exports for the migration runner + tests

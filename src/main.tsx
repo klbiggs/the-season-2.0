@@ -4,7 +4,7 @@ import { App } from "./App";
 import { DEFAULT_SEED } from "./game/rng.seeds";
 import { createStore, selectGameState } from "./game/store";
 import { _putRawForTests } from "./persist/dexie";
-import { toSaveV6 } from "./persist/schema";
+import { toSaveV7 } from "./persist/schema";
 import "./index.css";
 
 // Bootstrap order (pinned per plan): store is constructed synchronously at
@@ -15,7 +15,7 @@ const store = createStore({ seed: DEFAULT_SEED });
 // P2: expose the test-only IndexedDB write helper on window in dev mode so
 // Playwright's corrupt-save spec can seed pathological records (e.g.,
 // {version: 99}) without bypassing the regular save() Zod path.
-// P3-P5: additionally expose __buildSaveV6ForTests so Playwright happy-path
+// P3-P5: additionally expose __buildSaveV7ForTests so Playwright happy-path
 // specs can construct valid SaveV6 records (with branded HouseId tuples,
 // 5 P3 House fields, P5 grievances array, era, schemes registry) without
 // importing schemas in page-evaluate scope. Both gated by import.meta.env.DEV
@@ -23,7 +23,7 @@ const store = createStore({ seed: DEFAULT_SEED });
 if (import.meta.env.DEV) {
   const w = window as unknown as {
     __putRawForTests: typeof _putRawForTests;
-    __buildSaveV6ForTests: (overrides?: {
+    __buildSaveV7ForTests: (overrides?: {
       wealth?: number;
       reputation?: number;
       currentLocation?: string;
@@ -31,7 +31,7 @@ if (import.meta.env.DEV) {
     }) => unknown;
   };
   w.__putRawForTests = _putRawForTests;
-  w.__buildSaveV6ForTests = (overrides = {}) => {
+  w.__buildSaveV7ForTests = (overrides = {}) => {
     const state = selectGameState(store.getState());
     // Apply House-level overrides to the player house, then serialize.
     const houses = new Map(state.houses);
@@ -52,7 +52,7 @@ if (import.meta.env.DEV) {
         });
       }
     }
-    return toSaveV6({ ...state, houses });
+    return toSaveV7({ ...state, houses });
   };
 }
 
