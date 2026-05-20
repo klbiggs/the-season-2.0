@@ -302,3 +302,28 @@ Closeout notes per phase. Decisions made during implementation that aren't captu
 - `src/persist/migrations/v5-to-v6.ts:1` — the migration.
 - `src/persist/migrations/v1-to-v6-chain.test.ts:1` — load-bearing full-chain hash-equivalence regression.
 - `src/game/constants.ts:268-365` — SCHEME_KINDS (with module-load assertion), SCHEME_TUNING, SCHEME_PREREQUISITES, SEDUCTION_DISCOVERY_PROBABILITY, ERA_TRANSITION_TICK.
+
+### P5 followup — 2026-05-20
+
+Closes out the material gap + load-bearing advisory Vitests deferred at the initial P5 closeout, promoting MASTER.md §6 P5 row from 🚧 in progress to ✅ done.
+
+**Material gap closed:**
+- FauxPas grievance recording in `sendBallroomMessage`. Pre-set capture of `fauxPasIndexOnThisTick` (lex-sort houses outer, walk grievances inner, count source==="FauxPas" + recordedAtTick===tick). Grievance built BEFORE the `set` body so the id is stable for the post-set publish. Immer in-place push (`targetHouse.grievances.push(fauxPasGrievance)`) inside the existing set body — matches the surrounding mutation style. Post-set `schemeBus.publish({ kind: "GrievanceRecorded", source: "FauxPas", ... })` inside the existing `if (fauxPasFired)` event branch. Single-flight invariant: conversationOrchestrator guarantees no concurrent sendBallroomMessage calls — if React Strict Mode's double-effect or multi-tab ever produced two simultaneous fauxPas branches, both would compute index=0 and collide on the grievance id. Inline comment pins this dependency.
+
+**Load-bearing advisory Vitests added (5 new tests; 392 → 397 total):**
+- `yearPass.test.ts`: `runYearPassPure` schemes-Map identity preservation (Object.is). Locks the rationale for dropping `publishSchemeTransitions(before, after)` from the `runYearPass` store-action wrapper. A future phase that extends year-pass composition to touch `state.schemes` will fail this test and must add the publisher call back.
+- `yearPass.test.ts`: per-house `grievances` array identity preservation. Symmetric to above for the grievance surface.
+- `schemes.test.ts`: selectAggressor invariant for archetype-gated kind (Chaperone with one Spymaster aunt in family → scheme.aggressorCharacterId === aunt.id; aggressor matches prereq archetype + is alive + houseId matches owner). Locks the "validation walk == aggressor walk" contract structurally.
+- `schemes.test.ts`: selectAggressor invariant for empty-acceptable kind (Courting → scheme.aggressorCharacterId === house.headOfHouseCharacterId).
+- `schemes.test.ts`: aggressorCharacterId hash-relevance. Two `Scheme` entities with identical kind/owner/target/ticks but distinct aggressorCharacterId → distinct hashState values. Locks the field against "cleaning unused fields" refactors.
+
+**Files of note (followup-touched):**
+- `src/game/store.ts:480-510` — pre-set fauxPasIndex computation + Grievance build.
+- `src/game/store.ts:533-545` — Immer in-place push into target's house.grievances inside the existing set body.
+- `src/game/store.ts:575-585` — post-set GrievanceRecorded publish inside the existing `if (fauxPasFired)` branch.
+- `src/runtime/yearPass.test.ts:64-94` — schemes/grievances no-op invariant tests.
+- `src/game/rules/schemes.test.ts:498-589` — selectAggressor invariants + aggressorCharacterId hash-relevance.
+
+**Still deferred (NOT P5-blocking; recommend P6 surface-wide cleanup pass):**
+- Remaining advisory Vitests from the plan's C-tail: startScheme no-tick-advance, SchemeStarted tick equivalence, accumulatedAffection hash-relevance, pruneOrphanedConversationKeys idempotence + extraction parity, runYearPass TargetCharacterDied event count parity, tick-advance-never-flips-player-head, fauxPasIndex save/load roundtrip, Object.is rejection identity, ERA_TRANSITION_TICK hash-irrelevance vi.mock, runtime/events/scheme.test.ts event wiring, tickOrchestrator.test.ts slot-5 assertion, 30-run replay extended for cross-kind scheme launches, eslint/boundaries.test.ts schemes.ts positive-control, Playwright UI smoke. None block P5 functional completeness; all are defensive against future-maintainer drift.
+- `clamp` centralization cleanup for four older rule files (bankruptcyEscape/economy/locationEffects/monarchsAudience) — separate PR.

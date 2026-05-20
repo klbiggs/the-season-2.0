@@ -497,3 +497,116 @@ describe("SCHEME_KINDS cardinality", () => {
     expect(kinds.length).toBe(6);
   });
 });
+
+// ── selectAggressor invariant: validation walk == aggressor walk ─────────
+// Locks the "same filter both branches" contract. selectAggressor is private
+// to schemes.ts, so we exercise it indirectly via tryStartScheme: when an
+// archetype-gated kind validates ok, the registered scheme's
+// aggressorCharacterId MUST be a living family member matching the
+// prerequisite archetype.
+
+describe("selectAggressor — validation walk == aggressor walk invariant", () => {
+  it("Chaperone start binds aggressorCharacterId to a living Spymaster", () => {
+    const playerHead = makeCharacter({
+      id: "player-head" as CharacterId,
+      houseId: PLAYER_HOUSE_ID,
+      archetype: "None",
+    });
+    const spymasterAunt = makeCharacter({
+      id: "spymaster-aunt" as CharacterId,
+      houseId: PLAYER_HOUSE_ID,
+      archetype: "Spymaster",
+    });
+    const target = makeCharacter({
+      id: "target" as CharacterId,
+      houseId: INDEPENDENT_HOUSE_ID,
+    });
+    const state: GameState = {
+      tick: 0,
+      rng: new Map([
+        [PLAYER_HOUSE_ID, createRngState("seed")],
+        [INDEPENDENT_HOUSE_ID, createRngState("seed-indy")],
+      ]),
+      houses: new Map([
+        [
+          PLAYER_HOUSE_ID,
+          makeHouse({ id: PLAYER_HOUSE_ID, headOfHouseCharacterId: playerHead.id, wealth: 500 }),
+        ],
+        [
+          INDEPENDENT_HOUSE_ID,
+          makeHouse({ id: INDEPENDENT_HOUSE_ID, headOfHouseCharacterId: target.id }),
+        ],
+      ]),
+      characters: new Map([
+        [playerHead.id, playerHead],
+        [spymasterAunt.id, spymasterAunt],
+        [target.id, target],
+      ]),
+      marriages: new Map(),
+      campaignName: "test",
+      era: "Earlier",
+      conversationHistory: new Map(),
+      affectionMap: new Map(),
+      schemes: new Map(),
+    };
+    const result = tryStartScheme(state, PLAYER_HOUSE_ID, {
+      kind: "Chaperone",
+      targetCharacterId: target.id,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    const scheme = result.state.schemes.get(result.schemeId);
+    expect(scheme?.aggressorCharacterId).toBe(spymasterAunt.id);
+    // The aggressor must be the family member matching the prereq archetype.
+    const aggressor = result.state.characters.get(scheme!.aggressorCharacterId);
+    expect(aggressor?.archetype).toBe("Spymaster");
+    expect(aggressor?.alive).toBe(true);
+    expect(aggressor?.houseId).toBe(PLAYER_HOUSE_ID);
+  });
+
+  it("empty-acceptable kinds bind aggressor to the head of house", () => {
+    const state = synthStateWith();
+    const result = tryStartScheme(state, PLAYER_HOUSE_ID, {
+      kind: "Courting",
+      targetCharacterId: TARGET_ID,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    const scheme = result.state.schemes.get(result.schemeId);
+    const playerHouse = result.state.houses.get(PLAYER_HOUSE_ID);
+    expect(scheme?.aggressorCharacterId).toBe(playerHouse?.headOfHouseCharacterId);
+  });
+});
+
+// ── aggressorCharacterId hash-relevance ─────────────────────────────────
+// Locks the field as load-bearing against "cleaning unused fields" refactors.
+// Two schemes with identical kind/owner/target/ticks but distinct
+// aggressorCharacterId MUST produce distinct hashes — the field is in the
+// hash projection via state.schemes.
+
+describe("aggressorCharacterId — hash-relevance", () => {
+  it("two schemes differing only by aggressorCharacterId produce distinct hashes", () => {
+    const baseScheme: Scheme = {
+      id: "scheme-1" as SchemeId,
+      kind: "Courting",
+      ownerHouseId: PLAYER_HOUSE_ID,
+      aggressorCharacterId: "aggressor-a" as CharacterId,
+      targetCharacterId: TARGET_ID,
+      startedAtTick: 0,
+      endsAtTick: 5,
+      status: "Active",
+      resolvedAtTick: null,
+      failureReason: null,
+      accumulatedAffection: 0,
+    };
+    const stateA: GameState = synthStateWith({
+      schemes: new Map([[baseScheme.id, baseScheme]]),
+    });
+    const stateB: GameState = synthStateWith({
+      schemes: new Map([
+        [baseScheme.id, { ...baseScheme, aggressorCharacterId: "aggressor-b" as CharacterId }],
+      ]),
+    });
+    expect(hashState(stateA)).not.toBe(hashState(stateB));
+  });
+});

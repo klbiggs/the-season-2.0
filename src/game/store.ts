@@ -18,6 +18,7 @@ import {
   CharacterSchema,
   type GameState,
   GameStateSchema,
+  type Grievance,
   type House,
   HouseSchema,
   type MarriageRecord,
@@ -28,6 +29,7 @@ import type { LocationId } from "./fixtures/locations";
 import {
   type BallSessionId,
   type CharacterId,
+  type GrievanceId,
   type HouseId,
   INDEPENDENT_HOUSE_ID,
   type MarriageId,
@@ -472,6 +474,46 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         const wasAlreadyLocked = target.moodLockUntilTick > stateBefore.tick;
         const fauxPasFired = outcome.kind === "InstantFail";
 
+        // P5: spec §3 line 122 — public faux-pas records a grievance against
+        // the offending house. Build the Grievance BEFORE the set body so
+        // (a) the index walks the pre-mutation state (avoids double-counting
+        // the entry we're about to append), (b) the post-set bus publish has
+        // a stable id to emit.
+        //
+        // Determinism: fauxPasIndexOnThisTick lex-sorts houses outer / walks
+        // each house's grievances in insertion order inner. At P5 with single-
+        // threaded ballroom + only Independent house holding grievances, the
+        // index is always 0 — but the walk is forward-compatible for P8's
+        // rival houses.
+        //
+        // sendBallroomMessage await-serialization dependency: this whole
+        // function is single-flight via the conversationOrchestrator. If
+        // React Strict Mode's double-effect or multi-tab use ever produced
+        // two concurrent fauxPasFired branches, both would compute
+        // fauxPasIndex=0 and the id would collide. The orchestrator's
+        // single-flight contract is the load-bearing invariant.
+        let fauxPasGrievance: Grievance | null = null;
+        if (fauxPasFired) {
+          let fauxPasIndex = 0;
+          const sortedHouseIds = [...stateBefore.houses.keys()].sort();
+          for (const hid of sortedHouseIds) {
+            const grievances = stateBefore.houses.get(hid)?.grievances ?? [];
+            for (const g of grievances) {
+              if (g.source === "FauxPas" && g.recordedAtTick === stateBefore.tick) {
+                fauxPasIndex += 1;
+              }
+            }
+          }
+          fauxPasGrievance = {
+            id: `${PLAYER_HOUSE_ID}:FauxPas:${stateBefore.tick}:${fauxPasIndex}` as GrievanceId,
+            perpetratorHouseId: PLAYER_HOUSE_ID,
+            source: "FauxPas",
+            schemeId: null,
+            recordedAtTick: stateBefore.tick,
+            resolved: false,
+          };
+        }
+
         // Apply combat delta atomically in one set body. enableMapSet()
         // precondition already satisfied at this module's top.
         set((state) => {
@@ -496,6 +538,16 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             -CONVERSATION_HISTORY_LIMIT_PER_PAIR,
           );
           state.conversationHistory.set(pairKey, nextHist);
+          // P5: append FauxPas grievance to the target's house in-place.
+          // Immer draft-mutation style matches the other mutations in this
+          // set body (affectionMap.set, conversationHistory.set, character
+          // field writes). Hash-relevant insertion order: append-at-end.
+          if (fauxPasGrievance !== null) {
+            const targetHouse = state.houses.get(target.houseId);
+            if (targetHouse !== undefined) {
+              targetHouse.grievances.push(fauxPasGrievance);
+            }
+          }
         });
 
         // Publish AFTER set returns (per bus-publishing discipline).
@@ -517,6 +569,20 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             lockUntilTick: stateBefore.tick + FAUX_PAS_LOCK_DURATION_IN_TICKS,
             wasAlreadyLocked,
           });
+          // P5: spec §3 line 122 — emit GrievanceRecorded for the FauxPas
+          // entry just appended to target's house. fauxPasGrievance is
+          // non-null inside this branch by construction (computed in the
+          // same `if (fauxPasFired)` block above).
+          if (fauxPasGrievance !== null) {
+            schemeBus.publish({
+              kind: "GrievanceRecorded",
+              tick: stateBefore.tick,
+              grievanceId: fauxPasGrievance.id,
+              perpetratorHouseId: PLAYER_HOUSE_ID,
+              victimHouseId: target.houseId,
+              source: "FauxPas",
+            });
+          }
         }
         return { ok: true, outcome: response };
       },

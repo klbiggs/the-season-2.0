@@ -60,3 +60,35 @@ describe("runYearPassPure — internal ordering (aging → succession → concep
     expect(next.houses.get(house.id)?.heirless).toBe(true);
   });
 });
+
+// P5: locks the rationale for dropping `publishSchemeTransitions(before,
+// after)` from the `runYearPass` store-action wrapper. runYearPassPure
+// composes aging + succession + conception — none of those steps mutate
+// state.schemes or house.grievances. If a future phase extends year-pass
+// composition to touch those surfaces, this assertion will catch the
+// invariant break and the wrapper must add publishSchemeTransitions.
+describe("runYearPassPure — schemes/grievances no-op invariant (P5)", () => {
+  it("state.schemes Map identity preserved across year-pass", () => {
+    const head = makeCharacter({ id: "h" as CharacterId, age: 30, deathAge: 90 });
+    const house = makeHouse({ headOfHouseCharacterId: head.id });
+    const state = makeState({
+      houses: makeHousesMap([house]),
+      characters: makeCharactersMap([head]),
+    });
+    const next = runYearPassPure(state);
+    expect(next.schemes).toBe(state.schemes);
+  });
+
+  it("each house's grievances array identity preserved across year-pass", () => {
+    const head = makeCharacter({ id: "h" as CharacterId, age: 30, deathAge: 90 });
+    const house = makeHouse({ headOfHouseCharacterId: head.id });
+    const state = makeState({
+      houses: makeHousesMap([house]),
+      characters: makeCharactersMap([head]),
+    });
+    const next = runYearPassPure(state);
+    for (const [id, h] of state.houses) {
+      expect(next.houses.get(id)?.grievances).toBe(h.grievances);
+    }
+  });
+});
