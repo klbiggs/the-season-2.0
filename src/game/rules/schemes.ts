@@ -9,9 +9,6 @@
 // carry better diagnostic messages AND consistency across the module
 // prevents subtle defense drift between branches.
 
-import type { Archetype } from "../fixtures/archetypes";
-import { makeSchemeId } from "../fixtures/schemeIdFactory";
-import { makePairKey } from "../conversation/types";
 import {
   ASSASSINATION_SCANDAL_DELTA,
   COURTING_AFFECTION_DELTA,
@@ -26,7 +23,10 @@ import {
   type SchemeKind,
   type SchemeStatus,
 } from "../constants";
+import { makePairKey } from "../conversation/types";
 import type { GameState, Grievance, Scheme } from "../entities";
+import type { Archetype } from "../fixtures/archetypes";
+import { makeSchemeId } from "../fixtures/schemeIdFactory";
 import {
   type CharacterId,
   type GrievanceId,
@@ -90,11 +90,7 @@ export type SchemeTransition =
 // walk as the MissingArchetype validation step — when validation passes,
 // this helper finds at least one match (defense-in-depth throw protects
 // against future refactors that decouple the two walks).
-function selectAggressor(
-  state: GameState,
-  ownerHouseId: HouseId,
-  kind: SchemeKind,
-): CharacterId {
+function selectAggressor(state: GameState, ownerHouseId: HouseId, kind: SchemeKind): CharacterId {
   const acceptable = SCHEME_PREREQUISITES[kind];
   if (acceptable.length === 0) {
     // No archetype gate → aggressor defaults to the owner's head of house.
@@ -197,7 +193,10 @@ export function tryStartScheme(
   // failure mode in actual play; surfacing first matches player expectation).
   const cost = SCHEME_TUNING[kind].wealthCost;
   if (ownerHouse.wealth < cost) {
-    return { ok: false, reason: { kind: "InsufficientWealth", have: ownerHouse.wealth, need: cost } };
+    return {
+      ok: false,
+      reason: { kind: "InsufficientWealth", have: ownerHouse.wealth, need: cost },
+    };
   }
 
   // (c) State-evolution: MissingArchetype
@@ -232,7 +231,11 @@ export function tryStartScheme(
     if (completionTick > ERA_TRANSITION_TICK) {
       return {
         ok: false,
-        reason: { kind: "SmugglingPastEraEdge", completionTick, eraTransitionTick: ERA_TRANSITION_TICK },
+        reason: {
+          kind: "SmugglingPastEraEdge",
+          completionTick,
+          eraTransitionTick: ERA_TRANSITION_TICK,
+        },
       };
     }
   }
@@ -430,11 +433,7 @@ function resolveChaperone(state: GameState, scheme: Scheme): GameState {
   // partitions — so any same-tick Seduction is still Active here.
   const matchedSeductionIds: SchemeId[] = [];
   for (const s of state.schemes.values()) {
-    if (
-      s.kind === "Seduction" &&
-      s.status === "Active" &&
-      s.targetCharacterId === targetId
-    ) {
+    if (s.kind === "Seduction" && s.status === "Active" && s.targetCharacterId === targetId) {
       matchedSeductionIds.push(s.id);
     }
   }

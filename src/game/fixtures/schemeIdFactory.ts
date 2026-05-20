@@ -17,11 +17,7 @@ import type { SchemeKind } from "../constants";
 import type { GameState } from "../entities";
 import type { HouseId, SchemeId } from "../rng";
 
-export function makeSchemeId(
-  state: GameState,
-  ownerHouseId: HouseId,
-  kind: SchemeKind,
-): SchemeId {
+export function makeSchemeId(state: GameState, ownerHouseId: HouseId, kind: SchemeKind): SchemeId {
   // Walk ALL schemes (Active + Completed + Cancelled + Failed) — schemes are
   // never deleted per CLAUDE.md "status flips only" invariant. The filter
   // partitions on (owner, kind, startedAtTick) so the index is per-bucket.

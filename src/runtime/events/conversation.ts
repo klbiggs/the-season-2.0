@@ -17,7 +17,12 @@ import type { ConversationPairKey } from "../../game/conversation/types";
 import type { GameState } from "../../game/entities";
 import type { LocationId } from "../../game/fixtures/locations";
 import type { Mood } from "../../game/fixtures/moods";
-import { type BallSessionId, type CharacterId, type HouseId, PLAYER_HOUSE_ID } from "../../game/rng";
+import {
+  type BallSessionId,
+  type CharacterId,
+  type HouseId,
+  PLAYER_HOUSE_ID,
+} from "../../game/rng";
 import { EventBus } from "./bus";
 
 import type { ConversationFailure } from "../../game/conversation/types";

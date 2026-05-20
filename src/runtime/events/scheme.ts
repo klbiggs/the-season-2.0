@@ -16,14 +16,9 @@
 // - `replaceState` does NOT publish — load-time atomic state swap; UIs
 //   query state directly.
 
-import type { GameState, Scheme } from "../../game/entities";
-import type {
-  CharacterId,
-  GrievanceId,
-  HouseId,
-  SchemeId,
-} from "../../game/rng";
 import type { GrievanceSource, SchemeKind } from "../../game/constants";
+import type { GameState, Scheme } from "../../game/entities";
+import type { CharacterId, GrievanceId, HouseId, SchemeId } from "../../game/rng";
 import { EventBus } from "./bus";
 
 // Discriminated union of failure-reason payloads on the bus. Distinct from
@@ -176,9 +171,7 @@ export function publishSchemeTransitions(before: GameState, after: GameState): v
         if (afterScheme.kind === "Seduction" && afterScheme.failureReason === "Discovered") {
           // targetCharacterId is non-null by Seduction invariant.
           if (afterScheme.targetCharacterId === null) {
-            throw new Error(
-              `publishSchemeTransitions: Seduction ${id} has null targetCharacterId`,
-            );
+            throw new Error(`publishSchemeTransitions: Seduction ${id} has null targetCharacterId`);
           }
           schemeBus.publish({
             kind: "SeductionDiscovered",

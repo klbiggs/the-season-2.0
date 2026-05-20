@@ -53,8 +53,7 @@ export function SchemeButtons({ store, selectedTargetId }: Props) {
             disabledReason = `Insufficient wealth (need ${tuning.wealthCost}, have ${playerHouse.wealth})`;
           } else if (acceptable.length > 0) {
             const hasArchetype = [...characters.values()].some(
-              (c) =>
-                c.houseId === PLAYER_HOUSE_ID && c.alive && acceptable.includes(c.archetype),
+              (c) => c.houseId === PLAYER_HOUSE_ID && c.alive && acceptable.includes(c.archetype),
             );
             if (!hasArchetype) {
               // Spec §10 dead-state pin: Chaperone (Spymaster) +

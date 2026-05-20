@@ -67,9 +67,7 @@ export function ActiveSchemesPanel({ store }: Props) {
                   // Spec line 362: cancellation refunds nothing. UI confirms via
                   // window.confirm at minimum-polish; richer modal at P14.
                   if (
-                    window.confirm(
-                      `Cancel this ${scheme.kind}? Wealth cost will not be refunded.`,
-                    )
+                    window.confirm(`Cancel this ${scheme.kind}? Wealth cost will not be refunded.`)
                   ) {
                     const result = cancelScheme(scheme.id);
                     if (!result.ok) {
