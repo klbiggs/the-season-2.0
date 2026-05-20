@@ -67,6 +67,7 @@ describe("hashableState", () => {
       "houses",
       "marriages",
       "rng",
+      "schemes",
       "tick",
     ]);
   });
@@ -103,6 +104,7 @@ describe("hashState — Map reorder invariance", () => {
         era: "Earlier",
         conversationHistory: new Map(),
         affectionMap: new Map(),
+        schemes: new Map(),
       }),
     ).toBe(
       hashState({
@@ -115,6 +117,7 @@ describe("hashState — Map reorder invariance", () => {
         era: "Earlier",
         conversationHistory: new Map(),
         affectionMap: new Map(),
+        schemes: new Map(),
       }),
     );
   });

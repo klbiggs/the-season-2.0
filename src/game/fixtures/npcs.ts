@@ -110,5 +110,7 @@ export function buildIndependentHouse(): House {
     lastAudienceTick: null,
     wardrobeLastRefreshTick: null,
     blockadeBypassEarned: false,
+    // P5: empty grievance list at fresh state.
+    grievances: [],
   };
 }

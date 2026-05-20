@@ -36,11 +36,17 @@ describe("migrate_v4_to_v5 byte-identity vs fresh state", () => {
     const v4Save: SaveV4 = toSaveV4(v4Source);
     const v5Save = migrate_v4_to_v5(v4Save);
 
-    // Independent house byte-identity
+    // Independent house byte-identity. P5 widening: SaveV5Schema's house tuple
+    // value is now HousePreV6Schema (omits grievances) — toSaveV5 strips
+    // grievances on emit. Compare against fresh.houses.get(...) with grievances
+    // stripped to match the V5-stage shape.
     const migratedIndy = v5Save.houses.find(([id]) => id === INDEPENDENT_HOUSE_ID);
     const freshIndy = fresh.houses.get(INDEPENDENT_HOUSE_ID);
     expect(migratedIndy).toBeDefined();
-    expect(migratedIndy?.[1]).toEqual(freshIndy);
+    expect(freshIndy).toBeDefined();
+    if (freshIndy === undefined) throw new Error("unreachable");
+    const { grievances: _g, ...freshIndyStripped } = freshIndy;
+    expect(migratedIndy?.[1]).toEqual(freshIndyStripped);
 
     // 5 NPCs byte-identity
     for (const npcSeed of BASELINE_NPCS) {

@@ -22,6 +22,7 @@ import {
   HouseSchema,
   type MarriageRecord,
   MarriageRecordSchema,
+  type Scheme,
 } from "./entities";
 import type { LocationId } from "./fixtures/locations";
 import {
@@ -32,6 +33,7 @@ import {
   type MarriageId,
   PLAYER_HOUSE_ID,
   type RngState,
+  type SchemeId,
   createRngState,
 } from "./rng";
 import { applyBankruptcyEscape, canEscapeBankruptcy } from "./rules/bankruptcyEscape";
@@ -96,6 +98,9 @@ export function createInitialState(
     // P4: empty per-pair-key collections on fresh state.
     conversationHistory: new Map<ConversationPairKey, Exchange[]>(),
     affectionMap: new Map<ConversationPairKey, number>(),
+    // P5: empty scheme registry. Grievances ride inside House.grievances —
+    // see seedStartingFamily for the empty-array defaults on player + Independent.
+    schemes: new Map<SchemeId, Scheme>(),
   };
 }
 
@@ -168,6 +173,13 @@ function overwriteFromGameState(draft: GameState, next: GameState): void {
   // (schema-projection-selector-extension.test.ts) enforces this.
   draft.conversationHistory = next.conversationHistory;
   draft.affectionMap = next.affectionMap;
+  // P5: scheme registry. Grievances ride inside `next.houses` — no
+  // separate per-field write needed (handled by `draft.houses = next.houses`
+  // above). The trip-wire test does NOT catch a missing `draft.schemes`
+  // write — it only enforces schema/projection/selector keyset equality,
+  // not the Immer-draft helper's writes. Without this line, every tick-
+  // advancing action silently clears state.schemes.
+  draft.schemes = next.schemes;
 }
 
 export function createStore({ seed }: { seed: string }): SeasonStore {
@@ -504,5 +516,10 @@ export function selectGameState(state: StoreState): GameState {
     // P4 additions — schema↔projection↔selector triple-sync.
     conversationHistory: state.conversationHistory,
     affectionMap: state.affectionMap,
+    // P5 addition. Grievances ride inside houses; DO NOT add a top-level
+    // `state.grievances` field — the trip-wire enforces top-level key
+    // equality but won't catch a misplaced top-level addition because
+    // grievances belong on the House entity per spec §4 line 541.
+    schemes: state.schemes,
   };
 }

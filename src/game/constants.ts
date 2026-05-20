@@ -1,6 +1,7 @@
 // All numeric tunings live here. Subsequent phases append. Per CLAUDE.md
 // non-negotiable §10: designer constants in one canonical location each.
 
+import type { Archetype } from "./fixtures/archetypes";
 import type { LocationId } from "./fixtures/locations";
 import type { Mood } from "./fixtures/moods";
 import type { TraitId } from "./rng";
@@ -263,3 +264,99 @@ export const BYOK_KEY_SHAPE_REGEX = /^AIza.+/;
 export const PERSONA_CACHE_TTL_SECONDS = "3600s" as const;
 // Prefix for the human-readable displayName of each persona cache.
 export const PERSONA_CACHE_DISPLAY_NAME_PREFIX = "season-persona-" as const;
+
+// ── P5: Schemes & Multi-Tick Operations ──────────────────────────────────
+
+// Six scheme kinds per spec §3 "Schemes" line 79. Treason Framing (7th) is
+// reserved for P10 — adding it requires a SAVE_VERSION bump (see assertion
+// below). Order matters: SchemeKindSchema = z.enum(SCHEME_KINDS) serializes
+// by string value (not by index), but the enum cardinality is part of the
+// hash projection via Scheme entity.
+export const SCHEME_KINDS = [
+  "Courting",
+  "Sabotage",
+  "Seduction",
+  "Chaperone",
+  "Smuggling",
+  "Assassination",
+] as const;
+export type SchemeKind = (typeof SCHEME_KINDS)[number];
+
+// Module-load assertion: guards against P10's Treason Framing addition (or
+// any future 7th kind) landing without a save-version bump. Symmetric
+// assertion exists for SCHEME_FAILURE_REASONS additions per the save-
+// version-bump checklist.
+if (SCHEME_KINDS.length !== 6) {
+  throw new Error(
+    `SCHEME_KINDS length changed (${SCHEME_KINDS.length} !== 6) without save-version bump — bump SAVE_VERSION_CURRENT and add migration`,
+  );
+}
+
+export const SCHEME_STATUSES = ["Active", "Completed", "Cancelled", "Failed"] as const;
+export type SchemeStatus = (typeof SCHEME_STATUSES)[number];
+
+export const SCHEME_FAILURE_REASONS = ["TargetDied", "Discovered", "EraFlipped"] as const;
+export type SchemeFailureReasonKind = (typeof SCHEME_FAILURE_REASONS)[number];
+
+export const GRIEVANCE_SOURCES = ["Sabotage", "FauxPas"] as const;
+export type GrievanceSource = (typeof GRIEVANCE_SOURCES)[number];
+
+// Spec §3 "Scheme Costs, Durations & Requirements" — pinned per the spec
+// table. Iterating this record by SchemeKind guarantees the resolver covers
+// every kind.
+export const SCHEME_TUNING: Readonly<
+  Record<SchemeKind, { wealthCost: number; durationTicks: number }>
+> = {
+  Courting: { wealthCost: 10, durationTicks: 5 },
+  Sabotage: { wealthCost: 15, durationTicks: 3 },
+  Seduction: { wealthCost: 25, durationTicks: 7 },
+  Chaperone: { wealthCost: 5, durationTicks: 1 },
+  Smuggling: { wealthCost: 20, durationTicks: 4 },
+  Assassination: { wealthCost: 50, durationTicks: 6 },
+};
+
+// Spec §3 schemes table: completion effect deltas (per-scheme constants;
+// the resolver applies clamping at every mutation site per CLAUDE.md
+// non-negotiable §6).
+export const COURTING_AFFECTION_DELTA = 40;
+export const SABOTAGE_COMPOSURE_DELTA = -30;
+export const SEDUCTION_AFFECTION_DELTA_ON_SUCCESS = 80;
+export const ASSASSINATION_SCANDAL_DELTA = 25;
+
+// Spec §10 Q#6 resolution at P5: Seduction discovery is a one-shot binary
+// at completion. 0.2 = 20% per completion. Designer-tunable per playtest;
+// P15 dynasty perk "halves discovery-scandal" applies as a multiplier
+// downstream, NOT to this probability.
+export const SEDUCTION_DISCOVERY_PROBABILITY = 0.2;
+
+// Spec §2 line 227 canonical reading: Spymaster for Chaperone; Bohemian
+// Rake for Assassination/Forgery; Country Exile as deniable proxy. Empty
+// arrays mean "no archetype prereq". Checked in tryStartScheme via
+// `acceptable.includes(c.archetype)` — NEVER ARCHETYPES.includes(c.archetype)
+// (the latter admits the "None" sentinel which is not the intent).
+export const SCHEME_PREREQUISITES: Readonly<Record<SchemeKind, readonly Archetype[]>> = {
+  Courting: [],
+  Sabotage: [],
+  Seduction: [],
+  Chaperone: ["Spymaster"],
+  Smuggling: [],
+  Assassination: ["BohemianRake", "CountryExile"],
+};
+
+// Spec §3 line 357: Smuggling requires the Earlier (wartime) era at start.
+// All other kinds are era-agnostic.
+export const SCHEME_ERA_REQUIREMENTS: Readonly<Record<SchemeKind, "Earlier" | "Later" | null>> = {
+  Courting: null,
+  Sabotage: null,
+  Seduction: null,
+  Chaperone: null,
+  Smuggling: "Earlier",
+  Assassination: null,
+};
+
+// Spec §3 "Era Progression": fixed tick threshold. Designer-tunable per-build
+// constant. NOT in hashableState — lives in constants.ts, not on GameState.
+// P13 may revise the value without a save-version bump; replay-harness
+// fixtures rebuild against the live value at test-run time. Placeholder 200
+// ≈ 10 in-game years at ~20 ticks/year.
+export const ERA_TRANSITION_TICK = 200 as const;

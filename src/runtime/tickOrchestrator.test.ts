@@ -28,6 +28,7 @@ function makeState(overrides: Partial<GameState>): GameState {
     era: "Earlier",
     conversationHistory: new Map(),
     affectionMap: new Map(),
+    schemes: new Map(),
     ...overrides,
   };
 }

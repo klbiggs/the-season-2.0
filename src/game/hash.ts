@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ConversationPairKey, Exchange } from "./conversation/types";
-import type { Character, GameState, House, MarriageRecord } from "./entities";
-import type { CharacterId, HouseId, MarriageId, RngState } from "./rng";
+import type { Character, GameState, House, MarriageRecord, Scheme } from "./entities";
+import type { CharacterId, HouseId, MarriageId, RngState, SchemeId } from "./rng";
 import { serializeRegistry } from "./rng";
 
 // Project the store state to a JSON-safe value. Each later phase that adds
@@ -9,11 +9,12 @@ import { serializeRegistry } from "./rng";
 // selection, derived caches) is excluded. The hashable-state-extension test
 // (see GameStateSchema) enforces that this keyset stays in sync with the
 // schema's keys.
-// House-field additions (e.g., P3's currentLocation/lastAudienceTick/etc.)
-// project automatically via serializeRegistry — no per-House-field edits
-// needed here. Only top-level GameState additions (e.g., P3's `era`) need
-// extending this projection. The hashable-state-extension.test.ts trip-wire
-// catches forgetting to add new GameState keys here.
+// House-field additions (e.g., P3's currentLocation/lastAudienceTick/etc.,
+// P5's grievances) project automatically via serializeRegistry — no per-
+// House-field edits needed here. Only top-level GameState additions
+// (e.g., P3's `era`, P5's `schemes`) need extending this projection. The
+// hashable-state-extension.test.ts trip-wire catches forgetting to add new
+// GameState keys here.
 export function hashableState(state: GameState): {
   tick: number;
   rng: Array<[HouseId, RngState]>;
@@ -24,6 +25,7 @@ export function hashableState(state: GameState): {
   era: "Earlier" | "Later";
   conversationHistory: Array<[ConversationPairKey, Exchange[]]>;
   affectionMap: Array<[ConversationPairKey, number]>;
+  schemes: Array<[SchemeId, Scheme]>;
 } {
   return {
     tick: state.tick,
@@ -35,6 +37,7 @@ export function hashableState(state: GameState): {
     era: state.era,
     conversationHistory: serializeRegistry(state.conversationHistory),
     affectionMap: serializeRegistry(state.affectionMap),
+    schemes: serializeRegistry(state.schemes),
   };
 }
 

@@ -71,6 +71,9 @@ export function seedStartingFamily(rngState: RngState): {
     lastAudienceTick: null,
     wardrobeLastRefreshTick: null,
     blockadeBypassEarned: false,
+    // P5: empty grievance list at fresh state. Symmetric with the V6 lift
+    // (defaultHouseV4Fields/defaultHouseV6Fields both default this to []).
+    grievances: [],
   };
 
   // P4: Independent house + 5 NPCs. Built from constants — no RNG draws.

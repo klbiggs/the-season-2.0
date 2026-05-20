@@ -47,6 +47,8 @@ export function makeHouse(overrides: Partial<House> = {}): House {
     lastAudienceTick: null,
     wardrobeLastRefreshTick: null,
     blockadeBypassEarned: false,
+    // P5 default — empty grievance list.
+    grievances: [],
     ...overrides,
   };
 }

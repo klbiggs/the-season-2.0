@@ -9,6 +9,12 @@
 // serializeRegistry / deserializeRegistry.
 
 import { z } from "zod";
+import {
+  GRIEVANCE_SOURCES,
+  SCHEME_FAILURE_REASONS,
+  SCHEME_KINDS,
+  SCHEME_STATUSES,
+} from "./constants";
 import { ConversationPairKeySchema, ExchangeSchema } from "./conversation/types";
 import { ArchetypeSchema } from "./fixtures/archetypes";
 import { LocationIdSchema } from "./fixtures/locations";
@@ -16,11 +22,29 @@ import { MoodSchema } from "./fixtures/moods";
 import { RoleSchema } from "./fixtures/roles";
 import {
   CharacterIdSchema,
+  GrievanceIdSchema,
   HouseIdSchema,
   MarriageIdSchema,
   RngStateSchema,
+  SchemeIdSchema,
   TraitIdSchema,
 } from "./rng";
+
+// P5: Grievance entity. Stored on House.grievances array (the house is the
+// VICTIM; the perpetrator is referenced by perpetratorHouseId). Spec §4
+// line 541 ("social grievances") + §3 line 122 (Sabotage + public faux-pas
+// record formal grievances). Insertion order is hash-relevant via
+// serializeRegistry's Map-key-only sort — `grievances` arrays serialize
+// in-place; UI render-time sort by GrievanceId is a separate concern.
+export const GrievanceSchema = z.object({
+  id: GrievanceIdSchema,
+  perpetratorHouseId: HouseIdSchema,
+  source: z.enum(GRIEVANCE_SOURCES),
+  schemeId: SchemeIdSchema.nullable(), // non-null when source === "Sabotage"
+  recordedAtTick: z.number().int().nonnegative(),
+  resolved: z.boolean(), // P8 ships duel resolution that flips this
+});
+export type Grievance = z.infer<typeof GrievanceSchema>;
 
 export const HouseSchema = z.object({
   id: HouseIdSchema,
@@ -37,6 +61,10 @@ export const HouseSchema = z.object({
   lastAudienceTick: z.number().int().nullable(),
   wardrobeLastRefreshTick: z.number().int().nullable(),
   blockadeBypassEarned: z.boolean(),
+  // P5 addition: list of grievances this house HOLDS against others (the
+  // house is the VICTIM, perpetrator referenced by perpetratorHouseId).
+  // Hash-relevant in insertion order; never reorder on save.
+  grievances: z.array(GrievanceSchema),
 });
 export type House = z.infer<typeof HouseSchema>;
 
@@ -76,6 +104,27 @@ export const MarriageRecordSchema = z.object({
 });
 export type MarriageRecord = z.infer<typeof MarriageRecordSchema>;
 
+// P5: Scheme entity. Spec §4 line 543 + §6 line 567 — references BOTH the
+// aggressor character AND the aggressor's owning house. accumulatedAffection
+// is hash-relevant but dead data at v1 (one-shot discovery per OQ #6
+// resolution); reserved for v1.5 multi-tick suspicion mechanic.
+// failureReason is the diff-helper's discriminator for Seduction's two
+// Failed paths (Discovered vs TargetDied).
+export const SchemeSchema = z.object({
+  id: SchemeIdSchema,
+  kind: z.enum(SCHEME_KINDS),
+  ownerHouseId: HouseIdSchema, // aggressor's house — owns the scheme (§6 line 567)
+  aggressorCharacterId: CharacterIdSchema, // §4 line 543 + §6 line 567
+  targetCharacterId: CharacterIdSchema.nullable(), // null for Smuggling only
+  startedAtTick: z.number().int().nonnegative(),
+  endsAtTick: z.number().int().nonnegative(), // ABSOLUTE end-tick (CLAUDE.md §2)
+  status: z.enum(SCHEME_STATUSES),
+  resolvedAtTick: z.number().int().nonnegative().nullable(),
+  failureReason: z.enum(SCHEME_FAILURE_REASONS).nullable(),
+  accumulatedAffection: z.number().int().nonnegative(), // v1: always 0; v1.5 future-suspicion
+});
+export type Scheme = z.infer<typeof SchemeSchema>;
+
 // GameState lives here (not in store.ts) so the rule layer can import it.
 // store.ts re-exports GameState/GameStateSchema for P0-era callers.
 //
@@ -98,5 +147,13 @@ export const GameStateSchema = z.object({
   // a single filter pass on NPC death.
   conversationHistory: z.map(ConversationPairKeySchema, z.array(ExchangeSchema)),
   affectionMap: z.map(ConversationPairKeySchema, z.number().int().min(0).max(100)),
+  // P5: scheme registry. In-memory `z.map(K, V)` so rules can call
+  // `state.schemes.get(schemeId)`; save-format `SaveV6Schema` uses
+  // `z.array(z.tuple([SchemeIdSchema, SchemeSchema]))`; bridged by
+  // serializeRegistry / deserializeRegistry. Grievances ride INSIDE
+  // House.grievances — NEVER top-level (the schema↔projection↔selector
+  // trip-wire only enforces top-level key equality; a misguided top-level
+  // state.grievances addition wouldn't be caught).
+  schemes: z.map(SchemeIdSchema, SchemeSchema),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

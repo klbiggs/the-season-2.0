@@ -12,6 +12,12 @@ export type TraitId = string & { readonly __brand: "TraitId" };
 // P4: branded session ID for ballroom sessions. Tick-derived (zero RNG
 // consumption); see plans/phases/04-ballroom-llm.md "BallSessionId".
 export type BallSessionId = string & { readonly __brand: "BallSessionId" };
+// P5: scheme + grievance branded identifiers. SchemeId is deterministic
+// (factory at fixtures/schemeIdFactory.ts: ${ownerHouseId}:${kind}:${tick}:${index}).
+// GrievanceId is also deterministic, derived from the source scheme id or
+// from the (perpetrator, source, tick, index) tuple for FauxPas grievances.
+export type SchemeId = string & { readonly __brand: "SchemeId" };
+export type GrievanceId = string & { readonly __brand: "GrievanceId" };
 
 // P3 (B1 fix): PLAYER_HOUSE_ID lives here, not in rng.seeds.ts, so that
 // src/game/rules/** can import it. rules → game-other is disallowed per
@@ -35,6 +41,12 @@ export const HouseIdSchema = z.string().transform((s) => s as HouseId);
 export const CharacterIdSchema = z.string().transform((s) => s as CharacterId);
 export const MarriageIdSchema = z.string().transform((s) => s as MarriageId);
 export const TraitIdSchema = z.string().transform((s) => s as TraitId);
+// P5: brand schemas for SchemeId / GrievanceId. Mirror the existing
+// `.transform` pattern so they compose into z.map(K, V) the same way the
+// other branded-string maps do (state.schemes uses z.map(SchemeIdSchema, ...)
+// and house.grievances arrays carry GrievanceId via id field).
+export const SchemeIdSchema = z.string().transform((s) => s as SchemeId);
+export const GrievanceIdSchema = z.string().transform((s) => s as GrievanceId);
 
 export const RngStateSchema = z.object({
   seed: z.string(),
