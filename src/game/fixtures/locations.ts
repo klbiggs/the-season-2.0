@@ -50,15 +50,18 @@ export const TRANSIT_PAIRS: ReadonlyArray<[LocationId, LocationId, number]> = [
 
 // CSS percentage coordinates for the absolute-positioned DOM pins over the
 // map backdrop. Values are relative to <MapView />'s positioned parent
-// container (NOT SVG viewBox coordinates). Tuning iterates at P16 polish.
+// container (NOT SVG viewBox coordinates). Tuned against the v3 generated
+// backdrop in public/map.png — each pin sits ABOVE or BELOW its city
+// illustration (offset into adjacent open terrain) to avoid covering the
+// artwork.
 export const LOCATION_PIN_COORDS: Record<LocationId, { x: number; y: number }> = {
-  Capital: { x: 68, y: 32 },
-  Country: { x: 72, y: 62 },
-  FinishingCapitalCultured: { x: 32, y: 42 },
-  FinishingCapitalPolitical: { x: 38, y: 58 },
-  CanalCity: { x: 24, y: 65 },
-  RenaissanceCity: { x: 28, y: 78 },
-  ForeignCapital: { x: 14, y: 24 },
+  Capital: { x: 58, y: 8 },
+  Country: { x: 80, y: 78 },
+  FinishingCapitalCultured: { x: 36, y: 52 },
+  FinishingCapitalPolitical: { x: 53, y: 53 },
+  CanalCity: { x: 13, y: 52 },
+  RenaissanceCity: { x: 30, y: 62 },
+  ForeignCapital: { x: 23, y: 33 },
 };
 
 export const LOCATION_LABELS: Record<LocationId, string> = {

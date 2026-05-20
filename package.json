@@ -16,7 +16,8 @@
     "lint:fix": "biome check --write src tests",
     "lint:boundaries": "eslint --config eslint.config.js src",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "generate:map": "node scripts/generate-map.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
