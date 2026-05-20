@@ -112,5 +112,7 @@ export function buildIndependentHouse(): House {
     blockadeBypassEarned: false,
     // P5: empty grievance list at fresh state.
     grievances: [],
+    // P6: not exiled at fresh state.
+    exiled: false,
   };
 }

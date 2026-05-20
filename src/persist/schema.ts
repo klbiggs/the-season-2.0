@@ -15,6 +15,7 @@ import {
   buildBaselineNpcCharacter,
   buildIndependentHouse,
 } from "../game/fixtures/npcs";
+import { buildBaselineStaffMap } from "../game/fixtures/staff";
 import {
   CharacterIdSchema,
   HouseIdSchema,
@@ -50,8 +51,9 @@ const HousePreV4Schema = z.object({
 });
 type HousePreV4 = z.infer<typeof HousePreV4Schema>;
 
-// P5: widen body to also default `grievances: []` so output is V6-compatible
-// after HouseSchema gains the grievances field. Function name retained.
+// P5/P6: widens body to default `grievances: []` AND `exiled: false` so
+// output is V7-compatible after HouseSchema gains both fields. Function
+// name retained.
 function defaultHouseV4Fields(h: HousePreV4): House {
   return {
     ...h,
@@ -61,6 +63,7 @@ function defaultHouseV4Fields(h: HousePreV4): House {
     wardrobeLastRefreshTick: null,
     blockadeBypassEarned: false,
     grievances: [], // NEW at P5
+    exiled: false, // NEW at P6
   };
 }
 
@@ -81,7 +84,7 @@ const HousePreV6Schema = HouseSchema.omit({ grievances: true });
 type HousePreV6 = z.infer<typeof HousePreV6Schema>;
 
 function defaultHouseV6Fields(h: HousePreV6): House {
-  return { ...h, grievances: [] };
+  return { ...h, grievances: [], exiled: false }; // P6 adds exiled: false
 }
 
 function liftLegacyHousesFromV6Pre(
@@ -200,10 +203,16 @@ function seedSchemesAndGrievancesIntoLegacyState(state: GameState): GameState {
   let mutatedAnyHouse = false;
   const houses = new Map(state.houses);
   for (const [id, h] of houses) {
-    // Defensive: HouseSchema makes grievances required, but a direct-lift
-    // path that bypasses Zod parse may produce houses without the field.
-    if ((h as House & { grievances?: Grievance[] }).grievances === undefined) {
-      houses.set(id, { ...h, grievances: [] });
+    // Defensive: HouseSchema makes grievances + exiled required, but a
+    // direct-lift path that bypasses Zod parse may produce houses without
+    // either field. P6 extends the guard with `exiled` symmetrically.
+    const hRelaxed = h as House & { grievances?: Grievance[]; exiled?: boolean };
+    if (hRelaxed.grievances === undefined || hRelaxed.exiled === undefined) {
+      houses.set(id, {
+        ...h,
+        grievances: hRelaxed.grievances ?? [],
+        exiled: hRelaxed.exiled ?? false,
+      });
       mutatedAnyHouse = true;
     }
   }
@@ -213,6 +222,55 @@ function seedSchemesAndGrievancesIntoLegacyState(state: GameState): GameState {
   return {
     ...state,
     schemes: needsSchemesDefault ? new Map() : state.schemes,
+    houses,
+  };
+}
+
+// ── seedWhispersCouriersStaffIntoLegacyState (P6) ────────────────────────
+// Idempotent helper: defaults state.whispers/.couriers to empty Maps, AND
+// seeds state.staff with buildBaselineStaffMap() ONLY when staff is missing
+// or empty (preserves runtime-mutated staff state on direct-lift re-entry).
+// Also defensively defaults each house's exiled flag to false (the Bare
+// cores' lift helpers already do this, but direct-lift paths that bypass
+// the Bare core may produce houses without the field).
+//
+// Called by the public fromSaveVN lifters (V1-V6) after the existing seed
+// helpers so direct-lift paths produce V7-shape GameStates. Migration
+// runner's V6→V7 step also calls this as the seed-side of bare+wrap.
+//
+// Idempotence: a state with non-empty staff is preserved unchanged (the
+// size-check `state.staff.size === 0` is the load-bearing branch — a
+// reassigned/bribed runtime state through the migration runner must NOT
+// reset to the baseline four).
+function seedWhispersCouriersStaffIntoLegacyState(state: GameState): GameState {
+  const needsWhispersDefault = (state as GameState & { whispers?: unknown }).whispers === undefined;
+  const needsCouriersDefault = (state as GameState & { couriers?: unknown }).couriers === undefined;
+  const staffRaw = (state as GameState & { staff?: GameState["staff"] }).staff;
+  const needsStaffSeed = staffRaw === undefined || staffRaw.size === 0;
+
+  // Houses: defensively default exiled per the same direct-lift discipline
+  // as seedSchemesAndGrievancesIntoLegacyState — the helper composes both;
+  // the order is seedSchemes... → seedWhispers... so the second pass sees
+  // already-defaulted grievances.
+  let mutatedAnyHouse = false;
+  const houses = new Map(state.houses);
+  for (const [id, h] of houses) {
+    const hRelaxed = h as House & { exiled?: boolean };
+    if (hRelaxed.exiled === undefined) {
+      houses.set(id, { ...h, exiled: false });
+      mutatedAnyHouse = true;
+    }
+  }
+
+  if (!needsWhispersDefault && !needsCouriersDefault && !needsStaffSeed && !mutatedAnyHouse) {
+    return state;
+  }
+
+  return {
+    ...state,
+    whispers: needsWhispersDefault ? new Map() : state.whispers,
+    couriers: needsCouriersDefault ? new Map() : state.couriers,
+    staff: needsStaffSeed ? buildBaselineStaffMap() : staffRaw,
     houses,
   };
 }
@@ -260,6 +318,9 @@ function fromSaveV1Bare(save: SaveV1): GameState {
     conversationHistory: new Map(),
     affectionMap: new Map(),
     schemes: new Map(),
+    whispers: new Map(),
+    couriers: new Map(),
+    staff: new Map(),
   };
 }
 
@@ -268,8 +329,10 @@ function fromSaveV1Bare(save: SaveV1): GameState {
 // loop as a no-op; correct because V1 saves have no houses (player is
 // seeded by migrate_v1_to_v2; Independent is seeded by seedIndependent here).
 export function fromSaveV1(save: SaveV1): GameState {
-  return seedSchemesAndGrievancesIntoLegacyState(
-    seedIndependentIntoLegacyState(fromSaveV1Bare(save), extractPlayerSeed(save.rng)),
+  return seedWhispersCouriersStaffIntoLegacyState(
+    seedSchemesAndGrievancesIntoLegacyState(
+      seedIndependentIntoLegacyState(fromSaveV1Bare(save), extractPlayerSeed(save.rng)),
+    ),
   );
 }
 
@@ -314,12 +377,17 @@ function fromSaveV2Bare(save: SaveV2): GameState {
     conversationHistory: new Map(),
     affectionMap: new Map(),
     schemes: new Map(),
+    whispers: new Map(),
+    couriers: new Map(),
+    staff: new Map(),
   };
 }
 
 export function fromSaveV2(save: SaveV2): GameState {
-  return seedSchemesAndGrievancesIntoLegacyState(
-    seedIndependentIntoLegacyState(fromSaveV2Bare(save), extractPlayerSeed(save.rng)),
+  return seedWhispersCouriersStaffIntoLegacyState(
+    seedSchemesAndGrievancesIntoLegacyState(
+      seedIndependentIntoLegacyState(fromSaveV2Bare(save), extractPlayerSeed(save.rng)),
+    ),
   );
 }
 
@@ -366,12 +434,17 @@ function fromSaveV3Bare(save: SaveV3): GameState {
     conversationHistory: new Map(),
     affectionMap: new Map(),
     schemes: new Map(),
+    whispers: new Map(),
+    couriers: new Map(),
+    staff: new Map(),
   };
 }
 
 export function fromSaveV3(save: SaveV3): GameState {
-  return seedSchemesAndGrievancesIntoLegacyState(
-    seedIndependentIntoLegacyState(fromSaveV3Bare(save), extractPlayerSeed(save.rng)),
+  return seedWhispersCouriersStaffIntoLegacyState(
+    seedSchemesAndGrievancesIntoLegacyState(
+      seedIndependentIntoLegacyState(fromSaveV3Bare(save), extractPlayerSeed(save.rng)),
+    ),
   );
 }
 
@@ -424,12 +497,17 @@ export function fromSaveV4Bare(save: SaveV4): GameState {
     conversationHistory: new Map(),
     affectionMap: new Map(),
     schemes: new Map(),
+    whispers: new Map(),
+    couriers: new Map(),
+    staff: new Map(),
   };
 }
 
 export function fromSaveV4(save: SaveV4): GameState {
-  return seedSchemesAndGrievancesIntoLegacyState(
-    seedIndependentIntoLegacyState(fromSaveV4Bare(save), extractPlayerSeed(save.rng)),
+  return seedWhispersCouriersStaffIntoLegacyState(
+    seedSchemesAndGrievancesIntoLegacyState(
+      seedIndependentIntoLegacyState(fromSaveV4Bare(save), extractPlayerSeed(save.rng)),
+    ),
   );
 }
 
@@ -483,12 +561,17 @@ export function fromSaveV5Bare(save: SaveV5): GameState {
     ) as GameState["conversationHistory"],
     affectionMap: deserializeRegistry(save.affectionMap) as GameState["affectionMap"],
     schemes: new Map(),
+    whispers: new Map(),
+    couriers: new Map(),
+    staff: new Map(),
   };
 }
 
 export function fromSaveV5(save: SaveV5): GameState {
   // V5 saves already contain Independent by schema; no seedIndependent call.
-  return seedSchemesAndGrievancesIntoLegacyState(fromSaveV5Bare(save));
+  return seedWhispersCouriersStaffIntoLegacyState(
+    seedSchemesAndGrievancesIntoLegacyState(fromSaveV5Bare(save)),
+  );
 }
 
 // ── SaveV6 (P5, live save format) ─────────────────────────────────────────
@@ -526,7 +609,10 @@ export function toSaveV6(state: GameState): SaveV6 {
   });
 }
 
-export function fromSaveV6(save: SaveV6): GameState {
+// Bare V6 reader — pure deserialization with empty defaults for the
+// post-P6 GameState fields (whispers/couriers/staff). Composed with the
+// seeder by the public fromSaveV6 wrapper.
+function fromSaveV6Bare(save: SaveV6): GameState {
   return {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
@@ -540,7 +626,17 @@ export function fromSaveV6(save: SaveV6): GameState {
     ) as GameState["conversationHistory"],
     affectionMap: deserializeRegistry(save.affectionMap) as GameState["affectionMap"],
     schemes: deserializeRegistry(save.schemes) as GameState["schemes"],
+    whispers: new Map(),
+    couriers: new Map(),
+    staff: new Map(),
   };
+}
+
+export function fromSaveV6(save: SaveV6): GameState {
+  // V6 saves don't carry whispers/couriers/staff; the seeder produces baseline
+  // staff and empty whispers/couriers so the resulting GameState matches a
+  // fresh-state hash post-P6.
+  return seedWhispersCouriersStaffIntoLegacyState(fromSaveV6Bare(save));
 }
 
 // Internal exports for the migration runner + tests

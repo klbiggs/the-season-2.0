@@ -18,9 +18,10 @@
 // (player head's deathAge only), unchanged from P3.
 
 import { LIFESPAN_RANGE } from "./constants";
-import type { Character, House } from "./entities";
+import type { Character, House, StaffMember } from "./entities";
 import { STARTING_HEAD_CHARACTER_ID, STARTING_HEAD_NAME } from "./fixtures/names";
 import { BASELINE_NPCS, buildBaselineNpcCharacter, buildIndependentHouse } from "./fixtures/npcs";
+import { BASELINE_STAFF, buildBaselineStaffMember } from "./fixtures/staff";
 import { type RngState, drawInt } from "./rng";
 import { PLAYER_HOUSE_ID } from "./rng";
 
@@ -28,6 +29,7 @@ export function seedStartingFamily(rngState: RngState): {
   rngState: RngState;
   houses: ReadonlyArray<House>;
   characters: ReadonlyArray<Character>;
+  staff: ReadonlyArray<StaffMember>;
 } {
   // Roll deathAge ∈ [70, 95] inclusive via drawInt(_, 26) + 70.
   // This is the ONLY draw consumed by this helper (NPC deathAges are
@@ -74,15 +76,22 @@ export function seedStartingFamily(rngState: RngState): {
     // P5: empty grievance list at fresh state. Symmetric with the V6 lift
     // (defaultHouseV4Fields/defaultHouseV6Fields both default this to []).
     grievances: [],
+    // P6: not exiled at fresh state. Symmetric with defaultHouseV*Fields
+    // helpers in schema.ts.
+    exiled: false,
   };
 
   // P4: Independent house + 5 NPCs. Built from constants — no RNG draws.
   const independentHouse = buildIndependentHouse();
   const npcs = BASELINE_NPCS.map(buildBaselineNpcCharacter);
+  // P6: 4 baseline household staff. Built from constants — no RNG draws.
+  // Draw budget preserved: only the player deathAge draw above consumes RNG.
+  const staff = BASELINE_STAFF.map(buildBaselineStaffMember);
 
   return {
     rngState: postDeathRoll,
     houses: [playerHouse, independentHouse],
     characters: [playerCharacter, ...npcs],
+    staff,
   };
 }

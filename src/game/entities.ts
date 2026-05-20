@@ -10,10 +10,16 @@
 
 import { z } from "zod";
 import {
+  COURIER_DIRECTIONS,
+  COURIER_PAYLOAD_TYPES,
+  COURIER_STATUSES,
   GRIEVANCE_SOURCES,
   SCHEME_FAILURE_REASONS,
   SCHEME_KINDS,
   SCHEME_STATUSES,
+  STAFF_ASSIGNMENTS,
+  WEAPONIZATION_BRANCHES,
+  WHISPER_STATUSES,
 } from "./constants";
 import { ConversationPairKeySchema, ExchangeSchema } from "./conversation/types";
 import { ArchetypeSchema } from "./fixtures/archetypes";
@@ -22,12 +28,15 @@ import { MoodSchema } from "./fixtures/moods";
 import { RoleSchema } from "./fixtures/roles";
 import {
   CharacterIdSchema,
+  CourierPayloadIdSchema,
   GrievanceIdSchema,
   HouseIdSchema,
   MarriageIdSchema,
   RngStateSchema,
   SchemeIdSchema,
+  StaffIdSchema,
   TraitIdSchema,
+  WhisperIdSchema,
 } from "./rng";
 
 // P5: Grievance entity. Stored on House.grievances array (the house is the
@@ -65,6 +74,11 @@ export const HouseSchema = z.object({
   // house is the VICTIM, perpetrator referenced by perpetratorHouseId).
   // Hash-relevant in insertion order; never reorder on save.
   grievances: z.array(GrievanceSchema),
+  // P6 addition: terminal-state flag set by the Scandal Sheet attribution
+  // endgame (spec §3 line 462). Default false on fresh state and every
+  // legacy lift. When true, the campaign is "out of bounds" — the rule-layer
+  // exile gate rejects all player-elected mutation actions.
+  exiled: z.boolean(),
 });
 export type House = z.infer<typeof HouseSchema>;
 
@@ -125,6 +139,71 @@ export const SchemeSchema = z.object({
 });
 export type Scheme = z.infer<typeof SchemeSchema>;
 
+// P6: Whisper entity. Spec §4 line 542. `status` is the canonical state
+// machine; `weaponizedAs` discriminates which weaponization branch the
+// player chose; `scandalSheetAttribution` is the attribution-roll outcome
+// (null until weaponized as ScandalSheet); `accidentalSlipDripsRemaining`
+// is the per-conversation drip counter (0 unless weaponized as
+// AccidentalSlip). `llmGenerated` distinguishes deterministic synergy
+// whispers from LLM-additive whispers — hash-relevant for replay debug.
+export const WhisperSchema = z.object({
+  id: WhisperIdSchema,
+  text: z.string(),
+  originatingTick: z.number().int().nonnegative(),
+  sourceCharacterId: CharacterIdSchema,
+  subjectCharacterId: CharacterIdSchema,
+  destinationHouseId: HouseIdSchema,
+  arrivedAtTick: z.number().int().nonnegative().nullable(),
+  verificationProgress: z.number().int().min(0).max(100),
+  status: z.enum(WHISPER_STATUSES),
+  weaponizedAs: z.enum(WEAPONIZATION_BRANCHES).nullable(),
+  weaponizedAtTick: z.number().int().nonnegative().nullable(),
+  scandalSheetAttribution: z.boolean().nullable(),
+  accidentalSlipDripsRemaining: z.number().int().min(0),
+  llmGenerated: z.boolean(),
+});
+export type Whisper = z.infer<typeof WhisperSchema>;
+
+// P6: CourierPayload entity. Spec §4 line 545. `whisperId` is REQUIRED at
+// v1 (only "Whisper" payloadType ships); `direction` is stored explicitly
+// so P8 multi-house routing can filter without deriving; `interceptable`
+// gates the Spymaster + InterceptMail filter. `arrivalTick` is absolute
+// per CLAUDE.md non-negotiable #2.
+export const CourierPayloadSchema = z.object({
+  id: CourierPayloadIdSchema,
+  payloadType: z.enum(COURIER_PAYLOAD_TYPES),
+  whisperId: WhisperIdSchema,
+  originHouseId: HouseIdSchema,
+  destinationHouseId: HouseIdSchema,
+  originLocation: LocationIdSchema,
+  destinationLocation: LocationIdSchema,
+  originTick: z.number().int().nonnegative(),
+  arrivalTick: z.number().int().nonnegative(),
+  interceptable: z.boolean(),
+  direction: z.enum(COURIER_DIRECTIONS),
+  status: z.enum(COURIER_STATUSES),
+  resolvedAtTick: z.number().int().nonnegative().nullable(),
+});
+export type CourierPayload = z.infer<typeof CourierPayloadSchema>;
+
+// P6: StaffMember entity. Spec §4 line 558. Staff are a separate entity type
+// from Character — no mood, no traits array, no aging. `isGreedy` is the
+// only trait that matters at v1 (bribery-risk multiplier per spec §3 line
+// 204). `lastOutputTick: null` means "never produced"; set to state.tick
+// after first cadence fire OR first reassignment.
+export const StaffMemberSchema = z.object({
+  id: StaffIdSchema,
+  houseId: HouseIdSchema,
+  name: z.string(),
+  isGreedy: z.boolean(),
+  loyalty: z.number().int().min(0).max(100),
+  upkeepPerTick: z.number().int().positive(),
+  assignment: z.enum(STAFF_ASSIGNMENTS),
+  lastOutputTick: z.number().int().nullable(),
+  bribedAtTick: z.number().int().nonnegative().nullable(),
+});
+export type StaffMember = z.infer<typeof StaffMemberSchema>;
+
 // GameState lives here (not in store.ts) so the rule layer can import it.
 // store.ts re-exports GameState/GameStateSchema for P0-era callers.
 //
@@ -155,5 +234,13 @@ export const GameStateSchema = z.object({
   // trip-wire only enforces top-level key equality; a misguided top-level
   // state.grievances addition wouldn't be caught).
   schemes: z.map(SchemeIdSchema, SchemeSchema),
+  // P6: whisper / courier / staff registries. Same in-memory z.map / save-
+  // format z.array(z.tuple) bridge as schemes. Whispers and couriers grow
+  // monotonically across a campaign (never deleted; status flips only).
+  // Staff seeded at campaign start (4 baseline members) and durable for
+  // the campaign's lifetime; no runtime hire affordance at v1.
+  whispers: z.map(WhisperIdSchema, WhisperSchema),
+  couriers: z.map(CourierPayloadIdSchema, CourierPayloadSchema),
+  staff: z.map(StaffIdSchema, StaffMemberSchema),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

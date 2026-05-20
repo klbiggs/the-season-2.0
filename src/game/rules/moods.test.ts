@@ -30,6 +30,9 @@ function makeState(overrides: Partial<GameState>): GameState {
     conversationHistory: new Map(),
     affectionMap: new Map(),
     schemes: new Map(),
+    whispers: new Map(),
+    couriers: new Map(),
+    staff: new Map(),
     ...overrides,
   };
 }

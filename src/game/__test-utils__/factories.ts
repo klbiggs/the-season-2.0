@@ -49,6 +49,8 @@ export function makeHouse(overrides: Partial<House> = {}): House {
     blockadeBypassEarned: false,
     // P5 default — empty grievance list.
     grievances: [],
+    // P6 default — not exiled at fresh state.
+    exiled: false,
     ...overrides,
   };
 }

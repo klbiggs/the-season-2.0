@@ -360,3 +360,112 @@ export const SCHEME_ERA_REQUIREMENTS: Readonly<Record<SchemeKind, "Earlier" | "L
 // fixtures rebuild against the live value at test-run time. Placeholder 200
 // ≈ 10 in-game years at ~20 ticks/year.
 export const ERA_TRANSITION_TICK = 200 as const;
+
+// ── P6: Whispers, Espionage & Staff ──────────────────────────────────────
+
+// Enum constants for the new P6 entities + their state machines. Each enum
+// is guarded by a module-load assertion below — additions require a save-
+// version bump (the enum values participate in the hash projection via
+// Whisper.status, CourierPayload.status, etc.).
+
+export const WHISPER_STATUSES = ["Unverified", "Verified", "Weaponized", "Dismissed"] as const;
+export type WhisperStatus = (typeof WHISPER_STATUSES)[number];
+
+export const WEAPONIZATION_BRANCHES = ["Blackmail", "ScandalSheet", "AccidentalSlip"] as const;
+export type WeaponizationBranch = (typeof WEAPONIZATION_BRANCHES)[number];
+
+export const STAFF_ASSIGNMENTS = [
+  "Snoop",
+  "BribeDriver",
+  "InterceptMail",
+  "None",
+  "BribedByRival",
+] as const;
+export type StaffAssignment = (typeof STAFF_ASSIGNMENTS)[number];
+
+export const COURIER_STATUSES = ["InFlight", "Delivered", "Intercepted", "Cancelled"] as const;
+export type CourierStatus = (typeof COURIER_STATUSES)[number];
+
+export const COURIER_PAYLOAD_TYPES = ["Whisper"] as const; // "Letter" reserved for P11
+export type CourierPayloadType = (typeof COURIER_PAYLOAD_TYPES)[number];
+
+export const COURIER_DIRECTIONS = ["Inbound", "Outbound"] as const;
+export type CourierDirection = (typeof COURIER_DIRECTIONS)[number];
+
+// Module-load cardinality assertions. Guard against future enum additions
+// landing without a save-version bump. Symmetric with P5's SCHEME_KINDS
+// guard above.
+if (WHISPER_STATUSES.length !== 4) {
+  throw new Error(
+    `WHISPER_STATUSES length changed (${WHISPER_STATUSES.length} !== 4) without save-version bump — bump SAVE_VERSION_CURRENT and add migration`,
+  );
+}
+if (WEAPONIZATION_BRANCHES.length !== 3) {
+  throw new Error(
+    `WEAPONIZATION_BRANCHES length changed (${WEAPONIZATION_BRANCHES.length} !== 3) without save-version bump`,
+  );
+}
+if (STAFF_ASSIGNMENTS.length !== 5) {
+  throw new Error(
+    `STAFF_ASSIGNMENTS length changed (${STAFF_ASSIGNMENTS.length} !== 5) without save-version bump`,
+  );
+}
+if (COURIER_STATUSES.length !== 4) {
+  throw new Error(
+    `COURIER_STATUSES length changed (${COURIER_STATUSES.length} !== 4) without save-version bump`,
+  );
+}
+if (COURIER_PAYLOAD_TYPES.length !== 1) {
+  throw new Error(
+    `COURIER_PAYLOAD_TYPES length changed (${COURIER_PAYLOAD_TYPES.length} !== 1) without save-version bump (Letter variant is reserved for P11)`,
+  );
+}
+if (COURIER_DIRECTIONS.length !== 2) {
+  throw new Error(
+    `COURIER_DIRECTIONS length changed (${COURIER_DIRECTIONS.length} !== 2) without save-version bump`,
+  );
+}
+
+// Whisper verification cadence. Spec §3 line 519: "after sufficient ticks
+// of verification progress past 100". +10 per tick → 10 ticks to verify
+// once arrived at destination. Designer-tunable.
+export const WHISPER_VERIFICATION_PER_TICK = 10;
+export const WHISPER_VERIFICATION_THRESHOLD = 100;
+
+// Three weaponization branches (spec §3 "Whisper Weaponization Branches").
+
+// Blackmail: modest scandal cost + small certain reward.
+export const BLACKMAIL_SCANDAL_COST = 10;
+export const BLACKMAIL_AFFECTION_BOOST = 20;
+
+// Scandal Sheet: no scandal cost, large reputation damage, 15% self-exile risk.
+export const SCANDAL_SHEET_REPUTATION_DROP = 30;
+export const SCANDAL_SHEET_ATTRIBUTION_PROBABILITY = 0.15;
+
+// Accidental Slip: drip-feed reputation damage over 5 conversation turns.
+export const ACCIDENTAL_SLIP_DURATION_TICKS = 5;
+export const ACCIDENTAL_SLIP_DRIP_PER_CONVERSATION = -2;
+
+// Spymaster intercept (P6 rule layer ships; UI disabled until P7's
+// classifyArchetype produces real archetypes).
+export const SPYMASTER_INTERCEPT_WEALTH_COST = 10;
+
+// Staff espionage tuning (spec §3 "Staff Espionage").
+export const STAFF_UPKEEP_DEFAULT = 1;
+export const STAFF_LOYALTY_DRIFT_UNDERPAID_PER_TICK = -1;
+export const STAFF_LOYALTY_DRIFT_GREEDY_UNDERPAID_PER_TICK = -2;
+export const STAFF_BRIBERY_LOYALTY_THRESHOLD = 30;
+export const STAFF_BRIBERY_PROBABILITY_BASE = 0.05;
+
+// Per-assignment cadences (ticks between outputs).
+export const STAFF_SNOOP_CADENCE_TICKS = 8;
+export const STAFF_BRIBE_DRIVER_CADENCE_TICKS = 12;
+export const STAFF_INTERCEPT_MAIL_CADENCE_TICKS = 10;
+export const STAFF_BRIBED_BY_RIVAL_CADENCE_TICKS = 6;
+
+// P6: persona prompt format version bump — invalidates P4/P5 in-memory
+// persona caches whose systemInstruction lacks the new "Other characters
+// in this scene" section. Hash-irrelevant (lives in code, not state); future
+// persona-prompt format changes MUST bump this constant to force cache
+// re-creation on deploy.
+export const PERSONA_CACHE_VERSION = "v2" as const;

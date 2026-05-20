@@ -18,6 +18,16 @@ export type BallSessionId = string & { readonly __brand: "BallSessionId" };
 // from the (perpetrator, source, tick, index) tuple for FauxPas grievances.
 export type SchemeId = string & { readonly __brand: "SchemeId" };
 export type GrievanceId = string & { readonly __brand: "GrievanceId" };
+// P6: whisper / courier-payload / staff branded identifiers. WhisperId is
+// deterministic (factory at fixtures/whisperIdFactory.ts:
+// `${sourceCharacterId}:${subjectCharacterId}:${tick}:${index}`).
+// CourierPayloadId is deterministic
+// (`courier:${originHouseId}:${tick}:${index}`).
+// StaffId is constant per BASELINE_STAFF in fixtures/staff.ts; no runtime
+// factory at v1 (no "hire new staff" affordance; reserved for P15+).
+export type WhisperId = string & { readonly __brand: "WhisperId" };
+export type CourierPayloadId = string & { readonly __brand: "CourierPayloadId" };
+export type StaffId = string & { readonly __brand: "StaffId" };
 
 // P3 (B1 fix): PLAYER_HOUSE_ID lives here, not in rng.seeds.ts, so that
 // src/game/rules/** can import it. rules → game-other is disallowed per
@@ -47,6 +57,12 @@ export const TraitIdSchema = z.string().transform((s) => s as TraitId);
 // and house.grievances arrays carry GrievanceId via id field).
 export const SchemeIdSchema = z.string().transform((s) => s as SchemeId);
 export const GrievanceIdSchema = z.string().transform((s) => s as GrievanceId);
+// P6: brand schemas for WhisperId / CourierPayloadId / StaffId. Same
+// `.transform` pattern; state.whispers / state.couriers / state.staff use
+// z.map(K, V) keyed on these brands.
+export const WhisperIdSchema = z.string().transform((s) => s as WhisperId);
+export const CourierPayloadIdSchema = z.string().transform((s) => s as CourierPayloadId);
+export const StaffIdSchema = z.string().transform((s) => s as StaffId);
 
 export const RngStateSchema = z.object({
   seed: z.string(),

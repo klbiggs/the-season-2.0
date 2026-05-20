@@ -16,6 +16,7 @@ import {
 import {
   type Character,
   CharacterSchema,
+  type CourierPayload,
   type GameState,
   GameStateSchema,
   type Grievance,
@@ -24,11 +25,14 @@ import {
   type MarriageRecord,
   MarriageRecordSchema,
   type Scheme,
+  type StaffMember,
+  type Whisper,
 } from "./entities";
 import type { LocationId } from "./fixtures/locations";
 import {
   type BallSessionId,
   type CharacterId,
+  type CourierPayloadId,
   type GrievanceId,
   type HouseId,
   INDEPENDENT_HOUSE_ID,
@@ -36,6 +40,8 @@ import {
   PLAYER_HOUSE_ID,
   type RngState,
   type SchemeId,
+  type StaffId,
+  type WhisperId,
   createRngState,
 } from "./rng";
 import { applyBankruptcyEscape, canEscapeBankruptcy } from "./rules/bankruptcyEscape";
@@ -96,6 +102,10 @@ export function createInitialState(
   for (const h of seeded.houses) houses.set(h.id, h);
   const characters = new Map<CharacterId, Character>();
   for (const c of seeded.characters) characters.set(c.id, c);
+  // P6: staff Map mirrors the houses/characters parallel-loop pattern;
+  // populated from BASELINE_STAFF via seedStartingFamily.
+  const staff = new Map<StaffId, StaffMember>();
+  for (const s of seeded.staff) staff.set(s.id, s);
   return {
     tick: 0,
     rng,
@@ -110,6 +120,12 @@ export function createInitialState(
     // P5: empty scheme registry. Grievances ride inside House.grievances —
     // see seedStartingFamily for the empty-array defaults on player + Independent.
     schemes: new Map<SchemeId, Scheme>(),
+    // P6: empty whisper/courier registries at fresh state; staff seeded from
+    // BASELINE_STAFF above. Whispers and couriers are produced at runtime
+    // (synergy hits, staff cadences, LLM-additive ingest).
+    whispers: new Map<WhisperId, Whisper>(),
+    couriers: new Map<CourierPayloadId, CourierPayload>(),
+    staff,
   };
 }
 
@@ -198,6 +214,16 @@ function overwriteFromGameState(draft: GameState, next: GameState): void {
   // not the Immer-draft helper's writes. Without this line, every tick-
   // advancing action silently clears state.schemes.
   draft.schemes = next.schemes;
+  // P6: whisper/courier/staff registries. Same "OFTEN-FORGOTTEN fourth
+  // surface" trap as schemes — the schema-projection-selector trip-wire
+  // only enforces top-level keyset equality across GameStateSchema /
+  // hashableState / selectGameState; this helper is a write-side mirror,
+  // not a projection. Without these three lines, every tick-advancing
+  // action silently clears the new Maps. Exiled (the House field) rides
+  // inside `next.houses` and is covered by the draft.houses write above.
+  draft.whispers = next.whispers;
+  draft.couriers = next.couriers;
+  draft.staff = next.staff;
 }
 
 export function createStore({ seed }: { seed: string }): SeasonStore {
@@ -664,5 +690,11 @@ export function selectGameState(state: StoreState): GameState {
     // equality but won't catch a misplaced top-level addition because
     // grievances belong on the House entity per spec §4 line 541.
     schemes: state.schemes,
+    // P6 additions. Exiled rides inside houses (per-house terminal flag);
+    // whispers/couriers/staff are top-level Maps mirrored across the four
+    // schema↔projection↔selector↔overwriteFromGameState surfaces.
+    whispers: state.whispers,
+    couriers: state.couriers,
+    staff: state.staff,
   };
 }

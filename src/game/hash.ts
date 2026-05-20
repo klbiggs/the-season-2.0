@@ -1,7 +1,25 @@
 import { createHash } from "node:crypto";
 import type { ConversationPairKey, Exchange } from "./conversation/types";
-import type { Character, GameState, House, MarriageRecord, Scheme } from "./entities";
-import type { CharacterId, HouseId, MarriageId, RngState, SchemeId } from "./rng";
+import type {
+  Character,
+  CourierPayload,
+  GameState,
+  House,
+  MarriageRecord,
+  Scheme,
+  StaffMember,
+  Whisper,
+} from "./entities";
+import type {
+  CharacterId,
+  CourierPayloadId,
+  HouseId,
+  MarriageId,
+  RngState,
+  SchemeId,
+  StaffId,
+  WhisperId,
+} from "./rng";
 import { serializeRegistry } from "./rng";
 
 // Project the store state to a JSON-safe value. Each later phase that adds
@@ -26,6 +44,9 @@ export function hashableState(state: GameState): {
   conversationHistory: Array<[ConversationPairKey, Exchange[]]>;
   affectionMap: Array<[ConversationPairKey, number]>;
   schemes: Array<[SchemeId, Scheme]>;
+  whispers: Array<[WhisperId, Whisper]>;
+  couriers: Array<[CourierPayloadId, CourierPayload]>;
+  staff: Array<[StaffId, StaffMember]>;
 } {
   return {
     tick: state.tick,
@@ -38,6 +59,11 @@ export function hashableState(state: GameState): {
     conversationHistory: serializeRegistry(state.conversationHistory),
     affectionMap: serializeRegistry(state.affectionMap),
     schemes: serializeRegistry(state.schemes),
+    // P6: whisper/courier/staff registries. House.exiled is projected via
+    // serializeRegistry(state.houses) — no per-House-field edit needed here.
+    whispers: serializeRegistry(state.whispers),
+    couriers: serializeRegistry(state.couriers),
+    staff: serializeRegistry(state.staff),
   };
 }
 

@@ -63,12 +63,15 @@ describe("hashableState", () => {
       "campaignName",
       "characters",
       "conversationHistory",
+      "couriers",
       "era",
       "houses",
       "marriages",
       "rng",
       "schemes",
+      "staff",
       "tick",
+      "whispers",
     ]);
   });
   it("converts Map to sorted Array<[K, V]>", () => {
@@ -105,6 +108,9 @@ describe("hashState — Map reorder invariance", () => {
         conversationHistory: new Map(),
         affectionMap: new Map(),
         schemes: new Map(),
+        whispers: new Map(),
+        couriers: new Map(),
+        staff: new Map(),
       }),
     ).toBe(
       hashState({
@@ -118,6 +124,9 @@ describe("hashState — Map reorder invariance", () => {
         conversationHistory: new Map(),
         affectionMap: new Map(),
         schemes: new Map(),
+        whispers: new Map(),
+        couriers: new Map(),
+        staff: new Map(),
       }),
     );
   });

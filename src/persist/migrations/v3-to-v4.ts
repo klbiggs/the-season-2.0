@@ -28,6 +28,12 @@ export function migrate_v3_to_v4(save: SaveV3): SaveV4 {
         lastAudienceTick: null,
         wardrobeLastRefreshTick: null,
         blockadeBypassEarned: false,
+        // P6 transitional: SaveV4Schema's houses tuple uses HousePreV6Schema
+        // (= HouseSchema.omit({grievances:true})). Post-P6 HouseSchema gains
+        // `exiled`, so HousePreV6Schema now requires `exiled` too. Commit 2
+        // introduces HousePreV7Schema and re-targets V4/V5/V6 schemas; until
+        // then this default keeps the migration emitter passing Zod parse.
+        exiled: false,
       },
     ]),
     characters: save.characters,
