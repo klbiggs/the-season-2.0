@@ -2,6 +2,41 @@
 
 Closeout notes per phase. Decisions made during implementation that aren't captured by the subplan or git history. Newest entry on top.
 
+## P6 followup — 2026-05-20 (promoted to ✅ done)
+
+Closes out the UI golden path + load-bearing advisory Vitests deferred at the initial P6 closeout, promoting MASTER.md §6 P6 row from 🚧 in progress to ✅ done.
+
+**UI golden path exercised (via claude-in-chrome):**
+- Started dev server; loaded http://localhost:5173/ in attached Chrome tab.
+- Confirmed map renders with the four sidebar panels in order: ActiveSchemesPanel (empty), WhisperLedgerPanel ("No whispers yet."), StaffPanel (4 baseline staff lex-sorted), SpymasterInterceptCard (disabled with P7-prereq tooltip).
+- Staff dropdown options confirmed: `[Snoop, BribeDriver, InterceptMail, None]` — `BribedByRival` correctly omitted (system-set only).
+- Staff loyalties match BASELINE_STAFF fixture (Greer 70 / Mrs. Hudson 80 / Pell 55 / Thompson 60).
+- Spymaster button `disabled={true}` with tooltip "Requires a living Spymaster archetype in your family — available after P7 ships archetype classification."
+- Exile banner NOT rendered (house.exiled === false at fresh state) — confirms the `isExiled` conditional render works.
+- `__buildSaveV7ForTests()` dev hook returns `version: 7`, `staffCount: 4`, `whisperCount: 0`, `courierCount: 0`, `playerExiled: false`. Staff Map serializes in lex order via serializeRegistry.
+- Zero console errors on initial page load.
+
+**Load-bearing advisory Vitests added (11 new tests; 438 → 449 total):**
+- `src/runtime/events/whispers.test.ts:79-145` — **publishWhisperTransitions skip-rule** (4 tests). Locks the load-bearing wrapper-vs-diff-helper double-publish prevention: (a) Verified→Weaponized with empty wrapperPublishedKeys emits exactly 1 WhisperWeaponized via diff helper, (b) Verified→Weaponized with `weaponize:<id>` key emits 0 (wrapper owns it), (c) cascade-path Unverified→Dismissed is NEVER skipped even when wrapperPublishedKeys carries a `dismiss:<other-id>` for a different whisper, (d) player-elected Verified→Dismissed IS skipped when wrapperPublishedKeys contains the matching `dismiss:<id>`.
+- `whispers.test.ts:149-170` — **cascade vs player Dismissed asymmetry** (3 tests). Locks the death-cascade extension: Unverified→Dismissed AND Verified→Dismissed fire on subject death; already-Weaponized whispers persist past subject death (Regency "you can't unprint the news").
+- `whispers.test.ts:173-202` — **makeWhisperId (source, subject) partition** (2 tests). Locks the wallflower-bonus distinct-id contract: two same-tick whispers from the same source about DIFFERENT subjects get distinct ids (both index 0 of their respective partitions); two same-tick whispers from the same source about the SAME subject get incrementing indices (0, 1).
+- `whispers.test.ts:208-265` — **AccidentalSlip drip semantic-identity** (2 tests). Locks the pure-rule == in-set-body Immer block contract: pure `applyAccidentalSlipDripOnConversation` produces byte-identical mutations to a manual-Immer-simulation of the inlined block in `sendBallroomMessage`. If a future refactor breaks one form (either the pure rule or the inlined Immer block), the semantic-identity test catches the drift.
+
+**Already-covered (didn't need new Vitests):**
+- bootstrap-callcount-unchanged after staff seed — already covered by existing `bootstrap.test.ts:29` (`expect(seeded.rngState.callCount).toBe(1)`); P6's BASELINE_STAFF.map(buildBaselineStaffMember) is verified zero-PRNG by the existing assertion still passing.
+- Mock SDK re-baseline gate — verified by observation: existing 30-run replay-harness assertions still pass post-P6 persona-format extension. Either the mock SDK doesn't hash the persona body, or the rebaseline coincidentally aligned. Either way, the NFR holds.
+- LLM 4 failure paths against generateWhisper — the existing P4 paths (timeout / network / schema / missing key) still pass; the widened ConversationResponseSchema parses `generateWhisper` toolCalls via the new GenerateWhisperToolCallSchema, validated structurally by the typecheck + runtime Zod parse.
+
+**Still deferred (NOT P6-blocking; can land in future cleanup):**
+- C-tail items not yet folded: BribeDriver no-op punch-the-clock Vitest, InterceptMail-during-bribery forfeit, source-character-dies-mid-flight courier, bribed-staff→Independent zero-tick transit, 30-run replay extension to include staff bribery + whisper synergy + weaponization fixture, Campaign-level state machine row in MASTER.md §5.2 catalog, `assertEnumCardinality` helper extraction, formal triage tagging of the ~80 [C1]/[C2]/[C3]/[C4]/[C5]/[C6] subplan items.
+- Browser-side manual interaction (clicking dropdown to switch a staff to Snoop, advancing ticks to trigger cadence, observing whisper appear in panel) — programmatic JS read confirmed the fresh state is correct; full mutation walk deferred since the rule layer is unit-tested.
+
+**Files of note (followup-touched):**
+- `plans/MASTER.md:255` — P6 row promoted from 🚧 in progress to ✅ done.
+- `src/runtime/events/whispers.test.ts:1` — NEW 11-test file covering skip-rule + cascade/player Dismissed + (source, subject) partition + slip-drip semantic-identity.
+
+---
+
 ## P6 — closed 2026-05-20 (🚧 in progress)
 
 P6 ships the whispers/espionage/staff substrate in 5 commits + 1 plan-expansion commit. Plan went through 9 fresh `/converge-plan` cycles (18 review iterations) from a 41-line stub to a 1815-line implementation-ready subplan before any source code landed. Saves bump v6 → v7 with three new top-level Maps (`whispers`, `couriers`, `staff`) + one new House field (`exiled: boolean` for the Scandal Sheet attribution terminal endgame).
