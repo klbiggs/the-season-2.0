@@ -2,6 +2,71 @@
 
 Closeout notes per phase. Decisions made during implementation that aren't captured by the subplan or git history. Newest entry on top.
 
+## P6 — closed 2026-05-20 (🚧 in progress)
+
+P6 ships the whispers/espionage/staff substrate in 5 commits + 1 plan-expansion commit. Plan went through 9 fresh `/converge-plan` cycles (18 review iterations) from a 41-line stub to a 1815-line implementation-ready subplan before any source code landed. Saves bump v6 → v7 with three new top-level Maps (`whispers`, `couriers`, `staff`) + one new House field (`exiled: boolean` for the Scandal Sheet attribution terminal endgame).
+
+**Status: 🚧 in progress.** Matches the P5 precedent — initial close-out marks 🚧 with the deferred Vitests + UI manual checks; promote to ✅ done in a followup commit after the gaps land.
+
+**Decisions made:**
+- OQ #19 (staff espionage in v1): **Resolved YES** — 4 baseline staff (Mrs. Hudson / Thompson / Greer / Pell), 5 assignment slots, per-tick loyalty drift on underpayment (Greedy faster), per-tick bribery roll for Greedy sub-threshold staff, cadence-based outputs per assignment.
+- OQ #20 (three weaponization branches simultaneously): **Resolved ALL THREE in v1** — Blackmail (small certain cost / certain reward), ScandalSheet (no scandal cost / large damage / 15% self-exile attribution), AccidentalSlip (no scandal cost / slow drip across 5 conversation turns).
+- BribeDriver subject-selection at v1: lex-smallest non-player NPC (same set as Snoop; only cadence differs). The plan's earlier "most-recent travel target" wording was prose-vs-code contradiction; no `lastTravelTarget` field exists on House at v1.
+- Exile gate strategy: **per-action rule-layer enforcement** (rejected: single-orchestrator gate). Free-action wrappers (startScheme / cancelScheme / weaponizeWhisper / dismissWhisper / assignStaff / spymasterIntercept) don't pass through `advanceTickPure` — per-action is the only correct path. `sendBallroomMessage` / `exitBallroom` / `abortBallroomRequest` / `replaceState` exempt per pinned rationale (sendBallroomMessage's `ConversationFailure` uses `reason:` string discriminator incompatible with the `{kind}` shape; the gate happens upstream at `enterBallroom`).
+- Persona cache version bump: `PERSONA_CACHE_VERSION = "v2"` as a constants.ts entry; cache.ts CacheKey extended to `${CharacterId}|${Model}|${version}` so P4-P5 caches auto-miss on post-P6 lookup. Server-side `displayName` partitions on the version suffix as defense-in-depth.
+- `lastOutputTick: null` reset foot-gun: applied to BOTH `tryAssignStaff` AND the bribery-roll write-site in `applyStaffOutputsPhase` — `null` resets the cadence to ALWAYS-FIRE-NEXT-TICK via the `?? -cadence` fallback. Both paths set `lastOutputTick: state.tick` instead.
+- 4-Map accumulator pattern in `applyStaffOutputsPhase`: clones `acc.rng + acc.staff + acc.whispers + acc.couriers` per iteration so `makeWhisperId`/`makeCourierPayloadId` index walks see prior iterations' creations. Prevents same-tick same-(source,subject) id collisions across multi-staff cadence outputs.
+- `pruneOrphanedConversationKeys` whisper extension: Unverified/Verified whispers about newly-dead subjects flip to `Dismissed`; already-Weaponized whispers persist past subject death (Regency-flavor "you can't unprint the news"). Both year-pass deaths (`applyAgingStep`) AND tick-phase Assassination kills inherit the cascade through the shared helper.
+- `wrapperPublishedKeys` discriminator for diff helper double-publish prevention. Player-action wrappers publish their owned event directly AND pass `new Set(["weaponize:" + id])` etc. to `publishWhisperTransitions`; the diff helper skips matching transitions. Module-level `EMPTY_KEYS` constant for tick-advance callers (no per-call Set allocation).
+- Single canonical `WhisperEvent` declaration (resolved a dual-declaration drift that surfaced during converge-plan cycle 2). `PlayerExileBlocked` variant lives in the canonical union at the bus declaration; the exile-gate prose references it but does NOT re-declare.
+- LLM tool surface widening at THREE layers: `tools.ts` JSON-schema `items` constraint, `types.ts` Zod schema (`GenerateWhisperToolCallSchema`), `narrowResponse` `as never[]` cast drop. `client.ts:56` registers both `RESPOND_TOOL` and `GENERATE_WHISPER_TOOL`; `allowedFunctionNames` stays `["respond"]`.
+- Migration mid-chain seed-and-strip "waste" is INTENTIONAL — `fromSaveV5(save)` seeds whispers/couriers/staff, `toSaveV6` strips them; `migrate_v6_to_v7` re-seeds via `fromSaveV6Bare + seedWhispersCouriersStaff`. Keeping the V1-V5 wrapper extensions ensures direct-lift consumers (test fixtures) produce V7-shape state without going through the runner. Documented inline in `v6-to-v7.ts`.
+
+**Open questions hit:**
+- None new during implementation; the 2 P6-relevant OQs (#19, #20) were resolved at the plan-expansion stage with defaults from MASTER.md §10.
+
+**Deferred / next-up (promote to ✅ done in a followup):**
+- **UI golden path** not exercised in a browser. Per CLAUDE.md "if you can't test the UI, say so explicitly rather than claiming success" — the panels (`WhisperLedgerPanel`, `StaffPanel`, `SpymasterInterceptCard`, exile banner) typecheck and render-by-construction but no manual happy-path walk.
+- **Mock SDK re-baseline** for the persona-prompt extension. The plan flagged this as a HARD verification gate; the existing 30-run replay-harness assertions still pass against post-P6 persona format, suggesting either no mock-SDK hash dependency on persona text OR the rebaseline coincidentally aligned. Audit needed: trace through `src/llm/__test-utils__/` if it exists, confirm mock SDK doesn't hash the persona body.
+- **LLM 4 failure paths against `generateWhisper` toolCall**. Existing P4 paths (timeout / network / schema / missing-key) still pass; P6's widened `toolCalls` schema not re-exercised.
+- **Advisory Vitests deferred per plan body**:
+  - publishWhisperTransitions skip-rule (counting subscriber → 1 event per wrapper call, not 2)
+  - bootstrap callcount unchanged after staff seed (`expect(seedStartingFamily(rng).rngState.callCount).toBe(1)`)
+  - BribeDriver no-eligible-subject no-op + lastOutputTick still updates ("punch the clock")
+  - Cascade-path `Unverified→Dismissed` IS published; player-elected `Verified→Dismissed` IS skipped
+  - InterceptMail-during-bribery forfeit edge case
+  - Source-character-dies-mid-flight courier still delivers
+  - Bribed-staff→Independent zero-tick transit (Capital→Capital)
+  - Wallflower-bonus subject distinct-id assertion (synergy + bonus produce 2 whispers with distinct ids per the `(source, subject)` makeWhisperId partition)
+  - Vitest cross-check `applyAccidentalSlipDripOnConversation` pure-rule output == in-set-body Immer block output (semantic-identity pin)
+- **Tail triage** of the 80+ accumulated [C1]/[C2]/[C3]/[C4]/[C5]/[C6] items in the subplan — most are passively `[likely addressed]` after the body fixes; needs explicit `[applied]`/`[deferred]`/`[still-open]` tagging.
+- **Campaign-level state machine** row for the exile terminal state in MASTER.md §5.2 catalog (acknowledged in tail but never added).
+- `assertEnumCardinality(arr, expected, name)` helper extraction for the six near-identical module-load guards in `constants.ts` — taste only.
+
+**Files of note:**
+- `src/game/rules/whispers.ts:1` — the resolver module (~370 lines): generateSynergyWhisper / generateWhisperCourier / ingestLlmAdditiveWhisper / applyWhisperVerificationPhase / applyCourierDrainStep / tryWeaponizeWhisper (3 branch resolvers) / dismissWhisper / applyAccidentalSlipDripOnConversation / pickWallflowerBonusSubject.
+- `src/game/rules/staff.ts:1` — staff resolver (~280 lines): applyStaffOutputsPhase (4-Map accumulator) / tryAssignStaff / trySpymasterMailIntercept.
+- `src/game/rules/courier.ts:24` — `applyCourierAndStaffPhase` composer (verify → drain → staff sub-step ordering rationale).
+- `src/game/rules/aging.ts:40` — `pruneOrphanedConversationKeys` whisper extension (Unverified/Verified → Dismissed on subject death).
+- `src/game/rules/monarchsAudience.ts:24-28` — AudienceRejection extended with `PlayerExiled` variant.
+- `src/runtime/events/whispers.ts:1` — whisperBus + publishWhisperTransitions diff helper (11-variant union, `wrapperPublishedKeys` skip-rule).
+- `src/runtime/tickOrchestrator.ts:42` — PHASES slot 4 substitution (identityPhase → applyCourierAndStaffPhase).
+- `src/game/store.ts:213-321` — exile-gated tick wrappers (advanceTick / runYearPass) + 4 NEW player actions (weaponizeWhisper / dismissWhisper / assignStaff / spymasterIntercept); `:646-741` whisper-creation + AccidentalSlip drip inlined Immer blocks; `:269-296` exile-gate prologues across 9 wrappers.
+- `src/game/fixtures/staff.ts:1` — BASELINE_STAFF (4 entries) + buildBaselineStaffMember + buildBaselineStaffMap (single source of truth for fresh-state + migration parity).
+- `src/game/fixtures/whisperIdFactory.ts:1` — deterministic makeWhisperId with (source, subject, tick, index) partition.
+- `src/game/fixtures/courierPayloadIdFactory.ts:1` — deterministic makeCourierPayloadId.
+- `src/game/constants.ts:362-455` — six new enums + cardinality assertions + per-mechanic tuning + PERSONA_CACHE_VERSION.
+- `src/persist/schema.ts:80-99` — HousePreV7Schema + defaultHouseV7Fields + liftLegacyHousesFromV7Pre; `:131-181` strip helpers (stripGrievances + stripV6Fields widened to drop exiled; stripExiled NEW); `:280-330` seedWhispersCouriersStaffIntoLegacyState with size-check idempotence; SaveV7Schema/toSaveV7/fromSaveV7 at `:683`.
+- `src/persist/migrations/v6-to-v7.ts:1` — bare+wrap migration with intentional mid-chain seed-and-strip note.
+- `src/persist/migrations/v1-to-v7-chain.test.ts:1` + `v6-to-v7.idempotence.test.ts:1` — full-chain parity + idempotence regression.
+- `src/llm/tools.ts` — RESPOND_TOOL items widening + GENERATE_WHISPER_TOOL declaration.
+- `src/llm/types.ts:54-79` — ConversationResponseSchema toolCalls widening + ConversationResponse narrowed type; `:107-117` narrowResponse cast drop.
+- `src/llm/cache.ts:17` — CacheKey shape extended with PERSONA_CACHE_VERSION; signature gains otherCharactersInScene 5th arg.
+- `src/llm/prompts/persona.ts:30-58` — buildPersonaPrompt signature widening + "Other characters in this scene" section.
+- `src/runtime/conversationOrchestrator.ts:90-95` — pass otherCharactersInScene as 5th arg to getOrCreatePersonaCache.
+- `src/ui/ledger/WhisperLedgerPanel.tsx:1` + `StaffPanel.tsx:1` + `SpymasterInterceptCard.tsx:1` — three new ledger panels.
+- `src/ui/map/MapView.tsx:99-110` — exile-state banner (role="alert" + aria-live="assertive").
+
 ## P4 — closed 2026-05-19
 
 **Decisions made during implementation that the converged plan didn't anticipate:**
@@ -327,3 +392,4 @@ Closes out the material gap + load-bearing advisory Vitests deferred at the init
 **Still deferred (NOT P5-blocking; recommend P6 surface-wide cleanup pass):**
 - Remaining advisory Vitests from the plan's C-tail: startScheme no-tick-advance, SchemeStarted tick equivalence, accumulatedAffection hash-relevance, pruneOrphanedConversationKeys idempotence + extraction parity, runYearPass TargetCharacterDied event count parity, tick-advance-never-flips-player-head, fauxPasIndex save/load roundtrip, Object.is rejection identity, ERA_TRANSITION_TICK hash-irrelevance vi.mock, runtime/events/scheme.test.ts event wiring, tickOrchestrator.test.ts slot-5 assertion, 30-run replay extended for cross-kind scheme launches, eslint/boundaries.test.ts schemes.ts positive-control, Playwright UI smoke. None block P5 functional completeness; all are defensive against future-maintainer drift.
 - `clamp` centralization cleanup for four older rule files (bankruptcyEscape/economy/locationEffects/monarchsAudience) — separate PR.
+
