@@ -4,6 +4,7 @@ import { immer } from "zustand/middleware/immer";
 import {
   ACCIDENTAL_SLIP_DRIP_PER_CONVERSATION,
   CONVERSATION_HISTORY_LIMIT_PER_PAIR,
+  DUEL_DEMAND_SATISFACTION_REPUTATION_COST,
   FAUX_PAS_LOCK_DURATION_IN_TICKS,
   type StaffAssignment,
   type Stance,
@@ -20,6 +21,7 @@ import {
   type Character,
   CharacterSchema,
   type CourierPayload,
+  type Duel,
   type GameState,
   GameStateSchema,
   type Grievance,
@@ -27,20 +29,28 @@ import {
   HouseSchema,
   type MarriageRecord,
   MarriageRecordSchema,
+  type PatronessRecord,
+  type RivalActorState,
   type Scheme,
   type StaffMember,
   type Whisper,
 } from "./entities";
+import { makeDuelId } from "./fixtures/duelIdFactory";
+import { FACTION_PAIRS } from "./fixtures/factions";
 import type { LocationId } from "./fixtures/locations";
+import { PATRONESSES_FIXTURE } from "./fixtures/patronesses";
 import {
   type BallSessionId,
   type CharacterId,
   type CourierPayloadId,
+  type DuelId,
+  type FactionPairKey,
   type GrievanceId,
   type HouseId,
   INDEPENDENT_HOUSE_ID,
   type MarriageId,
   PLAYER_HOUSE_ID,
+  type PatronessId,
   type RngState,
   type SchemeId,
   type StaffId,
@@ -51,6 +61,7 @@ import {
 import { applyBankruptcyEscape, canEscapeBankruptcy } from "./rules/bankruptcyEscape";
 import type { EscapeRejection } from "./rules/bankruptcyEscape";
 import { resolveCombat } from "./rules/combat";
+import { resolveDuel } from "./rules/duel";
 import { type AudienceOutcome, applyAudience } from "./rules/monarchsAudience";
 import {
   type CancelSchemeRejection,
@@ -109,7 +120,7 @@ export function createInitialState(
   campaignName: string = DEFAULT_CAMPAIGN_NAME,
 ): GameState {
   const playerRng = createRngState(seed);
-  const seeded = seedStartingFamily(playerRng);
+  const seeded = seedStartingFamily(playerRng, seed);
   const rng = new Map<HouseId, RngState>();
   rng.set(PLAYER_HOUSE_ID, seeded.rngState);
   // P4: Independent's RNG state is deterministically derived from the
@@ -118,6 +129,11 @@ export function createInitialState(
   // seedIndependentIntoLegacyState so fresh-state and migration paths
   // produce byte-identical Independent RNG.
   rng.set(INDEPENDENT_HOUSE_ID, createRngState(`${seed}|independent`));
+  // P8: 3 per-rival RNG entries. Same `${seed}|${rivalHouseId}` string-concat
+  // form as Independent; mood drift + rival action both consume from these.
+  for (const [rivalId, rivalRng] of seeded.rivalRngEntries) {
+    rng.set(rivalId, rivalRng);
+  }
   const houses = new Map<HouseId, House>();
   for (const h of seeded.houses) houses.set(h.id, h);
   const characters = new Map<CharacterId, Character>();
@@ -126,6 +142,13 @@ export function createInitialState(
   // populated from BASELINE_STAFF via seedStartingFamily.
   const staff = new Map<StaffId, StaffMember>();
   for (const s of seeded.staff) staff.set(s.id, s);
+  // P8: patronesses, rivalActors, factionTensions, duels.
+  const patronesses = new Map<PatronessId, PatronessRecord>();
+  for (const p of PATRONESSES_FIXTURE) patronesses.set(p.id, p);
+  const rivalActors = new Map<HouseId, RivalActorState>();
+  for (const ra of seeded.rivalActors) rivalActors.set(ra.houseId, ra);
+  const factionTensions = new Map<FactionPairKey, number>();
+  for (const pair of FACTION_PAIRS) factionTensions.set(pair, 0);
   return {
     tick: 0,
     rng,
@@ -152,6 +175,11 @@ export function createInitialState(
     proposalsLog: new Map(),
     tutorAssignmentsLog: new Map(),
     pendingTutorTraitChoices: new Map(),
+    // P8: 5 patronesses, 3 rivalActors, 6 factionTensions (all 0), 0 duels.
+    patronesses,
+    rivalActors,
+    factionTensions,
+    duels: new Map<DuelId, Duel>(),
   };
 }
 
@@ -224,7 +252,26 @@ export type StoreActions = {
     childCharacterId: CharacterId,
     chosenTraitId: TraitId,
   ) => { ok: true } | { ok: false; reason: ChooseTutorBonusTraitRejection };
+  // P8: demand-satisfaction → duel. Free action (no tick advance). Reads the
+  // grievance from the player's house (only the player can demand satisfaction
+  // at v1 — rival-perpetrated grievances live on PLAYER_HOUSE_ID's grievances
+  // array). Returns the resolved duel's id + outcome on success.
+  demandSatisfaction: (
+    perpetratorHouseId: HouseId,
+    grievanceId: GrievanceId,
+  ) =>
+    | { ok: true; duelId: DuelId; outcome: import("./entities").DuelOutcome }
+    | { ok: false; reason: DemandSatisfactionRejection };
 };
+
+export type DemandSatisfactionRejection =
+  | { kind: "GrievanceNotFound" }
+  | { kind: "GrievanceAlreadyResolved" }
+  | { kind: "LegacyGrievanceUnactionable" }
+  | { kind: "ChallengerDead" }
+  | { kind: "DefenderDead" }
+  | { kind: "DefenderExiled" }
+  | { kind: "PlayerExiled" };
 
 export type StoreState = GameState & StoreActions;
 
@@ -244,6 +291,7 @@ import type { ConversationResponse } from "../llm/types";
 import { conversationOrchestrator } from "../runtime/conversationOrchestrator";
 import { conversationBus, publishCharacterDeaths } from "../runtime/events/conversation";
 import type { BallEntryRejection } from "../runtime/events/conversation";
+import { duelBus } from "../runtime/events/duels";
 import {
   familyBus,
   publishArchetypeReclassificationsFromSuccession,
@@ -299,6 +347,15 @@ function overwriteFromGameState(draft: GameState, next: GameState): void {
   draft.proposalsLog = next.proposalsLog;
   draft.tutorAssignmentsLog = next.tutorAssignmentsLog;
   draft.pendingTutorTraitChoices = next.pendingTutorTraitChoices;
+  // P8: 4 new top-level Maps (patronesses, rivalActors, factionTensions, duels).
+  // Same fourth-surface trap as schemes (P5) and proposalsLog (P7) —
+  // schema↔projection↔selector trip-wire enforces top-level keyset equality;
+  // this helper is the write-side mirror. Without these four lines, every
+  // tick-advancing action silently clears the new Maps.
+  draft.patronesses = next.patronesses;
+  draft.rivalActors = next.rivalActors;
+  draft.factionTensions = next.factionTensions;
+  draft.duels = next.duels;
 }
 
 export function createStore({ seed }: { seed: string }): SeasonStore {
@@ -675,6 +732,13 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           fauxPasGrievance = {
             id: `${PLAYER_HOUSE_ID}:FauxPas:${stateBefore.tick}:${fauxPasIndex}` as GrievanceId,
             perpetratorHouseId: PLAYER_HOUSE_ID,
+            // P8: faux-pas grievance defendant is the player head — at v1 the
+            // head is the only player-house character with ballroom-action
+            // affordance. Player-perpetrated so demandSatisfaction would
+            // reject as LegacyGrievanceUnactionable... wait, this is a NEW
+            // post-P8 grievance — set the defendant explicitly per the plan.
+            defendantCharacterId:
+              stateBefore.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId ?? null,
             source: "FauxPas",
             schemeId: null,
             recordedAtTick: stateBefore.tick,
@@ -1104,6 +1168,125 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         });
         return { ok: true };
       },
+      // P8: demand-satisfaction → duel. Free action (no tick advance). Looks
+      // up the grievance on the PLAYER house (only player demands satisfaction
+      // at v1) cross-filtered by perpetratorHouseId. Validates all rejection
+      // gates first, then deducts reputation, creates the Duel entity, calls
+      // resolveDuel synchronously, writes the post-resolve state back, and
+      // fires publishers.
+      demandSatisfaction: (perpetratorHouseId: HouseId, grievanceId: GrievanceId) => {
+        const before = get();
+        // Validation reads from `before` — no set yet.
+        const victimHouse = before.houses.get(PLAYER_HOUSE_ID);
+        if (victimHouse === undefined) {
+          return { ok: false, reason: { kind: "GrievanceNotFound" as const } };
+        }
+        const grievance = victimHouse.grievances.find(
+          (g) => g.id === grievanceId && g.perpetratorHouseId === perpetratorHouseId,
+        );
+        if (grievance === undefined) {
+          return { ok: false, reason: { kind: "GrievanceNotFound" as const } };
+        }
+        if (grievance.resolved) {
+          return { ok: false, reason: { kind: "GrievanceAlreadyResolved" as const } };
+        }
+        if (grievance.defendantCharacterId === null) {
+          return { ok: false, reason: { kind: "LegacyGrievanceUnactionable" as const } };
+        }
+        if (victimHouse.exiled) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        const perpHouse = before.houses.get(perpetratorHouseId);
+        if (perpHouse === undefined) {
+          return { ok: false, reason: { kind: "GrievanceNotFound" as const } };
+        }
+        if (perpHouse.exiled) {
+          return { ok: false, reason: { kind: "DefenderExiled" as const } };
+        }
+        const challenger = before.characters.get(victimHouse.headOfHouseCharacterId);
+        const defender = before.characters.get(grievance.defendantCharacterId);
+        if (challenger === undefined || !challenger.alive) {
+          return { ok: false, reason: { kind: "ChallengerDead" as const } };
+        }
+        if (defender === undefined || !defender.alive) {
+          return { ok: false, reason: { kind: "DefenderDead" as const } };
+        }
+
+        // Deduct reputation + construct Duel entity. Atomic per CLAUDE.md.
+        const newHouses = new Map(before.houses);
+        newHouses.set(PLAYER_HOUSE_ID, {
+          ...victimHouse,
+          reputation: clamp(
+            victimHouse.reputation + DUEL_DEMAND_SATISFACTION_REPUTATION_COST,
+            0,
+            100,
+          ),
+        });
+        const preResolveState: GameState = { ...before, houses: newHouses };
+        const duelId = makeDuelId(preResolveState, challenger.id, defender.id);
+        const newDuels = new Map(preResolveState.duels);
+        const initialDuel = {
+          id: duelId,
+          challengerCharacterId: challenger.id,
+          defenderCharacterId: defender.id,
+          grievanceId,
+          initiatedAtTick: preResolveState.tick,
+          status: "Active" as const,
+          resolvedAtTick: null,
+          outcome: null,
+          loserCasualty: "Unharmed" as const,
+          exchangesElapsed: 0,
+        };
+        newDuels.set(duelId, initialDuel);
+        const preResolveStateWithDuel: GameState = { ...preResolveState, duels: newDuels };
+
+        // Run the resolver synchronously. Uses challenger's house RNG.
+        const challengerRng = preResolveStateWithDuel.rng.get(PLAYER_HOUSE_ID);
+        if (challengerRng === undefined) {
+          return { ok: false, reason: { kind: "GrievanceNotFound" as const } };
+        }
+        const {
+          state: postResolveState,
+          finalDuel,
+          rngState: postRng,
+        } = resolveDuel(preResolveStateWithDuel, duelId, challengerRng);
+        const newRng = new Map(postResolveState.rng);
+        newRng.set(PLAYER_HOUSE_ID, postRng);
+        const after: GameState = { ...postResolveState, rng: newRng };
+
+        set((draft) => {
+          overwriteFromGameState(draft, after);
+        });
+
+        // Publishers AFTER set — event-bus discipline per P3 contract.
+        duelBus.publish({
+          kind: "DuelResolved",
+          tick: after.tick,
+          duelId,
+          outcome: finalDuel.outcome ?? "Stalemate",
+          loserCasualty: finalDuel.loserCasualty,
+          exchangesElapsed: finalDuel.exchangesElapsed,
+        });
+        if (finalDuel.outcome !== "Stalemate") {
+          duelBus.publish({
+            kind: "GrievanceResolved",
+            tick: after.tick,
+            grievanceId,
+            perpetratorHouseId,
+          });
+        }
+        if (finalDuel.loserCasualty === "Killed") {
+          publishCharacterDeaths(before, after);
+          publishWhisperTransitions(before, after);
+          publishMarriageTransitions(before, after);
+          publishTemptationLatchTransitions(before, after);
+        }
+        return {
+          ok: true,
+          duelId,
+          outcome: finalDuel.outcome ?? "Stalemate",
+        };
+      },
     })),
   );
 }
@@ -1142,5 +1325,12 @@ export function selectGameState(state: StoreState): GameState {
     proposalsLog: state.proposalsLog,
     tutorAssignmentsLog: state.tutorAssignmentsLog,
     pendingTutorTraitChoices: state.pendingTutorTraitChoices,
+    // P8 additions — quad-sync (schema/projection/selector/overwriteFromGameState).
+    // Forgetting these breaks save() (returns a partial GameState whose Zod
+    // parse against SaveV9Schema fails).
+    patronesses: state.patronesses,
+    rivalActors: state.rivalActors,
+    factionTensions: state.factionTensions,
+    duels: state.duels,
   };
 }

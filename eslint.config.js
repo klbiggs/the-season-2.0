@@ -1,8 +1,8 @@
 // ESLint flat config for boundaries enforcement ONLY. Biome owns formatting +
 // general lint. See plans/phases/00-foundation.md "Lint setup".
 
-import boundaries from "eslint-plugin-boundaries";
 import tsParser from "@typescript-eslint/parser";
+import boundaries from "eslint-plugin-boundaries";
 
 // P1 adds two new elements (game-util folder, game-entities file). Both go
 // BEFORE the game-other folder fallback so first-match-wins resolves them

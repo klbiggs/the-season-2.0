@@ -28,6 +28,14 @@ export type GrievanceId = string & { readonly __brand: "GrievanceId" };
 export type WhisperId = string & { readonly __brand: "WhisperId" };
 export type CourierPayloadId = string & { readonly __brand: "CourierPayloadId" };
 export type StaffId = string & { readonly __brand: "StaffId" };
+// P8: rival/patroness/duel/faction branded identifiers. PatronessId, FactionId
+// are fixture-constant ids (no runtime factory). DuelId is deterministic via
+// makeDuelId at fixtures/duelIdFactory.ts. FactionPairKey is a derived
+// canonical lex-pair key produced by makeFactionPairKey at fixtures/factions.ts.
+export type PatronessId = string & { readonly __brand: "PatronessId" };
+export type FactionId = string & { readonly __brand: "FactionId" };
+export type DuelId = string & { readonly __brand: "DuelId" };
+export type FactionPairKey = string & { readonly __brand: "FactionPairKey" };
 
 // P3 (B1 fix): PLAYER_HOUSE_ID lives here, not in rng.seeds.ts, so that
 // src/game/rules/** can import it. rules → game-other is disallowed per
@@ -63,6 +71,13 @@ export const GrievanceIdSchema = z.string().transform((s) => s as GrievanceId);
 export const WhisperIdSchema = z.string().transform((s) => s as WhisperId);
 export const CourierPayloadIdSchema = z.string().transform((s) => s as CourierPayloadId);
 export const StaffIdSchema = z.string().transform((s) => s as StaffId);
+// P8: brand schemas for PatronessId / FactionId / DuelId / FactionPairKey.
+// Same `.transform` pattern; state.patronesses / state.factionTensions /
+// state.duels use z.map(K, V) keyed on these brands.
+export const PatronessIdSchema = z.string().transform((s) => s as PatronessId);
+export const FactionIdSchema = z.string().transform((s) => s as FactionId);
+export const DuelIdSchema = z.string().transform((s) => s as DuelId);
+export const FactionPairKeySchema = z.string().transform((s) => s as FactionPairKey);
 
 export const RngStateSchema = z.object({
   seed: z.string(),

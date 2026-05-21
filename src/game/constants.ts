@@ -514,3 +514,96 @@ export const TUTOR_REASSIGNMENT_WEALTH_COST = 5;
 export const TUTOR_GUIDE_OPINION_COOLDOWN_TICKS = 10;
 // Guide-opinion forces the child's mood toward Receptive, subject to mood-lock.
 export const TUTOR_GUIDE_OPINION_MOOD_TARGET: Mood = "Receptive";
+
+// ── P8: Rival Houses, Patronesses & Duels ─────────────────────────────────
+
+// Spec §3 "Rival Houses" (lines 400-406).
+export const RIVAL_HOSTILITY_ACTIVATION_THRESHOLD = 25;
+export const RIVAL_HOSTILITY_DECAY_PER_TICK = -1;
+export const RIVAL_ACTION_COOLDOWN_TICKS = 8;
+
+// Spec §3 line 405 — base weights for the 4 rival actions. Integer-scaled
+// (×100) in computeEffectiveWeights to avoid IEEE-754 cross-engine variance.
+export const RIVAL_ACTION_KINDS = [
+  "LeakWhisper",
+  "PettySabotage",
+  "OpenSabotage",
+  "RaiseFactionTension",
+] as const;
+export type RivalActionKind = (typeof RIVAL_ACTION_KINDS)[number];
+
+if (RIVAL_ACTION_KINDS.length !== 4) {
+  throw new Error(
+    "RIVAL_ACTION_KINDS length pinned to 4 — bump save version and update tests if changing",
+  );
+}
+
+export const RIVAL_ACTION_WEIGHTS: Readonly<Record<RivalActionKind, number>> = {
+  LeakWhisper: 3,
+  PettySabotage: 2,
+  OpenSabotage: 2,
+  RaiseFactionTension: 1,
+};
+
+// Module-load assertion: every kind has a positive base weight.
+for (const kind of RIVAL_ACTION_KINDS) {
+  if (RIVAL_ACTION_WEIGHTS[kind] <= 0) {
+    throw new Error(`Rival action ${kind} must have positive weight`);
+  }
+}
+
+// Integer scaling for the weighted-pick (resolves Cycle-4 B6 + recurring R10).
+// Multiplies float-derived weights to integers before sampling. 100 chosen
+// over 1000 for resolution-vs-bit-budget tradeoff (1-percentage-point finer
+// than playtest can distinguish).
+export const RIVAL_WEIGHT_SCALE = 100;
+// Per-point of opposing-rival faction tension above 50, the OpenSabotage
+// weight grows by SLOPE_SCALED × (tension - 50) in RIVAL_WEIGHT_SCALE units.
+// Stored as INTEGER 5 (not float 0.05) for IEEE-754 cross-engine safety.
+export const RIVAL_OPEN_SABOTAGE_TENSION_BIAS_SLOPE_SCALED = 5;
+
+// Spec §3 line 134 — player-action hostility deltas (sign = direction).
+export const PLAYER_SABOTAGE_HOSTILITY_DELTA = 15;
+export const PUBLIC_FAUX_PAS_HOSTILITY_DELTA = 5;
+// MONARCH_AUDIENCE_RIVAL_HOSTILITY_DROP at line 89 (P3 stub) becomes load-
+// bearing at P8 — applyAudience subtracts the magnitude on full-success.
+
+// PettySabotage: drops player reputation. Clamped [0, 100] at the mutation site.
+export const PETTY_SABOTAGE_REPUTATION_DELTA = -2;
+
+// Spec §3 "Patroness Favor" (lines 408-415).
+export const PATRONESS_FAVOR_INITIAL = 50;
+export const PATRONESS_FAVOR_EROSION_PER_TICK = -1;
+export const PATRONESS_FAVOR_EROSION_DOUBLED_PER_TICK = -2;
+export const PATRONESS_FAVOR_EROSION_SCANDAL_THRESHOLD = 50;
+export const PATRONESS_FAVOR_EROSION_TENSION_THRESHOLD = 50;
+export const PATRONESS_VETO_THRESHOLD = 20;
+// MONARCH_AUDIENCE_PATRONESS_BONUS at line 85 (P3 stub) becomes load-bearing
+// at P8 — applyAudience adds +5 favor to every patroness on full-success.
+
+// Spec §3 line 406 — faction-tension cap (pairwise).
+export const FACTION_TENSION_CAP = 100;
+// RaiseFactionTension delta per rival action.
+export const FACTION_TENSION_DELTA_PER_RAISE_ACTION = 10;
+
+// Spec §3 "Duel Resolution" (lines 364-370 + line 532).
+export const DUEL_INITIAL_COMPOSURE = 100;
+export const DUEL_BASE_POWER = 25;
+export const DUEL_COMPOSURE_MULTIPLIER = 2;
+export const DUEL_MAX_EXCHANGES = 12;
+if (DUEL_MAX_EXCHANGES !== 12) {
+  throw new Error("Spec §3 line 368 pins 12-exchange cap");
+}
+// Composure restored to this value on the Wounded branch (narrative only).
+export const DUEL_WOUNDED_COMPOSURE_RESTORATION = 25;
+// 50/50 killed-vs-wounded roll on decisive loss. drawNext returns [0, 1);
+// roll < 0.5 → "Killed"; roll >= 0.5 → "Wounded".
+export const DUEL_KILLED_VS_WOUNDED_PROBABILITY = 0.5;
+// Per-exchange parry probability (resolves the spec's 12-exchange-vs-base-
+// power-25 math gap). roll < 0.5 → parried (zero damage); roll >= 0.5 → full
+// -50 composure damage. Test-mode overrides forceParryEveryExchange /
+// forceNoParryEveryExchange bypass the draw.
+export const DUEL_PARRY_PROBABILITY = 0.5;
+// Reputation cost for issuing a duel challenge (the "demand satisfaction"
+// action). Designer-tunable; pinned to keep the action from being free-clickable.
+export const DUEL_DEMAND_SATISFACTION_REPUTATION_COST = -5;

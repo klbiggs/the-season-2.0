@@ -4,6 +4,7 @@
 
 import { ECONOMY_DELTAS } from "../constants";
 import type { GameState, House } from "../entities";
+import { RIVAL_HOUSE_IDS_SET } from "../fixtures/rivals";
 
 export type BankruptcyTier = "Solvent" | "Hemorrhaging" | "Embarrassed" | "Ruined";
 
@@ -30,6 +31,12 @@ export function applyEconomyPhase(state: GameState): GameState {
     state.houses,
   );
   for (const [houseId, house] of state.houses) {
+    // P8: rival houses skip economy decay. Rival wealth is cosmetic at v1
+    // ("rival economy" deferred per Out-of-scope); Independent + player
+    // continue to receive deltas (Independent is unaffected at v1 since no
+    // UI surfaces its wealth, but the gate is narrow to RIVAL_HOUSE_IDS_SET
+    // to preserve pre-P8 Independent economy participation).
+    if (RIVAL_HOUSE_IDS_SET.has(houseId)) continue;
     // Safe: tiersByHouseId built from the same Map's keys.
     const tier = tiersByHouseId.get(houseId);
     if (tier === undefined) continue;

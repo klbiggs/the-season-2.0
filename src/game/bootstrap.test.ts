@@ -21,24 +21,24 @@ function getPlayer(seeded: ReturnType<typeof seedStartingFamily>) {
 describe("seedStartingFamily", () => {
   it("rolls a deathAge in [70, 95] inclusive", () => {
     const rng = createRngState("alpha");
-    const seeded = seedStartingFamily(rng);
+    const seeded = seedStartingFamily(rng, "alpha");
     const { character } = getPlayer(seeded);
     expect(character.deathAge).toBeGreaterThanOrEqual(LIFESPAN_RANGE[0]);
     expect(character.deathAge).toBeLessThanOrEqual(LIFESPAN_RANGE[1]);
   });
   it("advances rngState callCount by exactly 1 (NPCs are constants)", () => {
     const rng = createRngState("alpha");
-    const seeded = seedStartingFamily(rng);
+    const seeded = seedStartingFamily(rng, "alpha");
     expect(seeded.rngState.callCount).toBe(1);
   });
   it("seeds player house with PLAYER_HOUSE_ID + heirless=false", () => {
-    const seeded = seedStartingFamily(createRngState("alpha"));
+    const seeded = seedStartingFamily(createRngState("alpha"), "alpha");
     const { house } = getPlayer(seeded);
     expect(house.id).toBe(PLAYER_HOUSE_ID);
     expect(house.heirless).toBe(false);
   });
   it("seeds head as HeadOfHouse with birthTick=0, age=25, name='Player I'", () => {
-    const seeded = seedStartingFamily(createRngState("alpha"));
+    const seeded = seedStartingFamily(createRngState("alpha"), "alpha");
     const { character } = getPlayer(seeded);
     expect(character.id).toBe(STARTING_HEAD_CHARACTER_ID);
     expect(character.name).toBe(STARTING_HEAD_NAME);
@@ -49,13 +49,13 @@ describe("seedStartingFamily", () => {
     expect(character.mood).toBe("Receptive");
   });
   it("seeds Independent house alongside player (P4)", () => {
-    const seeded = seedStartingFamily(createRngState("alpha"));
+    const seeded = seedStartingFamily(createRngState("alpha"), "alpha");
     const indy = seeded.houses.find((h) => h.id === INDEPENDENT_HOUSE_ID);
     expect(indy).toBeDefined();
     expect(indy?.heirless).toBe(false);
   });
   it("seeds 5 baseline NPCs assigned to INDEPENDENT_HOUSE_ID (P4)", () => {
-    const seeded = seedStartingFamily(createRngState("alpha"));
+    const seeded = seedStartingFamily(createRngState("alpha"), "alpha");
     const npcs = seeded.characters.filter((c) => c.houseId === INDEPENDENT_HOUSE_ID);
     expect(npcs).toHaveLength(BASELINE_NPCS.length);
   });

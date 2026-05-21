@@ -14,6 +14,7 @@
 import { ADULTHOOD_AGE_IN_YEARS, SUCCESSION_REPUTATION_PENALTY } from "../constants";
 import type { Character, GameState, House, MarriageRecord } from "../entities";
 import { classifyArchetype } from "../fixtures/archetypes";
+import { RIVAL_HOUSE_IDS_SET } from "../fixtures/rivals";
 import type { CharacterId } from "../rng";
 import { getMarriageOrThrow } from "../util/lookups";
 
@@ -50,6 +51,11 @@ function formatAncestorLine(generationOfDeceased: number, dead: Character): stri
 export function applySuccessionStep(state: GameState): GameState {
   let next: GameState = state;
   for (const [, house] of state.houses) {
+    // P8: rival houses skip succession at v1. Rivals become heirless/dormant
+    // when their head dies (per "rival succession" Out-of-scope deferral).
+    // Narrowed to RIVAL_HOUSE_IDS_SET (NOT a blanket non-player skip) to
+    // preserve Independent's pre-P8 auto-succession behavior.
+    if (RIVAL_HOUSE_IDS_SET.has(house.id)) continue;
     if (house.heirless) continue;
     const head = next.characters.get(house.headOfHouseCharacterId);
     if (head === undefined || head.alive) continue;

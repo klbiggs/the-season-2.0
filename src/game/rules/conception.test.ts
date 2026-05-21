@@ -39,6 +39,11 @@ function makeState(overrides: Partial<GameState>): GameState {
     proposalsLog: new Map(),
     tutorAssignmentsLog: new Map(),
     pendingTutorTraitChoices: new Map(),
+    // P8 defaults
+    patronesses: new Map(),
+    rivalActors: new Map(),
+    factionTensions: new Map(),
+    duels: new Map(),
     ...overrides,
   };
 }
@@ -293,6 +298,11 @@ describe("applyConceptionStep — multi-marriage RNG isolation (synthetic fixtur
         proposalsLog: new Map(),
         tutorAssignmentsLog: new Map(),
         pendingTutorTraitChoices: new Map(),
+        // P8 defaults
+        patronesses: new Map(),
+        rivalActors: new Map(),
+        factionTensions: new Map(),
+        duels: new Map(),
       };
       const next1 = applyConceptionStep(state);
       const next2 = applyConceptionStep(state);

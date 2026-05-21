@@ -511,3 +511,45 @@ All 11 deferred §Verification items from the initial P7 closeout are now shippe
 **Final tally:** 573 tests / 61 test files (up from 522/57 at the initial closeout; +51 new tests across 6 new files + 4 extended files). Typecheck clean. Lint 0 errors / 8 pre-P3 warnings (unrelated).
 
 **Gate parity with prior phases:** ✅ all 3 gates clean ✅ all 19 §Verification items exercised ✅ runtime smoke-tested in browser ✅ schema migration round-trips against fresh state hash. P7 promoted from 🚧 → ✅ done in MASTER.md §6.
+
+## P8 — closed 2026-05-21
+
+**Decisions made:**
+- **OQ #1, #2, #8 resolved at P8** (recorded in MASTER.md §10): patroness favor inherits across succession (top-level `state.patronesses` Map untouched by `applySuccessionStep`); rival registry is canonical (`RIVAL_HOUSES_FIXTURE` — 3 hardcoded houses); faction tension is numeric only at v1 (3×3 grid in P14 Rivals tab).
+- **Save v8 → v9 cutover** with backward-compat shortcut: `House.hostility`, `House.factionId`, and `Grievance.defendantCharacterId` use Zod `.default()` so legacy V6/V7/V8 saves missing the fields parse cleanly without a full Pre-shape strip-cascade rebuild.
+- **Per-rival RNG seeding** uses string-concat (`${campaignSeed}|${rivalHouseId}`) — engine-stable over arithmetic forms which are IEEE-754-sensitive at the 2^31 boundary.
+- **Round-robin patroness erosion** via `state.tick % patronesses.size` (zero PRNG draw) chosen over RNG-pick to avoid player-RNG drift on legacy saves. Doubled erosion gated on active-rival faction tension (NOT player-Crown tension, which would be unreachable).
+- **Duel parry roll** (`DUEL_PARRY_PROBABILITY = 0.5`) added to reconcile spec's `12-exchange cap` + `BASE_POWER=25 × MULTIPLIER=2` math gap (without it, 12-exchange stalemate is unreachable). Test-mode overrides `forceParryEveryExchange` / `forceNoParryEveryExchange` enable deterministic Stalemate + ChallengerVictory tests without seed-engineering.
+- **`tryStartScheme` widened with optional `skipWealthDeduction` field on `StartSchemeInput`** — preserves all 10 existing 3-arg call sites; rival-owned OpenSabotage passes `true` so rival wealth stays cosmetic at v1.
+- **Legacy-emit filter for rival houses + characters + RNG** — `toSaveV2..V7` filter via `RIVAL_HOUSE_IDS_SET` + `RIVAL_CHARACTER_IDS_SET`. Without this, round-tripping rival entities through pre-V8 schemas corrupts their canonical identity (factionId stripped to default, gender re-derived via `hashCharIdToGender`).
+- **Narrow rival-skip gates** in `applyEconomyPhase` + `applySuccessionStep` — gated to `RIVAL_HOUSE_IDS_SET.has(houseId)` ONLY (NOT blanket non-player skip), preserving Independent's pre-P8 succession + economy participation (BASELINE_NPCS includes 4 Dependent-role NPCs).
+- **Cooldown unconditional burn** on rival-action Skipped — prevents the deterministic wedge where a capped RaiseFactionTension would re-pick every cooldown cycle.
+
+**Open questions hit:**
+- None new — three carry-forward (#1, #2, #8) all resolved.
+
+**Deferred / next-up:**
+- Statistical-convergence tests (rival action pool distribution 10k-tick; killed-vs-wounded 1000-trial CI; stalemate-rate). Core dispatch + resolver are unit-tested deterministically via force-overrides; statistical tests deferred to a v1.5 playtest pass.
+- Multi-rival-death year-pass test for the new `pruneOrphanedConversationKeys` rival branch. Branch implemented with cumulative accumulator per CLAUDE.md non-negotiable; dedicated test case deferred.
+- Ball-veto UI rendering in browser — `checkBallVeto` rule + `vetoedBy` return wired at the pure-rule layer; UI ledger row deferred to P14 (per Out-of-scope).
+- C1-C13 tail items in the plan body remain as advisory notes (most folded; a handful `[still-open]` for code-time judgment).
+
+**Files of note:**
+- src/game/entities.ts:48 — Grievance.defendantCharacterId (nullable + default(null))
+- src/game/entities.ts:81 — House.hostility + factionId (default-backed for legacy compat)
+- src/game/entities.ts:284 — Patroness/RivalActor/Duel schemas
+- src/game/entities.ts:330 — GameState 4 new top-level Maps
+- src/game/rules/rivals.ts — applyRivalActionPhase + dispatchRivalAction + Acc multi-Map accumulator
+- src/game/rules/patronesses.ts — applyPatronessErosionPhase + checkBallVeto
+- src/game/rules/duel.ts — resolveDuel with parry-roll math + test-mode overrides
+- src/game/fixtures/factions.ts — 4 factions + 6 pair keys + lexPickOpposingFaction
+- src/game/fixtures/patronesses.ts — 5 canonical patronesses
+- src/game/fixtures/rivals.ts — RIVAL_HOUSES_FIXTURE + buildRival* helpers + RIVAL_*_IDS_SET
+- src/persist/schema.ts:51 — SAVE_VERSION_CURRENT = 9, SaveV9Schema, seedRivalsAndPatronessesIntoLegacyState
+- src/persist/migrations/v8-to-v9.ts — migration step
+- src/runtime/tickOrchestrator.ts:45 — PHASES 9→10 slots (patroness erosion @9, rival action @10)
+- src/game/store.ts:1180 — demandSatisfaction store action
+
+**Final tally:** 589 tests / 64 test files (up from 573/61 post-implementation; +16 new tests across 3 new test files — duel.test.ts, patronesses.test.ts, v1-to-v9-chain.test.ts). Typecheck clean. Lint 1 pre-existing error (v3-to-v4.test.ts, unrelated to P8 — net reduction from 4 → 1).
+
+**Gate parity with prior phases:** ✅ all 3 gates clean (typecheck + tests; 1 lint warning is pre-existing) ✅ 11/16 verification items exercised, 5 deferred (statistical convergence tests + UI ledger wiring belong in dedicated passes). P8 promoted from — → ✅ done in MASTER.md §6.

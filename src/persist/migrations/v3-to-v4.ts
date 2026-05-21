@@ -12,6 +12,7 @@
 // the result, so the input's nested arrays are never aliased into observable
 // output state.
 
+import type { FactionId } from "../../game/rng";
 import type { SaveV3, SaveV4 } from "../schema";
 
 export function migrate_v3_to_v4(save: SaveV3): SaveV4 {
@@ -34,6 +35,10 @@ export function migrate_v3_to_v4(save: SaveV3): SaveV4 {
         // introduces HousePreV7Schema and re-targets V4/V5/V6 schemas; until
         // then this default keeps the migration emitter passing Zod parse.
         exiled: false,
+        // P8: new House fields. defaults match the bootstrap path for
+        // player + Independent (no rivals at this migration step).
+        hostility: 0,
+        factionId: "faction-crown" as FactionId,
       },
     ]),
     characters: save.characters,

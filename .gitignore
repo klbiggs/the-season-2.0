@@ -51,4 +51,5 @@ lerna-debug.log*
 # Claude Code local
 .claude/settings.local.json
 .claude/agent-memory/
+.claude/worktrees/
 plans/phases/.claude/

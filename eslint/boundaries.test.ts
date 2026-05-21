@@ -1,9 +1,9 @@
 // Boundary-rule fires-on-violation test. Uses ESLint's Node API against
 // synthetic source strings — no on-disk fixtures, no extension-name games.
 
-import { describe, expect, it } from "vitest";
-import { ESLint } from "eslint";
 import { resolve } from "node:path";
+import { ESLint } from "eslint";
+import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = resolve(__dirname, "..");
 

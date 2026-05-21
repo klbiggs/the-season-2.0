@@ -46,6 +46,11 @@ import { pruneOrphanedConversationKeys } from "./aging";
 export type StartSchemeInput = {
   kind: SchemeKind;
   targetCharacterId: CharacterId | null; // null only for Smuggling
+  // P8: optional flag for rival-owned OpenSabotage to bypass wealth deduction
+  // (rivals have no UI wealth budget at v1). Default false → wealth deducted
+  // as in P5. ALL existing 10 call sites omit this field and preserve P5
+  // behavior; only applyRivalActionPhase passes true.
+  skipWealthDeduction?: boolean;
 };
 
 export type StartSchemeRejection =
@@ -195,8 +200,12 @@ export function tryStartScheme(
 
   // (b) Resource: InsufficientWealth (player's own resource — most-checked
   // failure mode in actual play; surfacing first matches player expectation).
+  // P8: input.skipWealthDeduction bypasses BOTH the gate AND the deduction
+  // — used by applyRivalActionPhase OpenSabotage (rivals have no v1 wealth
+  // budget per the "cosmetic rival wealth" out-of-scope item).
   const cost = SCHEME_TUNING[kind].wealthCost;
-  if (ownerHouse.wealth < cost) {
+  const skipWealth = input.skipWealthDeduction === true;
+  if (!skipWealth && ownerHouse.wealth < cost) {
     return {
       ok: false,
       reason: { kind: "InsufficientWealth", have: ownerHouse.wealth, need: cost },
@@ -262,7 +271,12 @@ export function tryStartScheme(
   const durationTicks = SCHEME_TUNING[kind].durationTicks;
   const aggressorCharacterId = selectAggressor(state, ownerHouseId, kind);
   const newHouses = new Map(state.houses);
-  newHouses.set(ownerHouseId, { ...ownerHouse, wealth: ownerHouse.wealth - cost });
+  // P8: gate the wealth-deduction write on skipWealthDeduction. The
+  // newHouses.set write is unconditional (always re-writes the owner-slot)
+  // but the wealth delta is 0 when skipWealth is true — preserves the
+  // structural-sharing contract while making rival-owned schemes free.
+  const wealthDelta = skipWealth ? 0 : -cost;
+  newHouses.set(ownerHouseId, { ...ownerHouse, wealth: ownerHouse.wealth + wealthDelta });
 
   const schemeId = makeSchemeId(state, ownerHouseId, kind);
   const newScheme: Scheme = {
@@ -368,6 +382,14 @@ function resolveSabotage(state: GameState, scheme: Scheme): GameState {
   const newGrievance: Grievance = {
     id: `${scheme.ownerHouseId}:Sabotage:${scheme.id}` as GrievanceId,
     perpetratorHouseId: scheme.ownerHouseId,
+    // P8: defendant is the aggressor character that ran the scheme. At v1
+    // player-perpetrated Sabotage grievances are NOT actionable via
+    // demandSatisfaction (player can't sensibly duel themselves), but the
+    // field is set explicitly so post-P11 rival-demand-satisfaction paths
+    // can resolve it; rival-perpetrated Sabotage at P8 (OpenSabotage via
+    // applyRivalActionPhase) carries the rival head id and IS the v1
+    // duel-loop trigger.
+    defendantCharacterId: scheme.aggressorCharacterId,
     source: "Sabotage",
     schemeId: scheme.id,
     recordedAtTick: state.tick,

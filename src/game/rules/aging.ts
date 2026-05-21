@@ -11,8 +11,9 @@
 // share a single source of truth for the cascade.
 
 import { parsePairKey } from "../conversation/types";
-import type { Character, GameState } from "../entities";
-import type { CharacterId } from "../rng";
+import type { Character, GameState, RivalActorState } from "../entities";
+import { RIVAL_HOUSE_IDS_SET } from "../fixtures/rivals";
+import type { CharacterId, HouseId } from "../rng";
 
 // === VERBATIM MIGRATION of the heir-promotion safety block from
 // applyAgingStep's top-of-function comment (aging.ts:8-14 pre-P5). The
@@ -124,6 +125,27 @@ export function pruneOrphanedConversationKeys(
     }
   }
 
+  // ── P8 BRANCH 4: rival-house associated-character pruning ──
+  // When a rival-associated character dies, drop them from the rival's
+  // RivalActorState.associatedCharacterIds array. Lazy-clone the rivalActors
+  // Map on first match so multi-death year-passes accumulate correctly.
+  let newRivalActors: Map<HouseId, RivalActorState> | null = null;
+  for (const deadId of newlyDeadCharIds) {
+    const deadChar = state.characters.get(deadId);
+    if (deadChar === undefined) continue;
+    if (!RIVAL_HOUSE_IDS_SET.has(deadChar.houseId)) continue;
+    const rivalActor = (newRivalActors ?? state.rivalActors).get(deadChar.houseId);
+    if (rivalActor === undefined) continue;
+    if (!rivalActor.associatedCharacterIds.includes(deadId)) continue;
+    if (newRivalActors === null) {
+      newRivalActors = new Map(state.rivalActors);
+    }
+    newRivalActors.set(deadChar.houseId, {
+      ...rivalActor,
+      associatedCharacterIds: rivalActor.associatedCharacterIds.filter((id) => id !== deadId),
+    });
+  }
+
   return {
     ...state,
     conversationHistory: histFiltered,
@@ -131,6 +153,7 @@ export function pruneOrphanedConversationKeys(
     ...(whispersChanged ? { whispers: newWhispers } : {}),
     ...(charactersChanged ? { characters: newChars } : {}),
     ...(marriagesChanged ? { marriages: newMarriages } : {}),
+    ...(newRivalActors !== null ? { rivalActors: newRivalActors } : {}),
   };
 }
 

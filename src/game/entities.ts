@@ -29,9 +29,13 @@ import { RoleSchema } from "./fixtures/roles";
 import {
   CharacterIdSchema,
   CourierPayloadIdSchema,
+  DuelIdSchema,
+  FactionIdSchema,
+  FactionPairKeySchema,
   GrievanceIdSchema,
   HouseIdSchema,
   MarriageIdSchema,
+  PatronessIdSchema,
   RngStateSchema,
   SchemeIdSchema,
   StaffIdSchema,
@@ -45,9 +49,21 @@ import {
 // record formal grievances). Insertion order is hash-relevant via
 // serializeRegistry's Map-key-only sort — `grievances` arrays serialize
 // in-place; UI render-time sort by GrievanceId is a separate concern.
+//
+// P8: `defendantCharacterId` added as NULLABLE — legacy V5-V8 grievances are
+// all player-perpetrated and not actionable via demandSatisfaction (player
+// can't sensibly duel themselves), so the V8→V9 migration backfills `null`.
+// New post-P8 grievances created by rival-owned schemes set this to the
+// rival's aggressor character — those ARE the v1 duel loop.
 export const GrievanceSchema = z.object({
   id: GrievanceIdSchema,
   perpetratorHouseId: HouseIdSchema,
+  // P8: nullable + default(null) — legacy V5-V8 grievances on disk lack this
+  // field; the .default(null) backfill lets SaveV{N}Schema.parse accept legacy
+  // saves without a strip cascade rebuild. Legacy grievances default to null
+  // (LegacyGrievanceUnactionable — player can't duel themselves). New post-P8
+  // grievances set this explicitly to the perpetrator's aggressor character.
+  defendantCharacterId: CharacterIdSchema.nullable().default(null),
   source: z.enum(GRIEVANCE_SOURCES),
   schemeId: SchemeIdSchema.nullable(), // non-null when source === "Sabotage"
   recordedAtTick: z.number().int().nonnegative(),
@@ -79,6 +95,16 @@ export const HouseSchema = z.object({
   // legacy lift. When true, the campaign is "out of bounds" — the rule-layer
   // exile gate rejects all player-elected mutation actions.
   exiled: z.boolean(),
+  // P8 additions: hostility (0 on player + Independent; load-bearing only on
+  // rival entries — the RIVAL_HOSTILITY_ACTIVATION_THRESHOLD predicate reads
+  // this field; player-action hostility deltas like PLAYER_SABOTAGE_HOSTILITY_DELTA
+  // target rival entries only). factionId (every house carries a faction;
+  // player + Independent default "faction-crown"; rivals per RIVAL_HOUSES_FIXTURE).
+  // Both use `.default()` so legacy V6/V7/V8 saves missing these fields parse
+  // cleanly with backfilled defaults — avoids a full Pre-shape strip cascade
+  // rebuild while preserving forward-compatibility.
+  hostility: z.number().int().min(0).max(100).default(0),
+  factionId: FactionIdSchema.default("faction-crown" as import("./rng").FactionId),
 });
 export type House = z.infer<typeof HouseSchema>;
 
@@ -265,6 +291,54 @@ export const StaffMemberSchema = z.object({
 });
 export type StaffMember = z.infer<typeof StaffMemberSchema>;
 
+// P8: PatronessRecord entity. Spec §3 line 113 + §4 line 548. 5 canonical
+// patronesses seeded via PATRONESSES_FIXTURE; favor [0, 100] starting 50;
+// affiliated with one of the 3 non-Crown factions.
+export const PatronessRecordSchema = z.object({
+  id: PatronessIdSchema,
+  displayName: z.string(),
+  favor: z.number().int().min(0).max(100),
+  factionId: FactionIdSchema,
+});
+export type PatronessRecord = z.infer<typeof PatronessRecordSchema>;
+
+// P8: RivalActorState entity. Sibling Map to state.houses — the rival's House
+// entity lives in state.houses keyed by the same HouseId; this carries ONLY
+// the per-rival action-loop state (associated character ids, cooldown gate).
+// `lastActionTick: null` means never-acted; the cooldown predicate passes
+// immediately on first eligibility.
+export const RivalActorStateSchema = z.object({
+  houseId: HouseIdSchema,
+  factionId: FactionIdSchema,
+  associatedCharacterIds: z.array(CharacterIdSchema),
+  lastActionTick: z.number().int().nullable(),
+});
+export type RivalActorState = z.infer<typeof RivalActorStateSchema>;
+
+// P8: Duel entity. Spec §3 lines 364-370. Status is just Active|Resolved (the
+// outcome field discriminates resolved duels). loserCasualty is REQUIRED (not
+// nullable) — defaults to "Unharmed" at creation; flipped to "Killed" /
+// "Wounded" on decisive resolve; stays "Unharmed" on Stalemate.
+export const DUEL_STATUSES = ["Active", "Resolved"] as const;
+export const DUEL_OUTCOMES = ["ChallengerVictory", "DefenderVictory", "Stalemate"] as const;
+export const DUEL_CASUALTIES = ["Killed", "Wounded", "Unharmed"] as const;
+export type DuelOutcome = (typeof DUEL_OUTCOMES)[number];
+export type DuelCasualty = (typeof DUEL_CASUALTIES)[number];
+
+export const DuelSchema = z.object({
+  id: DuelIdSchema,
+  challengerCharacterId: CharacterIdSchema,
+  defenderCharacterId: CharacterIdSchema,
+  grievanceId: GrievanceIdSchema,
+  initiatedAtTick: z.number().int().nonnegative(),
+  status: z.enum(DUEL_STATUSES),
+  resolvedAtTick: z.number().int().nonnegative().nullable(),
+  outcome: z.enum(DUEL_OUTCOMES).nullable(),
+  loserCasualty: z.enum(DUEL_CASUALTIES),
+  exchangesElapsed: z.number().int().min(0).max(12),
+});
+export type Duel = z.infer<typeof DuelSchema>;
+
 // GameState lives here (not in store.ts) so the rule layer can import it.
 // store.ts re-exports GameState/GameStateSchema for P0-era callers.
 //
@@ -312,5 +386,17 @@ export const GameStateSchema = z.object({
   proposalsLog: z.map(CharacterIdSchema, ProposalLogEntrySchema),
   tutorAssignmentsLog: z.map(CharacterIdSchema, TutorAssignmentLogEntrySchema),
   pendingTutorTraitChoices: z.map(CharacterIdSchema, PendingTutorTraitChoiceSchema),
+  // P8 additions — four new top-level Maps. All hit the
+  // schema↔projection↔selector↔overwriteFromGameState quad-sync surfaces
+  // (CLAUDE.md non-negotiable). Forgetting any surface silently breaks hash
+  // parity, save round-trip, or tick-advancing mutation persistence.
+  // patronesses: 5 canonical patronesses with favor scores.
+  // rivalActors: 3 rival action-loop states (sibling Map to state.houses).
+  // factionTensions: 6 pairwise tension counters (4 factions choose 2).
+  // duels: every duel ever resolved (never deleted, status flips only).
+  patronesses: z.map(PatronessIdSchema, PatronessRecordSchema),
+  rivalActors: z.map(HouseIdSchema, RivalActorStateSchema),
+  factionTensions: z.map(FactionPairKeySchema, z.number().int().min(0).max(100)),
+  duels: z.map(DuelIdSchema, DuelSchema),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

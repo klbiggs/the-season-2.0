@@ -3,11 +3,14 @@ import type { ConversationPairKey, Exchange } from "./conversation/types";
 import type {
   Character,
   CourierPayload,
+  Duel,
   GameState,
   House,
   MarriageRecord,
+  PatronessRecord,
   PendingTutorTraitChoice,
   ProposalLogEntry,
+  RivalActorState,
   Scheme,
   StaffMember,
   TutorAssignmentLogEntry,
@@ -16,8 +19,11 @@ import type {
 import type {
   CharacterId,
   CourierPayloadId,
+  DuelId,
+  FactionPairKey,
   HouseId,
   MarriageId,
+  PatronessId,
   RngState,
   SchemeId,
   StaffId,
@@ -53,6 +59,13 @@ export function hashableState(state: GameState): {
   proposalsLog: Array<[CharacterId, ProposalLogEntry]>;
   tutorAssignmentsLog: Array<[CharacterId, TutorAssignmentLogEntry]>;
   pendingTutorTraitChoices: Array<[CharacterId, PendingTutorTraitChoice]>;
+  // P8: rivals/patronesses/duels/faction-tension projections. House.hostility
+  // and House.factionId are projected via serializeRegistry(state.houses) —
+  // no per-House-field edit needed here.
+  patronesses: Array<[PatronessId, PatronessRecord]>;
+  rivalActors: Array<[HouseId, RivalActorState]>;
+  factionTensions: Array<[FactionPairKey, number]>;
+  duels: Array<[DuelId, Duel]>;
 } {
   return {
     tick: state.tick,
@@ -77,6 +90,12 @@ export function hashableState(state: GameState): {
     proposalsLog: serializeRegistry(state.proposalsLog),
     tutorAssignmentsLog: serializeRegistry(state.tutorAssignmentsLog),
     pendingTutorTraitChoices: serializeRegistry(state.pendingTutorTraitChoices),
+    // P8: 4 new top-level Maps. House.hostility + House.factionId project
+    // automatically via serializeRegistry(state.houses).
+    patronesses: serializeRegistry(state.patronesses),
+    rivalActors: serializeRegistry(state.rivalActors),
+    factionTensions: serializeRegistry(state.factionTensions),
+    duels: serializeRegistry(state.duels),
   };
 }
 

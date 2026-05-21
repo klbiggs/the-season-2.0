@@ -25,6 +25,7 @@ import {
   SaveV6Schema,
   SaveV7Schema,
   SaveV8Schema,
+  SaveV9Schema,
 } from "../schema";
 import { type Migration, assertMonotonic } from "./runner";
 import { migrate_v1_to_v2 } from "./v1-to-v2";
@@ -34,6 +35,7 @@ import { migrate_v4_to_v5 } from "./v4-to-v5";
 import { migrate_v5_to_v6 } from "./v5-to-v6";
 import { migrate_v6_to_v7 } from "./v6-to-v7";
 import { migrate_v7_to_v8 } from "./v7-to-v8";
+import { migrate_v8_to_v9 } from "./v8-to-v9";
 
 export const MIGRATIONS: readonly Migration[] = [
   {
@@ -77,6 +79,12 @@ export const MIGRATIONS: readonly Migration[] = [
     to: 8,
     migrate: (s: unknown) => migrate_v7_to_v8(SaveV7Schema.parse(s)),
     outputSchema: SaveV8Schema,
+  },
+  {
+    from: 8,
+    to: 9,
+    migrate: (s: unknown) => migrate_v8_to_v9(SaveV8Schema.parse(s)),
+    outputSchema: SaveV9Schema,
   },
 ] as const;
 

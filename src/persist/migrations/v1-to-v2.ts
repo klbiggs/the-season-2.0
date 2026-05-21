@@ -55,7 +55,11 @@ export function migrate_v1_to_v2(save: SaveV1): SaveV2 {
     throw new Error("migrate_v1_to_v2: SaveV1.rng has no entries");
   }
   const [, legacyRngState] = firstEntry;
-  const seeded = seedStartingFamily(legacyRngState);
+  // P8: pass the player seed (= legacy rng seed) as the campaignSeed arg so
+  // rival per-house RNG entries are deterministically derived. v1→v2 emits
+  // V2-shape state (no rivals on disk), but seedStartingFamily's signature
+  // demands the second arg post-P8.
+  const seeded = seedStartingFamily(legacyRngState, legacyRngState.seed);
   const playerHouse = seeded.houses.find((h) => h.id === PLAYER_HOUSE_ID);
   const playerChar = seeded.characters.find((c) => c.houseId === PLAYER_HOUSE_ID);
   if (playerHouse === undefined || playerChar === undefined) {
