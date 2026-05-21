@@ -86,6 +86,105 @@ describe("inheritTraits — 4-draw budget invariance under all input shapes", ()
   });
 });
 
+describe("applyConceptionStep — P7 child shape (parent edges + gender + 6-draw budget)", () => {
+  it("emits parent edges in lex-sorted spouse order", () => {
+    // spouseA's id < spouseB's id by lex; both should appear in parentCharacterIds.
+    const spouseA = makeCharacter({ id: "alice" as CharacterId, age: 25 });
+    const spouseB = makeCharacter({ id: "bob" as CharacterId, age: 25 });
+    const marriage = makeMarriage({
+      id: "m1" as MarriageId,
+      spouseAId: spouseA.id, // lex-smaller
+      spouseBId: spouseB.id,
+      marriedAtTick: 100,
+    });
+    const state = makeState({
+      tick: 102,
+      houses: makeHousesMap([makeHouse()]),
+      characters: makeCharactersMap([spouseA, spouseB]),
+      marriages: makeMarriagesMap([marriage]),
+    });
+    const next = applyConceptionStep(state);
+    const child = [...next.characters.values()].find((c) => c.parentCharacterIds !== null);
+    expect(child).toBeDefined();
+    if (child === undefined) throw new Error("test invariant");
+    expect(child.parentCharacterIds).toEqual([spouseA.id, spouseB.id]);
+    // Lex-sort invariant: parents[0] < parents[1].
+    const parents = child.parentCharacterIds;
+    expect(parents).not.toBeNull();
+    if (parents === null) throw new Error("test invariant");
+    expect(parents[0] < parents[1]).toBe(true);
+  });
+
+  it("emits gender field (one of Female/Male)", () => {
+    const spouseA = makeCharacter({ id: "sa" as CharacterId, age: 25 });
+    const spouseB = makeCharacter({ id: "sb" as CharacterId, age: 25 });
+    const marriage = makeMarriage({
+      id: "m1" as MarriageId,
+      spouseAId: spouseA.id,
+      spouseBId: spouseB.id,
+      marriedAtTick: 100,
+    });
+    const state = makeState({
+      tick: 102,
+      houses: makeHousesMap([makeHouse()]),
+      characters: makeCharactersMap([spouseA, spouseB]),
+      marriages: makeMarriagesMap([marriage]),
+    });
+    const next = applyConceptionStep(state);
+    const child = [...next.characters.values()].find((c) => c.parentCharacterIds !== null);
+    expect(child).toBeDefined();
+    if (child === undefined) throw new Error("test invariant");
+    expect(["Female", "Male"]).toContain(child.gender);
+  });
+
+  it("consumes exactly 6 draws per child (4 trait + 1 deathAge + 1 gender)", () => {
+    const spouseA = makeCharacter({ id: "sa" as CharacterId, age: 25 });
+    const spouseB = makeCharacter({ id: "sb" as CharacterId, age: 25 });
+    const marriage = makeMarriage({
+      id: "m1" as MarriageId,
+      spouseAId: spouseA.id,
+      spouseBId: spouseB.id,
+      marriedAtTick: 100,
+    });
+    const state = makeState({
+      tick: 102,
+      houses: makeHousesMap([makeHouse()]),
+      characters: makeCharactersMap([spouseA, spouseB]),
+      marriages: makeMarriagesMap([marriage]),
+    });
+    const before = state.rng.get(PLAYER_HOUSE_ID)?.callCount ?? 0;
+    const next = applyConceptionStep(state);
+    const after = next.rng.get(PLAYER_HOUSE_ID)?.callCount ?? 0;
+    expect(after - before).toBe(6);
+  });
+
+  it("emits default V8 character fields (happiness=100, latch=false, etc.)", () => {
+    const spouseA = makeCharacter({ id: "sa" as CharacterId, age: 25 });
+    const spouseB = makeCharacter({ id: "sb" as CharacterId, age: 25 });
+    const marriage = makeMarriage({
+      id: "m1" as MarriageId,
+      spouseAId: spouseA.id,
+      spouseBId: spouseB.id,
+      marriedAtTick: 100,
+    });
+    const state = makeState({
+      tick: 102,
+      houses: makeHousesMap([makeHouse()]),
+      characters: makeCharactersMap([spouseA, spouseB]),
+      marriages: makeMarriagesMap([marriage]),
+    });
+    const next = applyConceptionStep(state);
+    const child = [...next.characters.values()].find((c) => c.parentCharacterIds !== null);
+    expect(child).toBeDefined();
+    if (child === undefined) throw new Error("test invariant");
+    expect(child.happiness).toBe(100);
+    expect(child.temptationHookUnlocked).toBe(false);
+    expect(child.assignedTutorCharacterId).toBeNull();
+    expect(child.tutorBonusTraitGranted).toBe(false);
+    expect(child.dullSpouseExposureStartTick).toBeNull();
+  });
+});
+
 describe("applyConceptionStep — wedding-tick conception is filtered", () => {
   it("(t - marriedAt) === 0 does NOT conceive", () => {
     const spouseA = makeCharacter({ id: "sa" as CharacterId, age: 25 });

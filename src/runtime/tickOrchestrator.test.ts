@@ -104,4 +104,31 @@ describe("advanceTickPure — phase-array ordering", () => {
     expect(locIdx).toBe(economyIdx + 1);
     expect(courierIdx).toBe(locIdx + 1);
   });
+
+  // P7: happiness drift phase inserts at slot 8 (between mood-drift and
+  // rival-action stub). "Rivals always run last" contract preserved.
+  it("happiness-drift phase fires after mood-drift and before rival-action (slot 8 of 9)", () => {
+    const tracker = createPhaseOrderTracker();
+    const phases = [
+      tracker.trackedPhase("advance-tick"),
+      tracker.trackedPhase("economy"),
+      tracker.trackedPhase("location-effects"),
+      tracker.trackedPhase("courier-draining"),
+      tracker.trackedPhase("scheme-resolution"),
+      tracker.trackedPhase("global-event-roll"),
+      tracker.trackedPhase("mood-drift"),
+      tracker.trackedPhase("happiness-drift"),
+      tracker.trackedPhase("rival-action"),
+    ];
+    runOrchestratorWithPhases(makeState({}), phases);
+    expect(tracker.trace).toHaveLength(9);
+    // Slot 8 happiness sits between mood-drift (slot 7) and rival-action (slot 9, ALWAYS last).
+    const moodIdx = tracker.trace.indexOf("mood-drift");
+    const happinessIdx = tracker.trace.indexOf("happiness-drift");
+    const rivalIdx = tracker.trace.indexOf("rival-action");
+    expect(happinessIdx).toBe(moodIdx + 1);
+    expect(rivalIdx).toBe(happinessIdx + 1);
+    // Rival-action is the LAST phase (CLAUDE.md non-negotiable).
+    expect(rivalIdx).toBe(tracker.trace.length - 1);
+  });
 });

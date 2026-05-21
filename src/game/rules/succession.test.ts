@@ -12,9 +12,11 @@ import {
   type HouseId,
   type MarriageId,
   type RngState,
+  type TraitId,
   createRngState,
 } from "../rng";
 import { PLAYER_HOUSE_ID } from "../rng.seeds";
+import { findAdultChildren } from "./succession";
 
 function makeState(overrides: Partial<GameState>): GameState {
   return {
@@ -66,6 +68,122 @@ describe("synthetic-state succession — heirless edge case", () => {
     expect(updatedHouse?.heirless).toBe(true);
     expect(updatedHouse?.ancestorSummary).toHaveLength(1);
     expect(updatedHouse?.ancestorSummary[0]).toBe("G0: Player I (b. -24, d. 70)");
+  });
+});
+
+describe("findAdultChildren — P7 real body (parent-edge traversal)", () => {
+  it("returns empty when no children have parent edge to deadHead", () => {
+    const head = makeCharacter({ id: "head" as CharacterId, alive: false });
+    const stranger = makeCharacter({
+      id: "stranger" as CharacterId,
+      age: 30,
+      parentCharacterIds: null,
+    });
+    const state = makeState({ characters: makeCharactersMap([head, stranger]) });
+    const result = findAdultChildren(state, head.id);
+    expect(result).toEqual([]);
+  });
+
+  it("returns adult children whose parentCharacterIds includes deadHeadId", () => {
+    const head = makeCharacter({ id: "head" as CharacterId, alive: false });
+    const spouse = "spouse" as CharacterId;
+    const adultChild = makeCharacter({
+      id: "child1" as CharacterId,
+      age: 25,
+      alive: true,
+      parentCharacterIds: [head.id, spouse],
+    });
+    const minorChild = makeCharacter({
+      id: "child2" as CharacterId,
+      age: 10,
+      alive: true,
+      parentCharacterIds: [head.id, spouse],
+    });
+    const state = makeState({
+      characters: makeCharactersMap([head, adultChild, minorChild]),
+    });
+    const result = findAdultChildren(state, head.id);
+    expect(result.map((c) => c.id)).toEqual(["child1"]);
+  });
+
+  it("filters out dead children", () => {
+    const head = makeCharacter({ id: "head" as CharacterId, alive: false });
+    const spouse = "spouse" as CharacterId;
+    const deadChild = makeCharacter({
+      id: "child1" as CharacterId,
+      age: 25,
+      alive: false,
+      parentCharacterIds: [head.id, spouse],
+    });
+    const state = makeState({ characters: makeCharactersMap([head, deadChild]) });
+    expect(findAdultChildren(state, head.id)).toEqual([]);
+  });
+
+  it("returns lex-sorted by character id when multiple adults qualify", () => {
+    const head = makeCharacter({ id: "head" as CharacterId, alive: false });
+    const spouse = "spouse" as CharacterId;
+    const zCharlie = makeCharacter({
+      id: "z-charlie" as CharacterId,
+      age: 25,
+      parentCharacterIds: [head.id, spouse],
+    });
+    const aAlice = makeCharacter({
+      id: "a-alice" as CharacterId,
+      age: 25,
+      parentCharacterIds: [head.id, spouse],
+    });
+    const mMick = makeCharacter({
+      id: "m-mick" as CharacterId,
+      age: 25,
+      parentCharacterIds: [head.id, spouse],
+    });
+    const state = makeState({
+      characters: makeCharactersMap([head, zCharlie, aAlice, mMick]),
+    });
+    const result = findAdultChildren(state, head.id);
+    expect(result.map((c) => c.id)).toEqual(["a-alice", "m-mick", "z-charlie"]);
+  });
+});
+
+describe("succession — widened archetype recompute (P7)", () => {
+  it("recomputes archetype for every surviving family-house character (not just heir)", () => {
+    // Setup: head dies; surviving siblings + spinster sibling whose traits
+    // qualify for Spymaster archetype.
+    const head = makeCharacter({
+      id: "head" as CharacterId,
+      age: 94,
+      deathAge: 95,
+      role: "HeadOfHouse",
+    });
+    const spinster = makeCharacter({
+      id: "sister" as CharacterId,
+      age: 40,
+      role: "Spinster",
+      traits: ["Cunning" as TraitId],
+      gender: "Female",
+      marriageId: null,
+      archetype: "None", // pre-recompute
+    });
+    const dependent = makeCharacter({
+      id: "brother" as CharacterId,
+      age: 30,
+      role: "Dependent",
+      archetype: "None",
+    });
+    const house = makeHouse({
+      id: PLAYER_HOUSE_ID,
+      headOfHouseCharacterId: head.id,
+    });
+    const state = makeState({
+      tick: 70,
+      houses: makeHousesMap([house]),
+      characters: makeCharactersMap([head, spinster, dependent]),
+    });
+    const next = runYearPassPure(state);
+    // spinster gets Spymaster classification post-succession recompute.
+    expect(next.characters.get(spinster.id)?.archetype).toBe("Spymaster");
+    // dependent (no qualifying traits) stays None.
+    expect(next.characters.get(dependent.id)?.archetype).toBe("None");
   });
 });
 

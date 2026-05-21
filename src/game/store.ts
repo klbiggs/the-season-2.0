@@ -292,6 +292,13 @@ function overwriteFromGameState(draft: GameState, next: GameState): void {
   draft.whispers = next.whispers;
   draft.couriers = next.couriers;
   draft.staff = next.staff;
+  // P7: proposalsLog, tutorAssignmentsLog, pendingTutorTraitChoices.
+  // Same quad-sync fourth-surface — found via store.replace-state.test.ts
+  // P7 it() blocks (the seeded entries were silently cleared by every
+  // tick-advancing action prior to this fix).
+  draft.proposalsLog = next.proposalsLog;
+  draft.tutorAssignmentsLog = next.tutorAssignmentsLog;
+  draft.pendingTutorTraitChoices = next.pendingTutorTraitChoices;
 }
 
 export function createStore({ seed }: { seed: string }): SeasonStore {

@@ -73,6 +73,65 @@ describe("runYearPassPure — internal ordering (aging → succession → concep
 // state.schemes or house.grievances. If a future phase extends year-pass
 // composition to touch those surfaces, this assertion will catch the
 // invariant break and the wrapper must add publishSchemeTransitions.
+describe("runYearPassPure — P7 maturation step at STEPS slot 2", () => {
+  it("aging-before-maturation: a child whose age+1 === ADULTHOOD matures same year-pass", () => {
+    // Pre-aging: age=17. Aging-step increments age to 18; maturation-step
+    // then detects the exact-equals boundary and assigns role/archetype.
+    const child = makeCharacter({
+      id: "child" as CharacterId,
+      age: 17,
+      deathAge: 90,
+      role: "Dependent",
+      gender: "Female",
+      marriageId: null,
+    });
+    const house = makeHouse({ headOfHouseCharacterId: "head" as CharacterId });
+    const head = makeCharacter({ id: "head" as CharacterId, age: 30 });
+    const state = makeState({
+      houses: makeHousesMap([house]),
+      characters: makeCharactersMap([head, child]),
+    });
+    const next = runYearPassPure(state);
+    const matured = next.characters.get(child.id);
+    // age incremented by aging step.
+    expect(matured?.age).toBe(18);
+    // role flipped by maturation step (unwed adult female → Spinster).
+    expect(matured?.role).toBe("Spinster");
+  });
+
+  it("maturation-before-succession: a child crossing 18 same-year as parent's death is a heir candidate", () => {
+    const head = makeCharacter({
+      id: "head" as CharacterId,
+      age: 89,
+      deathAge: 90,
+      role: "HeadOfHouse",
+    });
+    const spouse = "spouse" as CharacterId;
+    const child = makeCharacter({
+      id: "child" as CharacterId,
+      age: 17,
+      deathAge: 90,
+      role: "Dependent",
+      gender: "Male", // not classified as Bohemian — stays Dependent post-maturation
+      marriageId: null,
+      parentCharacterIds: [head.id, spouse],
+    });
+    const house = makeHouse({ headOfHouseCharacterId: head.id });
+    const state = makeState({
+      tick: 50,
+      houses: makeHousesMap([house]),
+      characters: makeCharactersMap([head, child]),
+    });
+    const next = runYearPassPure(state);
+    // Head died (aging).
+    expect(next.characters.get(head.id)?.alive).toBe(false);
+    // Child matured (age=18) AND inherited (role=HeadOfHouse via succession).
+    expect(next.characters.get(child.id)?.age).toBe(18);
+    expect(next.characters.get(child.id)?.role).toBe("HeadOfHouse");
+    expect(next.houses.get(house.id)?.heirless).toBe(false);
+  });
+});
+
 describe("runYearPassPure — schemes/grievances no-op invariant (P5)", () => {
   it("state.schemes Map identity preserved across year-pass", () => {
     const head = makeCharacter({ id: "h" as CharacterId, age: 30, deathAge: 90 });

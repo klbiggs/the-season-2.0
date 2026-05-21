@@ -58,4 +58,69 @@ describe("replaceState set-body completeness", () => {
     }
     expect(stateKeys).toEqual(schemaKeys);
   });
+
+  // P7: schema↔projection↔selector↔overwriteFromGameState quad-sync write-side
+  // mirror. Each new top-level Map must survive a tick-advancing action; if
+  // overwriteFromGameState forgot the draft assignment, the tick advance
+  // silently CLEARS the Map.
+  it("travel preserves a seeded proposalsLog entry (overwriteFromGameState P7 quad-sync)", () => {
+    const store = createStore({ seed: "p7-quad-A" });
+    const synth = {
+      ...createInitialState("p7-quad-A"),
+      proposalsLog: new Map([
+        [
+          "test-target" as never,
+          { outcome: "Accepted" as const, tick: 0, byCharacterId: "test-proposer" as never },
+        ],
+      ]),
+    };
+    store.getState().replaceState(synth);
+    expect(store.getState().proposalsLog.size).toBe(1);
+    store.getState().travel("Country");
+    expect(store.getState().proposalsLog.size).toBe(1);
+  });
+
+  it("travel preserves a seeded tutorAssignmentsLog entry (overwriteFromGameState P7 quad-sync)", () => {
+    const store = createStore({ seed: "p7-quad-B" });
+    const synth = {
+      ...createInitialState("p7-quad-B"),
+      tutorAssignmentsLog: new Map([
+        [
+          "child-test" as never,
+          {
+            tutorCharacterId: "tutor-test" as never,
+            assignedAtTick: 0,
+            reassignmentCount: 0,
+          },
+        ],
+      ]),
+    };
+    store.getState().replaceState(synth);
+    expect(store.getState().tutorAssignmentsLog.size).toBe(1);
+    store.getState().travel("Country");
+    expect(store.getState().tutorAssignmentsLog.size).toBe(1);
+  });
+
+  it("travel preserves a seeded pendingTutorTraitChoices entry (overwriteFromGameState P7 quad-sync)", () => {
+    const store = createStore({ seed: "p7-quad-C" });
+    const synth = {
+      ...createInitialState("p7-quad-C"),
+      pendingTutorTraitChoices: new Map([
+        [
+          "child-test" as never,
+          {
+            childId: "child-test" as never,
+            tutorId: "tutor-test" as never,
+            archetype: "Spymaster" as const,
+            acceptableTraitIds: ["Observant" as never, "Cunning" as never] as [never, never],
+            createdAtTick: 0,
+          },
+        ],
+      ]),
+    };
+    store.getState().replaceState(synth);
+    expect(store.getState().pendingTutorTraitChoices.size).toBe(1);
+    store.getState().travel("Country");
+    expect(store.getState().pendingTutorTraitChoices.size).toBe(1);
+  });
 });

@@ -486,3 +486,28 @@ Closes out the material gap + load-bearing advisory Vitests deferred at the init
 - `src/persist/schema.ts:880-960` — SaveV8Schema + toSaveV8 + fromSaveV8.
 - `src/persist/migrations/v7-to-v8.ts` — pure migration composition.
 - `plans/phases/07-family-succession.md` — 1706-line plan, 6 converge-plan cycles.
+
+## P7 followup — 2026-05-20 (promoted to ✅ done)
+
+All 11 deferred §Verification items from the initial P7 closeout are now shipped, **and the act of writing the new tests caught a real bug** that would have surfaced in production:
+
+- `src/game/store.ts:overwriteFromGameState` was missing the 3 P7 draft-writes (`draft.proposalsLog`, `draft.tutorAssignmentsLog`, `draft.pendingTutorTraitChoices`). Every tick-advancing action (advanceTick, travel, requestAudience, escapeBankruptcy, refreshWardrobe, proposeMarriage, runYearPass) was silently CLEARING the 3 new Maps on each call. The `store.replace-state.test.ts` "seed → tick-advancing action → assert size === 1" pattern (3 new it() blocks added) immediately failed and pointed at the missing writes. **This is exactly the silent-clear regression the plan warned about** at the quad-sync surface; the test added in this followup pass is its trip-wire.
+
+**Shipped:**
+- `src/llm/prompts/persona.test.ts` — ROLE_LABELS completeness across all 7 roles; marriage/happiness paragraph regression; PERSONA_CACHE_VERSION = "v3" pin.
+- `src/persist/migrations/v7-to-v8.test.ts` — per-field unit test (version=8, 3 new empty Maps, 7 V8 character field defaults, all legacy fields preserved verbatim with zero RNG draws).
+- `src/persist/migrations/v1-to-v8-chain.test.ts` — full-chain regression across REPLAY_SEEDS + NEGATIVE_CONTROL_SEED; hash-parity assertion against createInitialState.
+- `src/game/rules/conception.test.ts` — parent-edge + gender + 6-draw budget + V8 character field defaults.
+- `src/game/rules/succession.test.ts` — findAdultChildren parent-edge traversal (4 assertions: empty, basic, dead-filter, lex-sort) + widened succession recompute (Spinster + Cunning → Spymaster post-succession).
+- `src/runtime/tickOrchestrator.test.ts` — applyHappinessPhase at slot 8 via phaseOrderTracker; "Rivals always run last" preserved.
+- `src/runtime/yearPass.test.ts` — applyMaturationStep at STEPS slot 2 (aging-before-maturation + maturation-before-succession edge cases).
+- `src/game/store.replace-state.test.ts` — 3 new it() blocks for the 3 new top-level Maps. CAUGHT THE BUG.
+- `eslint/boundaries.test.ts` — 4 P7 positive controls (proposal.ts, happiness.ts, maturation.ts, tutor.ts) + 1 negative control (rule files can't import familyBus).
+- `src/game/death-cascade.test.ts` — lint-style regex test asserting every rule file that flips `alive: false` imports `pruneOrphanedConversationKeys`. Both current sites (`aging.ts`, `schemes.ts:512`) pass; future P8 duels / P11 sibling-rival kills inherit the guard.
+- `src/game/store.ts:overwriteFromGameState` — added the 3 P7 draft-writes. Bug fix.
+
+**Live test via Chrome:** dev server boots clean, 3 consecutive year-pass clicks via "Stay here a year" button produce zero console errors. The new aging→maturation→succession→conception pipeline + 6-publisher trio runs cleanly through the real store under V8 schema.
+
+**Final tally:** 573 tests / 61 test files (up from 522/57 at the initial closeout; +51 new tests across 6 new files + 4 extended files). Typecheck clean. Lint 0 errors / 8 pre-P3 warnings (unrelated).
+
+**Gate parity with prior phases:** ✅ all 3 gates clean ✅ all 19 §Verification items exercised ✅ runtime smoke-tested in browser ✅ schema migration round-trips against fresh state hash. P7 promoted from 🚧 → ✅ done in MASTER.md §6.

@@ -167,3 +167,53 @@ describe("P3 negative control — game-rules → game-other is rejected", () => 
     expect(fired).toBe(true);
   });
 });
+
+// P7 positive controls — the 3 new rule files (proposal.ts, happiness.ts,
+// maturation.ts) ship under src/game/rules/ and import only from constants
+// + entities + fixtures + rng. These are pure-rule modules per CLAUDE.md
+// non-negotiable §1; the folder-mode `src/game/rules` element-types entry
+// already covers them, but the explicit positive-control catches a future
+// regression where the rule files accidentally import from runtime/persist/
+// llm/ui.
+describe("P7 positive controls — new rule files", () => {
+  it("game-rules/proposal can import from constants + entities + rng + fixtures", async () => {
+    const source = `import { AFFECTION_PROPOSAL_THRESHOLD } from "../constants";\nimport type { GameState } from "../entities";\nimport { PLAYER_HOUSE_ID } from "../rng";\nimport { makeMarriageId } from "../fixtures/marriageIdFactory";\nexport function x() { return AFFECTION_PROPOSAL_THRESHOLD; }\n`;
+    const result = await lint(source, "src/game/rules/proposal.ts");
+    const fired = result.messages.some((m) => m.ruleId === "boundaries/element-types");
+    expect(fired).toBe(false);
+  });
+
+  it("game-rules/happiness can import from constants + entities + rng", async () => {
+    const source = `import { HAPPINESS_TEMPTATION_THRESHOLD } from "../constants";\nimport type { GameState } from "../entities";\nimport type { TraitId } from "../rng";\nexport function x() { return HAPPINESS_TEMPTATION_THRESHOLD; }\n`;
+    const result = await lint(source, "src/game/rules/happiness.ts");
+    const fired = result.messages.some((m) => m.ruleId === "boundaries/element-types");
+    expect(fired).toBe(false);
+  });
+
+  it("game-rules/maturation can import from constants + entities + fixtures + rng", async () => {
+    const source = `import { ADULTHOOD_AGE_IN_YEARS } from "../constants";\nimport type { Character } from "../entities";\nimport { classifyArchetype } from "../fixtures/archetypes";\nimport type { Role } from "../fixtures/roles";\nimport { INDEPENDENT_HOUSE_ID } from "../rng";\nexport function x() { return ADULTHOOD_AGE_IN_YEARS; }\n`;
+    const result = await lint(source, "src/game/rules/maturation.ts");
+    const fired = result.messages.some((m) => m.ruleId === "boundaries/element-types");
+    expect(fired).toBe(false);
+  });
+
+  it("game-rules/tutor can import from constants + entities + fixtures + rng", async () => {
+    const source = `import { TUTOR_REASSIGNMENT_WEALTH_COST } from "../constants";\nimport type { GameState } from "../entities";\nimport { ARCHETYPE_MATURATION_TRAIT_POOL } from "../fixtures/archetypes";\nimport { PLAYER_HOUSE_ID } from "../rng";\nexport function x() { return TUTOR_REASSIGNMENT_WEALTH_COST; }\n`;
+    const result = await lint(source, "src/game/rules/tutor.ts");
+    const fired = result.messages.some((m) => m.ruleId === "boundaries/element-types");
+    expect(fired).toBe(false);
+  });
+});
+
+// P7 negative control — each new rule file MUST NOT import from
+// runtime/events/family (the publisher module). Pure-rule modules can
+// produce events as data (via diff helpers run from the store wrappers)
+// but they never publish directly.
+describe("P7 negative control — new rule files can't import from runtime/events", () => {
+  it("errors when game-rules/proposal imports familyBus from runtime/events/family", async () => {
+    const source = `import { familyBus } from "../../runtime/events/family";\nexport function x() { return familyBus; }\n`;
+    const result = await lint(source, "src/game/rules/proposal.ts");
+    const fired = result.messages.some((m) => m.ruleId === "boundaries/element-types");
+    expect(fired).toBe(true);
+  });
+});
