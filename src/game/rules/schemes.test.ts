@@ -67,6 +67,9 @@ function synthStateWith(overrides: Partial<GameState> = {}): GameState {
     whispers: new Map(),
     couriers: new Map(),
     staff: new Map(),
+    proposalsLog: new Map(),
+    tutorAssignmentsLog: new Map(),
+    pendingTutorTraitChoices: new Map(),
     ...overrides,
   };
 }
@@ -451,6 +454,9 @@ describe("two-pass resolver — Chaperone preempts Seduction", () => {
       whispers: new Map(),
       couriers: new Map(),
       staff: new Map(),
+      proposalsLog: new Map(),
+      tutorAssignmentsLog: new Map(),
+      pendingTutorTraitChoices: new Map(),
     };
     // Launch Seduction first (tick=0)
     const sed = tryStartScheme(state, PLAYER_HOUSE_ID, {
@@ -557,6 +563,9 @@ describe("selectAggressor — validation walk == aggressor walk invariant", () =
       whispers: new Map(),
       couriers: new Map(),
       staff: new Map(),
+      proposalsLog: new Map(),
+      tutorAssignmentsLog: new Map(),
+      pendingTutorTraitChoices: new Map(),
     };
     const result = tryStartScheme(state, PLAYER_HOUSE_ID, {
       kind: "Chaperone",

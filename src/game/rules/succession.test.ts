@@ -31,6 +31,9 @@ function makeState(overrides: Partial<GameState>): GameState {
     whispers: new Map(),
     couriers: new Map(),
     staff: new Map(),
+    proposalsLog: new Map(),
+    tutorAssignmentsLog: new Map(),
+    pendingTutorTraitChoices: new Map(),
     ...overrides,
   };
 }

@@ -67,10 +67,13 @@ describe("hashableState", () => {
       "era",
       "houses",
       "marriages",
+      "pendingTutorTraitChoices",
+      "proposalsLog",
       "rng",
       "schemes",
       "staff",
       "tick",
+      "tutorAssignmentsLog",
       "whispers",
     ]);
   });
@@ -111,6 +114,9 @@ describe("hashState — Map reorder invariance", () => {
         whispers: new Map(),
         couriers: new Map(),
         staff: new Map(),
+        proposalsLog: new Map(),
+        tutorAssignmentsLog: new Map(),
+        pendingTutorTraitChoices: new Map(),
       }),
     ).toBe(
       hashState({
@@ -127,6 +133,9 @@ describe("hashState — Map reorder invariance", () => {
         whispers: new Map(),
         couriers: new Map(),
         staff: new Map(),
+        proposalsLog: new Map(),
+        tutorAssignmentsLog: new Map(),
+        pendingTutorTraitChoices: new Map(),
       }),
     );
   });

@@ -10,7 +10,7 @@ import { vi } from "vitest";
 vi.mock("@google/genai");
 
 import { afterEach, describe, expect, it } from "vitest";
-import { makeCharacter } from "../game/__test-utils__/factories";
+import { makeCharacter, makeGameState } from "../game/__test-utils__/factories";
 import type { Character } from "../game/entities";
 import type { CharacterId, HouseId } from "../game/rng";
 import type { ConversationRequest } from "../llm/types";
@@ -37,7 +37,12 @@ afterEach(() => {
 
 describe("conversationOrchestrator.send (happy path via deterministic mock)", () => {
   it("returns Resolved with narrowed ConversationResponse", async () => {
-    const result = await conversationOrchestrator.send(baseRequest(), "AIza-test-key", target());
+    const result = await conversationOrchestrator.send(
+      baseRequest(),
+      "AIza-test-key",
+      target(),
+      makeGameState(),
+    );
     expect(result.kind).toBe("Resolved");
     if (result.kind === "Resolved") {
       expect(result.response.dialogue.length).toBeGreaterThan(0);
@@ -51,21 +56,31 @@ describe("conversationOrchestrator.send (happy path via deterministic mock)", ()
   });
 
   it("missing-key failure: empty apiKey rejects before SDK is touched", async () => {
-    const result = await conversationOrchestrator.send(baseRequest(), "", target());
+    const result = await conversationOrchestrator.send(
+      baseRequest(),
+      "",
+      target(),
+      makeGameState(),
+    );
     expect(result.kind).toBe("Failed");
     if (result.kind === "Failed") expect(result.failure.reason).toBe("missing-key");
   });
 
   it("missing-key failure: malformed apiKey (no AIza prefix) rejects", async () => {
-    const result = await conversationOrchestrator.send(baseRequest(), "garbage", target());
+    const result = await conversationOrchestrator.send(
+      baseRequest(),
+      "garbage",
+      target(),
+      makeGameState(),
+    );
     expect(result.kind).toBe("Failed");
     if (result.kind === "Failed") expect(result.failure.reason).toBe("missing-key");
   });
 
   it("produces deterministic responses for identical requests (replay-harness contract)", async () => {
     const req = baseRequest();
-    const r1 = await conversationOrchestrator.send(req, "AIza-test-key", target());
-    const r2 = await conversationOrchestrator.send(req, "AIza-test-key", target());
+    const r1 = await conversationOrchestrator.send(req, "AIza-test-key", target(), makeGameState());
+    const r2 = await conversationOrchestrator.send(req, "AIza-test-key", target(), makeGameState());
     if (r1.kind === "Resolved" && r2.kind === "Resolved") {
       expect(r1.response.dialogue).toBe(r2.response.dialogue);
       expect(r1.response.classifiedTactic).toBe(r2.response.classifiedTactic);

@@ -13,6 +13,7 @@ import {
   StaffMemberSchema,
   WhisperSchema,
 } from "../game/entities";
+import { hashCharIdToGender } from "../game/fixtures/hashCharIdToGender";
 import {
   BASELINE_NPCS,
   buildBaselineNpcCharacter,
@@ -179,16 +180,80 @@ function stripExiledForLegacyEmit(
 }
 
 // ── CharacterPreV5 (P4): legacy on-disk Character shape for V2/V3/V4 saves
-// without P4's composure/maxComposure. Derived via Zod's .omit() so future
-// Character field additions automatically narrow the legacy alias.
+// without P4's composure/maxComposure. P7 EXTENDS the omit list to also drop
+// the 7 V8 fields — V2/V3/V4 saves predate ALL of them. The legacy alias is
+// now "minimum pre-P4 shape, also pre-V8 fields".
 const CharacterPreV5Schema = CharacterSchema.omit({
   composure: true,
   maxComposure: true,
+  // P7 additions — V2/V3/V4 saves predate these too.
+  happiness: true,
+  temptationHookUnlocked: true,
+  assignedTutorCharacterId: true,
+  tutorBonusTraitGranted: true,
+  dullSpouseExposureStartTick: true,
+  parentCharacterIds: true,
+  gender: true,
 });
 type CharacterPreV5 = z.infer<typeof CharacterPreV5Schema>;
 
+// P7: CharacterPreV8 alias for V5/V6/V7 saves (composure-present, V8-absent).
+// SaveV5/V6/V7 schemas use this alias post-P7 widening of CharacterSchema.
+const CharacterPreV8Schema = CharacterSchema.omit({
+  happiness: true,
+  temptationHookUnlocked: true,
+  assignedTutorCharacterId: true,
+  tutorBonusTraitGranted: true,
+  dullSpouseExposureStartTick: true,
+  parentCharacterIds: true,
+  gender: true,
+});
+type CharacterPreV8 = z.infer<typeof CharacterPreV8Schema>;
+
+function defaultV8CharacterFields(
+  id: import("../game/rng").CharacterId,
+): Pick<
+  Character,
+  | "happiness"
+  | "temptationHookUnlocked"
+  | "assignedTutorCharacterId"
+  | "tutorBonusTraitGranted"
+  | "dullSpouseExposureStartTick"
+  | "parentCharacterIds"
+  | "gender"
+> {
+  return {
+    happiness: 100,
+    temptationHookUnlocked: false,
+    assignedTutorCharacterId: null,
+    tutorBonusTraitGranted: false,
+    dullSpouseExposureStartTick: null,
+    parentCharacterIds: null,
+    gender: hashCharIdToGender(id),
+  };
+}
+
 function defaultCharacterV5Fields(c: CharacterPreV5): Character {
-  return { ...c, composure: 100, maxComposure: 100 };
+  return {
+    ...c,
+    composure: 100,
+    maxComposure: 100,
+    ...defaultV8CharacterFields(c.id),
+  };
+}
+
+function defaultCharacterV8Fields(c: CharacterPreV8): Character {
+  return { ...c, ...defaultV8CharacterFields(c.id) };
+}
+
+function liftLegacyCharactersFromV8Pre(
+  serialized: ReadonlyArray<readonly [string, CharacterPreV8]>,
+): GameState["characters"] {
+  const out: GameState["characters"] = new Map();
+  for (const [, c] of serialized) {
+    out.set(c.id, defaultCharacterV8Fields(c));
+  }
+  return out;
 }
 
 function liftLegacyCharacters(
@@ -372,6 +437,9 @@ function fromSaveV1Bare(save: SaveV1): GameState {
     whispers: new Map(),
     couriers: new Map(),
     staff: new Map(),
+    proposalsLog: new Map(),
+    tutorAssignmentsLog: new Map(),
+    pendingTutorTraitChoices: new Map(),
   };
 }
 
@@ -431,6 +499,9 @@ function fromSaveV2Bare(save: SaveV2): GameState {
     whispers: new Map(),
     couriers: new Map(),
     staff: new Map(),
+    proposalsLog: new Map(),
+    tutorAssignmentsLog: new Map(),
+    pendingTutorTraitChoices: new Map(),
   };
 }
 
@@ -488,6 +559,9 @@ function fromSaveV3Bare(save: SaveV3): GameState {
     whispers: new Map(),
     couriers: new Map(),
     staff: new Map(),
+    proposalsLog: new Map(),
+    tutorAssignmentsLog: new Map(),
+    pendingTutorTraitChoices: new Map(),
   };
 }
 
@@ -551,6 +625,9 @@ export function fromSaveV4Bare(save: SaveV4): GameState {
     whispers: new Map(),
     couriers: new Map(),
     staff: new Map(),
+    proposalsLog: new Map(),
+    tutorAssignmentsLog: new Map(),
+    pendingTutorTraitChoices: new Map(),
   };
 }
 
@@ -571,7 +648,7 @@ export const SaveV5Schema = z.object({
   tick: z.number().int().nonnegative(),
   rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
   houses: z.array(z.tuple([HouseIdSchema, HousePreV6Schema])),
-  characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
+  characters: z.array(z.tuple([CharacterIdSchema, CharacterPreV8Schema])),
   marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
   campaignName: z.string(),
   era: z.enum(["Earlier", "Later"]),
@@ -603,7 +680,7 @@ export function fromSaveV5Bare(save: SaveV5): GameState {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
     houses: liftLegacyHousesFromV6Pre(save.houses),
-    characters: deserializeRegistry(save.characters) as GameState["characters"],
+    characters: liftLegacyCharactersFromV8Pre(save.characters),
     marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
     campaignName: save.campaignName,
     era: save.era,
@@ -615,6 +692,9 @@ export function fromSaveV5Bare(save: SaveV5): GameState {
     whispers: new Map(),
     couriers: new Map(),
     staff: new Map(),
+    proposalsLog: new Map(),
+    tutorAssignmentsLog: new Map(),
+    pendingTutorTraitChoices: new Map(),
   };
 }
 
@@ -636,7 +716,7 @@ export const SaveV6Schema = z.object({
   tick: z.number().int().nonnegative(),
   rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
   houses: z.array(z.tuple([HouseIdSchema, HousePreV7Schema])),
-  characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
+  characters: z.array(z.tuple([CharacterIdSchema, CharacterPreV8Schema])),
   marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
   campaignName: z.string(),
   era: z.enum(["Earlier", "Later"]),
@@ -672,7 +752,7 @@ export function fromSaveV6Bare(save: SaveV6): GameState {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
     houses: liftLegacyHousesFromV7Pre(save.houses),
-    characters: deserializeRegistry(save.characters) as GameState["characters"],
+    characters: liftLegacyCharactersFromV8Pre(save.characters),
     marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
     campaignName: save.campaignName,
     era: save.era,
@@ -684,6 +764,9 @@ export function fromSaveV6Bare(save: SaveV6): GameState {
     whispers: new Map(),
     couriers: new Map(),
     staff: new Map(),
+    proposalsLog: new Map(),
+    tutorAssignmentsLog: new Map(),
+    pendingTutorTraitChoices: new Map(),
   };
 }
 
@@ -754,6 +837,12 @@ export function fromSaveV7(save: SaveV7): GameState {
     whispers: deserializeRegistry(save.whispers) as GameState["whispers"],
     couriers: deserializeRegistry(save.couriers) as GameState["couriers"],
     staff: deserializeRegistry(save.staff) as GameState["staff"],
+    // P7: V7 saves on disk carry full Character + V8 fields (CharacterSchema
+    // includes them post-P7 widening). The three new top-level Maps are
+    // serialized into SaveV7 too — see schema declaration below.
+    proposalsLog: new Map(),
+    tutorAssignmentsLog: new Map(),
+    pendingTutorTraitChoices: new Map(),
   };
 }
 

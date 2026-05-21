@@ -15,7 +15,7 @@
 
 import { LLM_TIMEOUT_MS } from "../game/constants";
 import type { ConversationFailure } from "../game/conversation/types";
-import type { Character } from "../game/entities";
+import type { Character, GameState } from "../game/entities";
 import { type BallSessionId, makeBallSessionId } from "../game/rng";
 import { personaCacheRegistry } from "../llm/cache";
 import { LlmClient } from "../llm/client";
@@ -65,6 +65,10 @@ class ConversationOrchestrator {
     request: ConversationRequest,
     apiKey: string,
     target: Character,
+    // P7: state threaded through so buildPersonaPrompt can render
+    // marriage status + happiness paragraphs requiring state.marriages +
+    // state.characters lookups.
+    state: GameState,
   ): Promise<ConversationOutcome> {
     // Bump request ID; capture locally. Post-await mutations bail when a
     // later send() has superseded this one.
@@ -93,6 +97,7 @@ class ConversationOrchestrator {
         request.model,
         abortController.signal,
         request.otherCharactersInScene,
+        state,
       );
       const requestWithCache: ConversationRequest = { ...request, cacheName };
 

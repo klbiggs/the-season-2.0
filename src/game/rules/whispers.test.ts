@@ -53,6 +53,9 @@ function makeState(overrides: Partial<GameState>): GameState {
     whispers: new Map<WhisperId, Whisper>(),
     couriers: new Map<CourierPayloadId, CourierPayload>(),
     staff: new Map<StaffId, StaffMember>(),
+    proposalsLog: new Map(),
+    tutorAssignmentsLog: new Map(),
+    pendingTutorTraitChoices: new Map(),
     ...overrides,
   };
 }

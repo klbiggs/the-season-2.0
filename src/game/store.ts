@@ -145,6 +145,12 @@ export function createInitialState(
     whispers: new Map<WhisperId, Whisper>(),
     couriers: new Map<CourierPayloadId, CourierPayload>(),
     staff,
+    // P7: empty proposal/tutor logs + no pending tutor-trait choices at
+    // fresh state. Populated at runtime by proposeMarriage / assignTutor /
+    // applyMaturationStep / chooseTutorBonusTrait.
+    proposalsLog: new Map(),
+    tutorAssignmentsLog: new Map(),
+    pendingTutorTraitChoices: new Map(),
   };
 }
 
@@ -531,7 +537,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           pinnedIntent: input.pinnedTactic,
           freeformMessage: input.freeformMessage,
           history,
-          persona: buildPersonaPrompt(target, otherCharactersInScene),
+          persona: buildPersonaPrompt(target, otherCharactersInScene, stateBefore),
           cacheName: null,
           model: routeModel(history),
           otherCharactersInScene,
@@ -547,7 +553,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           stance: input.stance,
         });
 
-        const result = await conversationOrchestrator.send(request, apiKey, target);
+        const result = await conversationOrchestrator.send(request, apiKey, target, stateBefore);
         if (result.kind === "Failed") {
           conversationBus.publish({
             kind: "ConversationFailed",
@@ -992,5 +998,12 @@ export function selectGameState(state: StoreState): GameState {
     whispers: state.whispers,
     couriers: state.couriers,
     staff: state.staff,
+    // P7 additions — schema↔projection↔selector↔overwriteFromGameState quad-
+    // sync. Forgetting these on this surface silently breaks save() (the
+    // selector returns a partial GameState whose Zod parse against the V8
+    // schema would fail).
+    proposalsLog: state.proposalsLog,
+    tutorAssignmentsLog: state.tutorAssignmentsLog,
+    pendingTutorTraitChoices: state.pendingTutorTraitChoices,
   };
 }

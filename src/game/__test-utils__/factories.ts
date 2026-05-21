@@ -4,9 +4,32 @@
 // test files (which are in boundaries/ignore), so the import-site escapes
 // the boundary check.
 
-import type { Character, House, MarriageRecord } from "../entities";
-import type { CharacterId, HouseId, MarriageId } from "../rng";
+import type { Character, GameState, House, MarriageRecord } from "../entities";
+import type { CharacterId, HouseId, MarriageId, RngState } from "../rng";
 import { PLAYER_HOUSE_ID } from "../rng.seeds";
+
+export function makeGameState(overrides: Partial<GameState> = {}): GameState {
+  return {
+    tick: 0,
+    rng: new Map<HouseId, RngState>(),
+    houses: new Map(),
+    characters: new Map<CharacterId, Character>(),
+    marriages: new Map<MarriageId, MarriageRecord>(),
+    campaignName: "test-campaign",
+    era: "Earlier",
+    conversationHistory: new Map(),
+    affectionMap: new Map(),
+    schemes: new Map(),
+    whispers: new Map(),
+    couriers: new Map(),
+    staff: new Map(),
+    // P7 defaults
+    proposalsLog: new Map(),
+    tutorAssignmentsLog: new Map(),
+    pendingTutorTraitChoices: new Map(),
+    ...overrides,
+  };
+}
 
 export function makeCharacter(overrides: Partial<Character> = {}): Character {
   return {
@@ -27,6 +50,14 @@ export function makeCharacter(overrides: Partial<Character> = {}): Character {
     // P4 defaults
     composure: 100,
     maxComposure: 100,
+    // P7 defaults
+    happiness: 100,
+    temptationHookUnlocked: false,
+    assignedTutorCharacterId: null,
+    tutorBonusTraitGranted: false,
+    dullSpouseExposureStartTick: null,
+    parentCharacterIds: null,
+    gender: "Female",
     ...overrides,
   };
 }

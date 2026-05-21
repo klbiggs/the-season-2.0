@@ -105,8 +105,69 @@ export const CharacterSchema = z.object({
   // may grant trait-based bumps).
   composure: z.number().int(),
   maxComposure: z.number().int().positive(),
+  // P7 additions. All clamps re-applied at mutation sites per CLAUDE.md.
+  // happiness: spec §3 line 467-469. Drains -1/tick on Dull-spouse exposure;
+  // crosses HAPPINESS_TEMPTATION_THRESHOLD to flip temptationHookUnlocked.
+  happiness: z.number().int().min(0).max(100),
+  // One-way latch (§10 Q23). Flips false → true at first sub-threshold tick
+  // post-Dull-marriage; never reverts.
+  temptationHookUnlocked: z.boolean(),
+  // Set by assignTutor; cleared via pruneOrphanedConversationKeys on tutor
+  // death. Locked at maturation (assignTutor rejects ChildAlreadyAdult).
+  assignedTutorCharacterId: CharacterIdSchema.nullable(),
+  // Flips once at child maturation when player chooses one of the archetype
+  // pool's 2 traits via chooseTutorBonusTrait.
+  tutorBonusTraitGranted: z.boolean(),
+  // Tick at which this character entered a Dull-trait spouse marriage.
+  // Nulled on Dull-spouse death by the orphan-prune cascade.
+  dullSpouseExposureStartTick: z.number().int().nonnegative().nullable(),
+  // Lex-sorted [spouseA, spouseB] pair at conception. null for baseline NPCs
+  // + player character (pre-history parents).
+  parentCharacterIds: z.tuple([CharacterIdSchema, CharacterIdSchema]).nullable(),
+  // Required by the classifier (Spinster + Bohemian branches gate on gender).
+  // Bootstrap path derives via hashCharIdToGender(id) — single source of truth
+  // with the legacy-lift path so v1→v8 chain hash parity holds.
+  gender: z.enum(["Female", "Male"]),
 });
 export type Character = z.infer<typeof CharacterSchema>;
+
+// P7 entities — ledger/log entries for proposals, tutor assignments, and
+// pending tutor-trait choices. All three ride as top-level GameState Maps
+// (not inline character fields) so the diff helpers can walk them cleanly.
+export const ProposalLogEntrySchema = z.object({
+  outcome: z.enum(["Accepted", "Rejected"]),
+  tick: z.number().int().nonnegative(),
+  // The proposer (always player head at P7; P8 widens when rivals propose).
+  byCharacterId: CharacterIdSchema,
+});
+export type ProposalLogEntry = z.infer<typeof ProposalLogEntrySchema>;
+
+export const TutorAssignmentLogEntrySchema = z.object({
+  tutorCharacterId: CharacterIdSchema,
+  assignedAtTick: z.number().int().nonnegative(),
+  // 0 on first assignment; +1 per reassignment. Gates the wealth-cost
+  // predicate in assignTutor (first assignment is free).
+  reassignmentCount: z.number().int().nonnegative(),
+});
+export type TutorAssignmentLogEntry = z.infer<typeof TutorAssignmentLogEntrySchema>;
+
+export const PendingTutorTraitChoiceSchema = z.object({
+  childId: CharacterIdSchema,
+  tutorId: CharacterIdSchema,
+  // Narrowed to non-None archetypes — maturation only creates pending choices
+  // when pool !== null (None archetype maps to null per
+  // ARCHETYPE_MATURATION_TRAIT_POOL); a hand-corrupted save with
+  // archetype: "None" would parse against the bare ArchetypeSchema but then
+  // crash at choose-trait time. The narrowed schema rejects the corruption
+  // at parse time.
+  archetype: z.enum(["Spymaster", "BohemianRake", "Tutor", "CountryExile"]),
+  // Exact 2-tuple per ARCHETYPE_MATURATION_TRAIT_POOL. Snapshot captured at
+  // maturation tick; later resolved by chooseTutorBonusTrait validating
+  // chosenTraitId ∈ acceptableTraitIds.
+  acceptableTraitIds: z.tuple([TraitIdSchema, TraitIdSchema]),
+  createdAtTick: z.number().int().nonnegative(),
+});
+export type PendingTutorTraitChoice = z.infer<typeof PendingTutorTraitChoiceSchema>;
 
 export const MarriageRecordSchema = z.object({
   id: MarriageIdSchema,
@@ -242,5 +303,14 @@ export const GameStateSchema = z.object({
   whispers: z.map(WhisperIdSchema, WhisperSchema),
   couriers: z.map(CourierPayloadIdSchema, CourierPayloadSchema),
   staff: z.map(StaffIdSchema, StaffMemberSchema),
+  // P7 additions — three new top-level Maps scoped per-character. All three
+  // hit the schema↔projection↔selector↔overwriteFromGameState quad-sync
+  // surfaces (CLAUDE.md non-negotiable): GameStateSchema (here), hashableState
+  // (hash.ts), selectGameState (store.ts), overwriteFromGameState (store.ts).
+  // Forgetting any surface silently breaks hash parity, save round-trip, or
+  // tick-advancing mutation persistence.
+  proposalsLog: z.map(CharacterIdSchema, ProposalLogEntrySchema),
+  tutorAssignmentsLog: z.map(CharacterIdSchema, TutorAssignmentLogEntrySchema),
+  pendingTutorTraitChoices: z.map(CharacterIdSchema, PendingTutorTraitChoiceSchema),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

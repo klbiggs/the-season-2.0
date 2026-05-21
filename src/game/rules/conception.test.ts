@@ -36,6 +36,9 @@ function makeState(overrides: Partial<GameState>): GameState {
     whispers: new Map(),
     couriers: new Map(),
     staff: new Map(),
+    proposalsLog: new Map(),
+    tutorAssignmentsLog: new Map(),
+    pendingTutorTraitChoices: new Map(),
     ...overrides,
   };
 }
@@ -188,6 +191,9 @@ describe("applyConceptionStep — multi-marriage RNG isolation (synthetic fixtur
         whispers: new Map(),
         couriers: new Map(),
         staff: new Map(),
+        proposalsLog: new Map(),
+        tutorAssignmentsLog: new Map(),
+        pendingTutorTraitChoices: new Map(),
       };
       const next1 = applyConceptionStep(state);
       const next2 = applyConceptionStep(state);

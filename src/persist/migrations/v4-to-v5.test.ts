@@ -50,12 +50,24 @@ describe("migrate_v4_to_v5 byte-identity vs fresh state", () => {
     const { grievances: _g, exiled: _e, ...freshIndyStripped } = freshIndy;
     expect(migratedIndy?.[1]).toEqual(freshIndyStripped);
 
-    // 5 NPCs byte-identity
+    // 5 NPCs byte-identity. P7: SaveV5Schema characters tuple uses
+    // CharacterPreV8Schema (no V8 fields); strip them from fresh for comparison.
     for (const npcSeed of BASELINE_NPCS) {
       const migrated = v5Save.characters.find(([id]) => id === npcSeed.id);
       const freshChar = fresh.characters.get(npcSeed.id);
       expect(migrated).toBeDefined();
-      expect(migrated?.[1]).toEqual(freshChar);
+      if (freshChar === undefined) throw new Error("unreachable");
+      const {
+        happiness: _h,
+        temptationHookUnlocked: _t,
+        assignedTutorCharacterId: _at,
+        tutorBonusTraitGranted: _bt,
+        dullSpouseExposureStartTick: _ds,
+        parentCharacterIds: _p,
+        gender: _g,
+        ...freshCharStripped
+      } = freshChar;
+      expect(migrated?.[1]).toEqual(freshCharStripped);
     }
 
     // Independent RNG byte-identity

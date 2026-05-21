@@ -13,7 +13,7 @@ import {
   PERSONA_CACHE_TTL_SECONDS,
   PERSONA_CACHE_VERSION,
 } from "../game/constants";
-import type { Character } from "../game/entities";
+import type { Character, GameState } from "../game/entities";
 import { CancelledError } from "./errors";
 import { buildPersonaPrompt } from "./prompts/persona";
 import type { CharacterId, Model } from "./types";
@@ -35,6 +35,10 @@ export class PersonaCacheRegistry {
     // persona text now embeds an "Other characters in this scene" section.
     // Caller (conversationOrchestrator.send) threads from the request.
     otherCharactersInScene: ReadonlyArray<Character>,
+    // P7: GameState passed through so buildPersonaPrompt can render marriage
+    // status (requires state.marriages + state.characters lookup) and
+    // happiness paragraphs.
+    state: GameState,
   ): Promise<string | null> {
     const key = `${target.id}|${model}|${PERSONA_CACHE_VERSION}` as CacheKey;
     const cached = this.cache.get(key);
@@ -43,7 +47,7 @@ export class PersonaCacheRegistry {
       const result = await ai.caches.create({
         model,
         config: {
-          systemInstruction: buildPersonaPrompt(target, otherCharactersInScene),
+          systemInstruction: buildPersonaPrompt(target, otherCharactersInScene, state),
           ttl: PERSONA_CACHE_TTL_SECONDS,
           displayName: `${PERSONA_CACHE_DISPLAY_NAME_PREFIX}${target.id}-${PERSONA_CACHE_VERSION}`,
           abortSignal: abort,

@@ -468,4 +468,49 @@ export const STAFF_BRIBED_BY_RIVAL_CADENCE_TICKS = 6;
 // in this scene" section. Hash-irrelevant (lives in code, not state); future
 // persona-prompt format changes MUST bump this constant to force cache
 // re-creation on deploy.
-export const PERSONA_CACHE_VERSION = "v2" as const;
+// P7 bump v2 → v3: buildPersonaPrompt extends baseLines with Marriage status
+// + Happiness state paragraphs.
+export const PERSONA_CACHE_VERSION = "v3" as const;
+
+// ── P7: Family, Marriage & Succession ────────────────────────────────────
+
+// Spec §3 "Happiness Drain From Dull-Spouse Marriages" (line 467-469).
+export const HAPPINESS_INITIAL = 100;
+export const HAPPINESS_TEMPTATION_THRESHOLD = 30;
+export const HAPPINESS_DULL_SPOUSE_DRAIN_PER_TICK = -1;
+
+// Spec §3 "Marriage, Conception & Inheritance" (line 333-336). Note that
+// AFFECTION_PROPOSAL_THRESHOLD already lives above at constants.ts:133 (P4);
+// reused at P7 — NO duplicate constant added under any other name.
+export const PROPOSAL_REPUTATION_THRESHOLD = 40;
+export const PROPOSAL_ACCEPTANCE_FLOOR = 0.5;
+export const PROPOSAL_ACCEPTANCE_CEILING = 0.95;
+export const PROPOSAL_REJECTION_SCANDAL_DELTA = 5;
+
+// Proposal consumes one tick (same shape as travel/audience per the pre-tick
+// action pattern). Wired via module-load assertion (below) + a Vitest
+// assertion in proposal.test.ts: `expect(stateAfter.tick - stateBefore.tick)
+// .toBe(PROPOSAL_TICK_COST)`.
+export const PROPOSAL_TICK_COST = 1;
+if (PROPOSAL_TICK_COST !== 1) {
+  throw new Error(
+    "PROPOSAL_TICK_COST drift breaks the proposal-tick-budget contract — proposal wraps advanceTickPure which always advances by 1.",
+  );
+}
+
+// Spec §3 retroactive P5 baseline (introduced at P7 to anchor the temptation
+// discount). Applied at schemes.ts in the Seduction discovery branch BEFORE
+// the status flip. Pre-P7 Seduction discoveries did not incur scandal; the
+// migration does not retroactively replay scheme resolutions.
+export const SEDUCTION_DISCOVERY_SCANDAL = 25;
+// Discounted scandal when the aggressor's temptationHookUnlocked === true
+// AND the Seduction target is non-spouse (§10 Q23 resolution).
+export const TEMPTATION_DISCOUNTED_SCANDAL = 5;
+
+// Spec §3 "Tutor Influence" (line 471-476).
+export const TUTOR_REASSIGNMENT_WEALTH_COST = 5;
+// Minimum tick gap between consecutive guide-opinion effects on the same
+// child from the same tutor.
+export const TUTOR_GUIDE_OPINION_COOLDOWN_TICKS = 10;
+// Guide-opinion forces the child's mood toward Receptive, subject to mood-lock.
+export const TUTOR_GUIDE_OPINION_MOOD_TARGET: Mood = "Receptive";

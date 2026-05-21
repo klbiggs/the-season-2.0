@@ -6,8 +6,11 @@ import type {
   GameState,
   House,
   MarriageRecord,
+  PendingTutorTraitChoice,
+  ProposalLogEntry,
   Scheme,
   StaffMember,
+  TutorAssignmentLogEntry,
   Whisper,
 } from "./entities";
 import type {
@@ -47,6 +50,9 @@ export function hashableState(state: GameState): {
   whispers: Array<[WhisperId, Whisper]>;
   couriers: Array<[CourierPayloadId, CourierPayload]>;
   staff: Array<[StaffId, StaffMember]>;
+  proposalsLog: Array<[CharacterId, ProposalLogEntry]>;
+  tutorAssignmentsLog: Array<[CharacterId, TutorAssignmentLogEntry]>;
+  pendingTutorTraitChoices: Array<[CharacterId, PendingTutorTraitChoice]>;
 } {
   return {
     tick: state.tick,
@@ -64,6 +70,13 @@ export function hashableState(state: GameState): {
     whispers: serializeRegistry(state.whispers),
     couriers: serializeRegistry(state.couriers),
     staff: serializeRegistry(state.staff),
+    // P7: proposal log + tutor assignment log + pending trait choices.
+    // The 7 new Character fields project via serializeRegistry(state.characters)
+    // — no per-Character-field edit needed here (the existing characters
+    // projection captures the full entity, V8 fields included).
+    proposalsLog: serializeRegistry(state.proposalsLog),
+    tutorAssignmentsLog: serializeRegistry(state.tutorAssignmentsLog),
+    pendingTutorTraitChoices: serializeRegistry(state.pendingTutorTraitChoices),
   };
 }
 

@@ -17,8 +17,9 @@
 // draws for NPC construction. The bootstrap draw budget stays at 1
 // (player head's deathAge only), unchanged from P3.
 
-import { LIFESPAN_RANGE } from "./constants";
+import { HAPPINESS_INITIAL, LIFESPAN_RANGE } from "./constants";
 import type { Character, House, StaffMember } from "./entities";
+import { hashCharIdToGender } from "./fixtures/hashCharIdToGender";
 import { STARTING_HEAD_CHARACTER_ID, STARTING_HEAD_NAME } from "./fixtures/names";
 import { BASELINE_NPCS, buildBaselineNpcCharacter, buildIndependentHouse } from "./fixtures/npcs";
 import { BASELINE_STAFF, buildBaselineStaffMember } from "./fixtures/staff";
@@ -55,6 +56,16 @@ export function seedStartingFamily(rngState: RngState): {
     marriageId: null,
     composure: 100,
     maxComposure: 100,
+    // P7 defaults. Gender derived from FNV-1a hash (same source-of-truth as
+    // legacy-lift path) so v1→v8 chain hash parity holds. parentCharacterIds
+    // is null for the campaign-start head (pre-history parents).
+    happiness: HAPPINESS_INITIAL,
+    temptationHookUnlocked: false,
+    assignedTutorCharacterId: null,
+    tutorBonusTraitGranted: false,
+    dullSpouseExposureStartTick: null,
+    parentCharacterIds: null,
+    gender: hashCharIdToGender(STARTING_HEAD_CHARACTER_ID),
   };
 
   const playerHouse: House = {

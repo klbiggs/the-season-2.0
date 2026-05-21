@@ -10,8 +10,10 @@
 // Plan: plans/phases/04-ballroom-llm.md "NPC pool: INDEPENDENT_HOUSE_ID +
 // 5 baseline society NPCs".
 
+import { HAPPINESS_INITIAL } from "../constants";
 import type { Character, House } from "../entities";
 import { type CharacterId, INDEPENDENT_HOUSE_ID, type TraitId } from "../rng";
+import { hashCharIdToGender } from "./hashCharIdToGender";
 import type { Mood } from "./moods";
 import type { Role } from "./roles";
 
@@ -92,6 +94,16 @@ export function buildBaselineNpcCharacter(seed: BaselineNpcSeed): Character {
     marriageId: null,
     composure: 100,
     maxComposure: 100,
+    // P7 defaults. Gender derived from FNV-1a hash — same source-of-truth as
+    // the legacy-lift path's seedV8FieldsIntoLegacyState; the v1→v8 chain test
+    // hash parity assertion depends on these two paths agreeing.
+    happiness: HAPPINESS_INITIAL,
+    temptationHookUnlocked: false,
+    assignedTutorCharacterId: null,
+    tutorBonusTraitGranted: false,
+    dullSpouseExposureStartTick: null,
+    parentCharacterIds: null,
+    gender: hashCharIdToGender(seed.id),
   };
 }
 

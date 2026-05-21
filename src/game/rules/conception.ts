@@ -14,6 +14,7 @@
 
 import {
   FERTILITY_CEILING_AGE,
+  HAPPINESS_INITIAL,
   LIFESPAN_RANGE,
   TRAIT_NOVELTY_PROBABILITY,
   YEARS_PER_CONCEPTION_CYCLE,
@@ -21,7 +22,7 @@ import {
 import type { Character, GameState } from "../entities";
 import { childCharacterId, childName } from "../fixtures/names";
 import { TRAITS_ALL } from "../fixtures/traits";
-import { type RngState, type TraitId, drawInt, drawNext } from "../rng";
+import { type CharacterId, type RngState, type TraitId, drawInt, drawNext } from "../rng";
 import { getCharacterOrThrow } from "../util/lookups";
 
 // Exact 4-draw budget per call, deterministic regardless of branch taken:
@@ -137,6 +138,19 @@ export function applyConceptionStep(state: GameState): GameState {
     rngState = postDeath;
     const deathAge = deathOffset + LIFESPAN_RANGE[0];
 
+    // P7 6th draw: gender (50/50 split). Inserted AFTER deathAge so the
+    // existing P1 4+1 draw budget for trait inheritance + deathAge is
+    // preserved; gender is the new last draw. Replay-harness call-count
+    // expectations gain +1 per child accordingly.
+    const { next: genderRoll, rngState: postGender } = drawNext(rngState);
+    rngState = postGender;
+    const gender: "Female" | "Male" = genderRoll < 0.5 ? "Female" : "Male";
+
+    // P7: parent edges. Lex-sort matches MarriageRecordSchema spouseAId/spouseBId
+    // invariant (spouseAId < spouseBId at marriage creation) — passing them
+    // verbatim preserves the sort.
+    const parents: readonly [CharacterId, CharacterId] = [marriage.spouseAId, marriage.spouseBId];
+
     const newCharId = childCharacterId(marriageId, state.tick, 0);
     const child: Character = {
       id: newCharId,
@@ -156,6 +170,15 @@ export function applyConceptionStep(state: GameState): GameState {
       composure: 100,
       maxComposure: 100,
       marriageId: null,
+      // P7 defaults — children inherit parent edges; happiness starts full;
+      // no tutor at birth; no Dull exposure yet (happens on later marriage).
+      happiness: HAPPINESS_INITIAL,
+      temptationHookUnlocked: false,
+      assignedTutorCharacterId: null,
+      tutorBonusTraitGranted: false,
+      dullSpouseExposureStartTick: null,
+      parentCharacterIds: [parents[0], parents[1]],
+      gender,
     };
     if (!touched) {
       characters = new Map(state.characters);
