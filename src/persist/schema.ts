@@ -9,8 +9,11 @@ import {
   type House,
   HouseSchema,
   MarriageRecordSchema,
+  PendingTutorTraitChoiceSchema,
+  ProposalLogEntrySchema,
   SchemeSchema,
   StaffMemberSchema,
+  TutorAssignmentLogEntrySchema,
   WhisperSchema,
 } from "../game/entities";
 import { hashCharIdToGender } from "../game/fixtures/hashCharIdToGender";
@@ -37,12 +40,13 @@ import {
 import { PLAYER_HOUSE_ID } from "../game/rng";
 import { DEFAULT_CAMPAIGN_NAME } from "../game/store";
 
-// Live save-format version. P6 bumps to 7 with `whispers`/`couriers`/`staff`
-// top-level GameState fields, `exiled: boolean` on House, and the new
-// Whisper/CourierPayload/StaffMember entity schemas. Legacy toSaveV1..V6
-// retain their literal `version: N` writes; only toSaveV7 references
-// SAVE_VERSION_CURRENT.
-export const SAVE_VERSION_CURRENT = 7 as const;
+// Live save-format version. P7 bumps to 8 with 7 new Character fields
+// (happiness, temptationHookUnlocked, assignedTutorCharacterId,
+// tutorBonusTraitGranted, dullSpouseExposureStartTick, parentCharacterIds,
+// gender) and 3 new top-level GameState Maps (proposalsLog,
+// tutorAssignmentsLog, pendingTutorTraitChoices). Legacy toSaveV1..V7 retain
+// their literal `version: N` writes; only toSaveV8 references SAVE_VERSION_CURRENT.
+export const SAVE_VERSION_CURRENT = 8 as const;
 
 // ── HousePreV4 (legacy on-disk House shape for V1/V2/V3 saves) ────────────
 // Omits the 5 P3-added fields (currentLocation, etc.) AND the P5 grievances
@@ -777,13 +781,110 @@ export function fromSaveV6(save: SaveV6): GameState {
   return seedWhispersCouriersStaffIntoLegacyState(fromSaveV6Bare(save));
 }
 
-// ── SaveV7 (P6, live save format) ─────────────────────────────────────────
-// Adds `whispers` / `couriers` / `staff` top-level Maps (as tuple-arrays)
-// and `exiled: boolean` on every House. Houses use the LIVE HouseSchema
-// (exiled required at V7).
+// ── SaveV7 (P6 on-disk format — legacy at P7+) ────────────────────────────
+// V7 saves predate the 7 V8 character fields + 3 new top-level Maps.
+// Characters tuple value uses CharacterPreV8Schema (live shape minus V8
+// fields). Houses + Marriages + the other top-level Maps stay LIVE.
 
 export const SaveV7Schema = z.object({
   version: z.literal(7),
+  tick: z.number().int().nonnegative(),
+  rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
+  characters: z.array(z.tuple([CharacterIdSchema, CharacterPreV8Schema])),
+  marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
+  campaignName: z.string(),
+  era: z.enum(["Earlier", "Later"]),
+  conversationHistory: z.array(z.tuple([ConversationPairKeySchema, z.array(ExchangeSchema)])),
+  affectionMap: z.array(z.tuple([ConversationPairKeySchema, z.number().int().min(0).max(100)])),
+  schemes: z.array(z.tuple([SchemeIdSchema, SchemeSchema])),
+  whispers: z.array(z.tuple([WhisperIdSchema, WhisperSchema])),
+  couriers: z.array(z.tuple([CourierPayloadIdSchema, CourierPayloadSchema])),
+  staff: z.array(z.tuple([StaffIdSchema, StaffMemberSchema])),
+});
+export type SaveV7 = z.infer<typeof SaveV7Schema>;
+
+// P7: V7 emitter strips the 7 V8 character fields. The post-P7 live
+// CharacterSchema includes them; toSaveV7 must drop them before emit so the
+// SaveV7Schema (which uses CharacterPreV8Schema) accepts the parse.
+function stripV8CharacterFieldsForLegacyEmit(
+  entries: ReadonlyArray<readonly [string, Character]>,
+): Array<[string, CharacterPreV8]> {
+  return entries.map(([id, c]) => {
+    const {
+      happiness: _h,
+      temptationHookUnlocked: _t,
+      assignedTutorCharacterId: _at,
+      tutorBonusTraitGranted: _bt,
+      dullSpouseExposureStartTick: _ds,
+      parentCharacterIds: _p,
+      gender: _g,
+      ...rest
+    } = c;
+    return [id, rest as CharacterPreV8];
+  });
+}
+
+export function toSaveV7(state: GameState): SaveV7 {
+  return SaveV7Schema.parse({
+    version: 7,
+    tick: state.tick,
+    rng: serializeRegistry(state.rng),
+    houses: serializeRegistry(state.houses),
+    characters: stripV8CharacterFieldsForLegacyEmit(serializeRegistry(state.characters)),
+    marriages: serializeRegistry(state.marriages),
+    campaignName: state.campaignName,
+    era: state.era,
+    conversationHistory: serializeRegistry(state.conversationHistory),
+    affectionMap: serializeRegistry(state.affectionMap),
+    schemes: serializeRegistry(state.schemes),
+    whispers: serializeRegistry(state.whispers),
+    couriers: serializeRegistry(state.couriers),
+    staff: serializeRegistry(state.staff),
+  });
+}
+
+// Exported (NEW at P7) — migrate_v7_to_v8 imports this Bare core directly
+// so the migration runner doesn't double-invoke the V8 field seeder.
+export function fromSaveV7Bare(save: SaveV7): GameState {
+  return {
+    tick: save.tick,
+    rng: deserializeRegistry(save.rng) as GameState["rng"],
+    houses: deserializeRegistry(save.houses) as GameState["houses"],
+    characters: liftLegacyCharactersFromV8Pre(save.characters),
+    marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
+    campaignName: save.campaignName,
+    era: save.era,
+    conversationHistory: deserializeRegistry(
+      save.conversationHistory,
+    ) as GameState["conversationHistory"],
+    affectionMap: deserializeRegistry(save.affectionMap) as GameState["affectionMap"],
+    schemes: deserializeRegistry(save.schemes) as GameState["schemes"],
+    whispers: deserializeRegistry(save.whispers) as GameState["whispers"],
+    couriers: deserializeRegistry(save.couriers) as GameState["couriers"],
+    staff: deserializeRegistry(save.staff) as GameState["staff"],
+    proposalsLog: new Map(),
+    tutorAssignmentsLog: new Map(),
+    pendingTutorTraitChoices: new Map(),
+  };
+}
+
+export function fromSaveV7(save: SaveV7): GameState {
+  // V7 saves predate the 3 new top-level Maps; seeded as empty by the Bare core.
+  // No additional seed composition needed (V7 already contains Independent
+  // NPCs + schemes + grievances + whispers/couriers/staff by schema).
+  return fromSaveV7Bare(save);
+}
+
+// ── SaveV8 (P7, live save format) ─────────────────────────────────────────
+// Adds 7 new Character fields (happiness, temptationHookUnlocked,
+// assignedTutorCharacterId, tutorBonusTraitGranted, dullSpouseExposureStartTick,
+// parentCharacterIds, gender) and 3 new top-level Maps (proposalsLog,
+// tutorAssignmentsLog, pendingTutorTraitChoices). Characters tuple uses the
+// LIVE CharacterSchema (post-P7 widening).
+
+export const SaveV8Schema = z.object({
+  version: z.literal(8),
   tick: z.number().int().nonnegative(),
   rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
   houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
@@ -797,11 +898,16 @@ export const SaveV7Schema = z.object({
   whispers: z.array(z.tuple([WhisperIdSchema, WhisperSchema])),
   couriers: z.array(z.tuple([CourierPayloadIdSchema, CourierPayloadSchema])),
   staff: z.array(z.tuple([StaffIdSchema, StaffMemberSchema])),
+  proposalsLog: z.array(z.tuple([CharacterIdSchema, ProposalLogEntrySchema])),
+  tutorAssignmentsLog: z.array(z.tuple([CharacterIdSchema, TutorAssignmentLogEntrySchema])),
+  pendingTutorTraitChoices: z.array(
+    z.tuple([CharacterIdSchema, PendingTutorTraitChoiceSchema]),
+  ),
 });
-export type SaveV7 = z.infer<typeof SaveV7Schema>;
+export type SaveV8 = z.infer<typeof SaveV8Schema>;
 
-export function toSaveV7(state: GameState): SaveV7 {
-  return SaveV7Schema.parse({
+export function toSaveV8(state: GameState): SaveV8 {
+  return SaveV8Schema.parse({
     version: SAVE_VERSION_CURRENT,
     tick: state.tick,
     rng: serializeRegistry(state.rng),
@@ -816,11 +922,14 @@ export function toSaveV7(state: GameState): SaveV7 {
     whispers: serializeRegistry(state.whispers),
     couriers: serializeRegistry(state.couriers),
     staff: serializeRegistry(state.staff),
+    proposalsLog: serializeRegistry(state.proposalsLog),
+    tutorAssignmentsLog: serializeRegistry(state.tutorAssignmentsLog),
+    pendingTutorTraitChoices: serializeRegistry(state.pendingTutorTraitChoices),
   });
 }
 
-export function fromSaveV7(save: SaveV7): GameState {
-  // V7 is the live format — pure deserialization with no seed helpers.
+export function fromSaveV8(save: SaveV8): GameState {
+  // V8 is the live format — pure deserialization with no seed helpers.
   return {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
@@ -837,12 +946,13 @@ export function fromSaveV7(save: SaveV7): GameState {
     whispers: deserializeRegistry(save.whispers) as GameState["whispers"],
     couriers: deserializeRegistry(save.couriers) as GameState["couriers"],
     staff: deserializeRegistry(save.staff) as GameState["staff"],
-    // P7: V7 saves on disk carry full Character + V8 fields (CharacterSchema
-    // includes them post-P7 widening). The three new top-level Maps are
-    // serialized into SaveV7 too — see schema declaration below.
-    proposalsLog: new Map(),
-    tutorAssignmentsLog: new Map(),
-    pendingTutorTraitChoices: new Map(),
+    proposalsLog: deserializeRegistry(save.proposalsLog) as GameState["proposalsLog"],
+    tutorAssignmentsLog: deserializeRegistry(
+      save.tutorAssignmentsLog,
+    ) as GameState["tutorAssignmentsLog"],
+    pendingTutorTraitChoices: deserializeRegistry(
+      save.pendingTutorTraitChoices,
+    ) as GameState["pendingTutorTraitChoices"],
   };
 }
 

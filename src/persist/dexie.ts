@@ -18,8 +18,9 @@ import {
   type SaveV5,
   type SaveV6,
   type SaveV7,
-  SaveV7Schema,
-  toSaveV7,
+  type SaveV8,
+  SaveV8Schema,
+  toSaveV8,
 } from "./schema";
 
 // Slot for dev/scaffold UI. UI components and the round-trip test reference
@@ -31,12 +32,12 @@ export const DEV_SLOT = "dev";
 const DB_NAME = "the-season";
 const DEXIE_SCHEMA_VERSION = 1;
 
-// P6: data widens to `SaveV1 | SaveV2 | SaveV3 | SaveV4 | SaveV5 | SaveV6 | SaveV7`.
-// Type widening is documentation-only — structured-clone returns raw shapes
-// at runtime. Narrow via .version (load() is the only sanctioned narrowing site).
+// P7: data widens to include SaveV8. Type widening is documentation-only —
+// structured-clone returns raw shapes at runtime. Narrow via .version
+// (load() is the only sanctioned narrowing site).
 type SaveRecord = {
   slot: string;
-  data: SaveV1 | SaveV2 | SaveV3 | SaveV4 | SaveV5 | SaveV6 | SaveV7;
+  data: SaveV1 | SaveV2 | SaveV3 | SaveV4 | SaveV5 | SaveV6 | SaveV7 | SaveV8;
 };
 
 class SeasonDB extends Dexie {
@@ -58,20 +59,20 @@ function db(): SeasonDB {
 }
 
 export async function save(slot: string, state: GameState): Promise<void> {
-  // Sync prep: toSaveV7 serializes and Zod-validates synchronously.
-  const data = toSaveV7(state);
+  // Sync prep: toSaveV8 serializes and Zod-validates synchronously.
+  const data = toSaveV8(state);
   // Async IO: structured-clone copy into IndexedDB.
   await db().saves.put({ slot, data });
 }
 
-// Load returns SaveV7 by routing legacy SaveV1..V6 records through
+// Load returns SaveV8 by routing legacy SaveV1..V7 records through
 // runMigrations. Errors are SaveLoadError variants:
 // - UnknownSaveVersionError: version field missing, non-numeric, or < 1
 // - SaveVersionTooNewError: version > SAVE_VERSION_CURRENT
-// - InvalidSaveSchemaError: Zod validation failed for the SaveV7 final shape
+// - InvalidSaveSchemaError: Zod validation failed for the SaveV8 final shape
 // - MigrationFailedError (from runMigrations): a migration step threw or
 //   produced output that failed the next version's schema
-export async function load(slot: string): Promise<SaveV7 | undefined> {
+export async function load(slot: string): Promise<SaveV8 | undefined> {
   const record = await db().saves.get(slot);
   if (record === undefined) return undefined;
   const raw = record.data as unknown;
@@ -93,7 +94,7 @@ export async function load(slot: string): Promise<SaveV7 | undefined> {
   }
   if (observedVersion === SAVE_VERSION_CURRENT) {
     try {
-      return SaveV7Schema.parse(raw);
+      return SaveV8Schema.parse(raw);
     } catch (cause) {
       throw asInvalidSaveSchemaError(cause);
     }
@@ -101,7 +102,7 @@ export async function load(slot: string): Promise<SaveV7 | undefined> {
   // Legacy version path — route through migrations.
   const migrated = runMigrations(raw, observedVersion, SAVE_VERSION_CURRENT, MIGRATIONS);
   try {
-    return SaveV7Schema.parse(migrated);
+    return SaveV8Schema.parse(migrated);
   } catch (cause) {
     throw asInvalidSaveSchemaError(cause);
   }

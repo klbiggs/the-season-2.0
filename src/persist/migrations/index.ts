@@ -11,6 +11,7 @@
 // + Independent house + 5 baseline NPCs).
 // P5: v5 → v6 (adds GameState.schemes + House.grievances).
 // P6: v6 → v7 (adds GameState.whispers/.couriers/.staff + House.exiled).
+// P7: v7 → v8 (adds 7 new Character fields + 3 new top-level Maps).
 //
 // assertMonotonic runs at module load — a misconfigured registry fails
 // Vitest boot rather than during a real player load.
@@ -23,6 +24,7 @@ import {
   SaveV5Schema,
   SaveV6Schema,
   SaveV7Schema,
+  SaveV8Schema,
 } from "../schema";
 import { type Migration, assertMonotonic } from "./runner";
 import { migrate_v1_to_v2 } from "./v1-to-v2";
@@ -31,6 +33,7 @@ import { migrate_v3_to_v4 } from "./v3-to-v4";
 import { migrate_v4_to_v5 } from "./v4-to-v5";
 import { migrate_v5_to_v6 } from "./v5-to-v6";
 import { migrate_v6_to_v7 } from "./v6-to-v7";
+import { migrate_v7_to_v8 } from "./v7-to-v8";
 
 export const MIGRATIONS: readonly Migration[] = [
   {
@@ -68,6 +71,12 @@ export const MIGRATIONS: readonly Migration[] = [
     to: 7,
     migrate: (s: unknown) => migrate_v6_to_v7(SaveV6Schema.parse(s)),
     outputSchema: SaveV7Schema,
+  },
+  {
+    from: 7,
+    to: 8,
+    migrate: (s: unknown) => migrate_v7_to_v8(SaveV7Schema.parse(s)),
+    outputSchema: SaveV8Schema,
   },
 ] as const;
 
