@@ -12,23 +12,18 @@ import {
   makeHousesMap,
 } from "../__test-utils__/factories";
 import { ADULTHOOD_AGE_IN_YEARS, TUTOR_REASSIGNMENT_WEALTH_COST } from "../constants";
-import {
-  type CharacterId,
-  PLAYER_HOUSE_ID,
-  type TraitId,
-} from "../rng";
-import {
-  applyAssignTutorPure,
-  applyChooseTutorBonusTraitPure,
-} from "./tutor";
+import { type CharacterId, PLAYER_HOUSE_ID, type TraitId } from "../rng";
+import { applyAssignTutorPure, applyChooseTutorBonusTraitPure } from "./tutor";
 
-function makeTutorState(opts: {
-  childAge?: number;
-  tutorArchetype?: "Spymaster" | "BohemianRake" | "Tutor" | "CountryExile" | "None";
-  tutorAlive?: boolean;
-  playerWealth?: number;
-  prevAssignment?: boolean;
-} = {}) {
+function makeTutorState(
+  opts: {
+    childAge?: number;
+    tutorArchetype?: "Spymaster" | "BohemianRake" | "Tutor" | "CountryExile" | "None";
+    tutorAlive?: boolean;
+    playerWealth?: number;
+    prevAssignment?: boolean;
+  } = {},
+) {
   const childId = "child" as CharacterId;
   const tutorId = "tutor" as CharacterId;
   const child = makeCharacter({
@@ -196,11 +191,7 @@ describe("applyChooseTutorBonusTraitPure", () => {
       createdAtTick: 0,
     });
     const stateWithPending = { ...state, pendingTutorTraitChoices: newPending };
-    const result = applyChooseTutorBonusTraitPure(
-      stateWithPending,
-      childId,
-      "Random" as TraitId,
-    );
+    const result = applyChooseTutorBonusTraitPure(stateWithPending, childId, "Random" as TraitId);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason.kind).toBe("InvalidTrait");
   });
@@ -216,11 +207,7 @@ describe("applyChooseTutorBonusTraitPure", () => {
       createdAtTick: 0,
     });
     const stateWithPending = { ...state, pendingTutorTraitChoices: newPending };
-    const result = applyChooseTutorBonusTraitPure(
-      stateWithPending,
-      childId,
-      "Cunning" as TraitId,
-    );
+    const result = applyChooseTutorBonusTraitPure(stateWithPending, childId, "Cunning" as TraitId);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const child = result.nextState.characters.get(childId);
@@ -250,11 +237,7 @@ describe("applyChooseTutorBonusTraitPure", () => {
       characters: newChars,
       pendingTutorTraitChoices: newPending,
     };
-    const result = applyChooseTutorBonusTraitPure(
-      stateWithPending,
-      childId,
-      "Cunning" as TraitId,
-    );
+    const result = applyChooseTutorBonusTraitPure(stateWithPending, childId, "Cunning" as TraitId);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const childAfter = result.nextState.characters.get(childId);

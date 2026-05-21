@@ -900,9 +900,7 @@ export const SaveV8Schema = z.object({
   staff: z.array(z.tuple([StaffIdSchema, StaffMemberSchema])),
   proposalsLog: z.array(z.tuple([CharacterIdSchema, ProposalLogEntrySchema])),
   tutorAssignmentsLog: z.array(z.tuple([CharacterIdSchema, TutorAssignmentLogEntrySchema])),
-  pendingTutorTraitChoices: z.array(
-    z.tuple([CharacterIdSchema, PendingTutorTraitChoiceSchema]),
-  ),
+  pendingTutorTraitChoices: z.array(z.tuple([CharacterIdSchema, PendingTutorTraitChoiceSchema])),
 });
 export type SaveV8 = z.infer<typeof SaveV8Schema>;
 

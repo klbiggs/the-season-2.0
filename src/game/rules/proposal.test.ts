@@ -34,21 +34,23 @@ import { applyProposalPure } from "./proposal";
 // Synthetic state: player head + target NPC in INDEPENDENT_HOUSE_ID. By
 // default the target qualifies for proposal (alive, adult, unwed, not exiled);
 // override fields per test via the builder.
-function makeProposalState(opts: {
-  playerExiled?: boolean;
-  playerHeadAlive?: boolean;
-  playerMarried?: boolean;
-  playerReputation?: number;
-  playerScandal?: number;
-  targetExists?: boolean;
-  targetAlive?: boolean;
-  targetExiled?: boolean;
-  targetAge?: number;
-  targetMarried?: boolean;
-  targetHouse?: HouseId;
-  targetIsSelf?: boolean;
-  affection?: number;
-} = {}): { state: GameState; targetId: CharacterId; playerHeadId: CharacterId } {
+function makeProposalState(
+  opts: {
+    playerExiled?: boolean;
+    playerHeadAlive?: boolean;
+    playerMarried?: boolean;
+    playerReputation?: number;
+    playerScandal?: number;
+    targetExists?: boolean;
+    targetAlive?: boolean;
+    targetExiled?: boolean;
+    targetAge?: number;
+    targetMarried?: boolean;
+    targetHouse?: HouseId;
+    targetIsSelf?: boolean;
+    affection?: number;
+  } = {},
+): { state: GameState; targetId: CharacterId; playerHeadId: CharacterId } {
   const playerHeadId = "player-head" as CharacterId;
   const targetId = opts.targetIsSelf ? playerHeadId : ("npc-target" as CharacterId);
 
@@ -88,20 +90,27 @@ function makeProposalState(opts: {
     exiled: opts.targetExiled ?? false,
   });
 
-  const characters = opts.targetExists === false
-    ? makeCharactersMap([player])
-    : makeCharactersMap([player, target]);
+  const characters =
+    opts.targetExists === false ? makeCharactersMap([player]) : makeCharactersMap([player, target]);
   const marriages = new Map();
   if (opts.playerMarried) {
     marriages.set(
       playerMarriageId,
-      makeMarriage({ id: playerMarriageId, spouseAId: playerHeadId, spouseBId: "ghost" as CharacterId }),
+      makeMarriage({
+        id: playerMarriageId,
+        spouseAId: playerHeadId,
+        spouseBId: "ghost" as CharacterId,
+      }),
     );
   }
   if (opts.targetMarried) {
     marriages.set(
       targetMarriageId,
-      makeMarriage({ id: targetMarriageId, spouseAId: targetId, spouseBId: "ghost2" as CharacterId }),
+      makeMarriage({
+        id: targetMarriageId,
+        spouseAId: targetId,
+        spouseBId: "ghost2" as CharacterId,
+      }),
     );
   }
 
@@ -115,9 +124,7 @@ function makeProposalState(opts: {
     houses: makeHousesMap([playerHouse, targetHouse]),
     marriages,
     affectionMap,
-    rng: new Map([
-      [PLAYER_HOUSE_ID, createRngState("player-seed")],
-    ]),
+    rng: new Map([[PLAYER_HOUSE_ID, createRngState("player-seed")]]),
   });
   return { state, targetId, playerHeadId };
 }
@@ -169,7 +176,12 @@ describe("applyProposalPure — predicate rejection matrix (gates 1-13)", () => 
     const { state } = makeProposalState();
     // Inject a synthetic sibling at PLAYER_HOUSE_ID.
     const siblingId = "player-sibling" as CharacterId;
-    const sibling = makeCharacter({ id: siblingId, houseId: PLAYER_HOUSE_ID, age: 22, gender: "Female" });
+    const sibling = makeCharacter({
+      id: siblingId,
+      houseId: PLAYER_HOUSE_ID,
+      age: 22,
+      gender: "Female",
+    });
     const newChars = new Map(state.characters);
     newChars.set(siblingId, sibling);
     const stateWithSibling = { ...state, characters: newChars };
@@ -309,9 +321,7 @@ describe("applyProposalPure — acceptance + roll-rejection paths", () => {
     expect(outcome.ok).toBe(true);
     if (outcome.ok && !outcome.accepted) {
       expect(outcome.scandalDelta).toBe(PROPOSAL_REJECTION_SCANDAL_DELTA);
-      expect(nextState.houses.get(PLAYER_HOUSE_ID)?.scandal).toBe(
-        PROPOSAL_REJECTION_SCANDAL_DELTA,
-      );
+      expect(nextState.houses.get(PLAYER_HOUSE_ID)?.scandal).toBe(PROPOSAL_REJECTION_SCANDAL_DELTA);
     }
   });
 

@@ -428,3 +428,61 @@ Closes out the material gap + load-bearing advisory Vitests deferred at the init
 - Remaining advisory Vitests from the plan's C-tail: startScheme no-tick-advance, SchemeStarted tick equivalence, accumulatedAffection hash-relevance, pruneOrphanedConversationKeys idempotence + extraction parity, runYearPass TargetCharacterDied event count parity, tick-advance-never-flips-player-head, fauxPasIndex save/load roundtrip, Object.is rejection identity, ERA_TRANSITION_TICK hash-irrelevance vi.mock, runtime/events/scheme.test.ts event wiring, tickOrchestrator.test.ts slot-5 assertion, 30-run replay extended for cross-kind scheme launches, eslint/boundaries.test.ts schemes.ts positive-control, Playwright UI smoke. None block P5 functional completeness; all are defensive against future-maintainer drift.
 - `clamp` centralization cleanup for four older rule files (bankruptcyEscape/economy/locationEffects/monarchsAudience) — separate PR.
 
+
+## P7 — closed 2026-05-20 (🚧 in progress)
+
+**Decisions made:**
+- Marked **🚧 in progress** rather than ✅ done: runtime + foundation + migration are complete and pass 522 tests, but ~11 advisory Vitest items from the plan's §Verification list are not yet shipped. The implemented surface works; the deferred items are additive coverage tests for behavior already implemented.
+- Combined plan's `assignTutor.test.ts` + `chooseTutorBonusTrait.test.ts` into a single `src/game/rules/tutor.test.ts` (13 tests covering both actions). Functional equivalent; one fewer file.
+- Bumped `SAVE_VERSION_CURRENT` 7 → 8 in this phase. SaveV7 demoted to legacy; `CharacterPreV8Schema` is the new omit-V8-fields alias used by SaveV5/V6/V7's characters tuple.
+- `liftLegacyCharactersFromV8Pre` is the single source of truth for adding V8 character field defaults during legacy lift; consumed by `fromSaveV5Bare`, `fromSaveV6Bare`, `fromSaveV7Bare`. Gender derived via `hashCharIdToGender(id)` (FNV-1a 32-bit) — the SAME source-of-truth as the fresh-state bootstrap path so v1→v8 chain hash parity holds.
+- Pre-computed FNV-1a outputs for the 5 baseline NPCs + player-head pinned in plan body lines 126-136 AND in `hashCharIdToGender.test.ts` as golden outputs.
+- `BaselineNpcSeed` does NOT widen with a gender field — `buildBaselineNpcCharacter` derives gender via the hash from the seed's id (single source of truth with legacy-lift). Lady Aldridge + Lady Ellsworth's "Lady" honorific is independent of the hash-derived gender; acceptable prose-level inconsistency at v1.
+- ROLES enum widened 4 → 7 (added Spinster, Exile, Bohemian). The post-P7 `Character.gender` field is REQUIRED by the classifier (Branch 2 BohemianRake gates on gender === "Male").
+- PHASES 8 → 9: `applyHappinessPhase` inserted at slot 8 between `applyMoodDriftPhase` and the rival-action stub. "Rivals always run last" contract preserved.
+- STEPS 3 → 4: `applyMaturationStep` inserted at slot 2 between `applyAgingStep` and `applySuccessionStep`. Aging-before-maturation: aging increments age, maturation reads exact-18 boundary.
+- Publisher trio canonicalized at 5/5/6 across proposeMarriage / advanceTick / runYearPass per plan. `proposeMarriage` direct-publishes its own `ProposalAccepted` / `ProposalRejected`; the 4 baseline publishers (`publishMarriageTransitions`, `publishTemptationLatchTransitions`, `publishCharacterDeaths`, `publishWhisperTransitions`) ride on every tick-advancing wrapper.
+- `pruneOrphanedConversationKeys` extended with 3 new branches (tutor-prune, Dull-exposure prune, marriage-dissolution). Branch 3 closes the non-head-spouse dissolution gap that existed pre-P7 (succession step 4 only dissolved marriages of dead heads).
+- `SEDUCTION_DISCOVERY_SCANDAL = 25` retro-introduced at `schemes.ts` discovered branch with aggressor-keyed temptation discount (5 vs 25). Pre-P7 Seduction discoveries shipped without scandal; the migration does NOT retroactively replay scheme resolutions.
+- Persona prompt extended with `formatMarriageStatusLine` + `formatHappinessLine` helpers; PERSONA_CACHE_VERSION bumped v2 → v3. ROLE_LABELS extended ADD-ONLY (existing 4 labels' prose preserved verbatim).
+- Plan went through **6 fresh cycles of /converge-plan** (FC1-calibration, FC2-FC6 + FC7 stopped at steady state) expanding from 41 → 1706 lines. ~66 distinct blocker fixes across the loop.
+
+**Open questions hit:**
+- §10 Q4 (archetype reclassification on mid-life trait acquisition): resolved NO — classifier fires only at succession + child maturation. Already at P1 stub; P7 ships the full body.
+- §10 Q16 (cross-house marriages with rivals): deferred to v1.5; gate ships `CrossHouseMarriageNotSupported` rejection.
+- §10 Q17 (pre-adulthood betrothals): deferred to v1.5; gate ships `TargetTooYoung` rejection.
+- §10 Q18 (per-character rolled lifespans): already shipped at P1 (`LIFESPAN_RANGE = [70, 95]`); trait modifiers deferred.
+- §10 Q23 (Dull-spouse temptation hook): resolved AUTO-UNLOCK on threshold crossing. One-way latch on Character; never reverts. Discounted scandal `TEMPTATION_DISCOUNTED_SCANDAL = 5` vs full `SEDUCTION_DISCOVERY_SCANDAL = 25`.
+
+**Deferred / next-up (Verification items NOT exercised; blocking ✅ done):**
+- `src/game/death-cascade.test.ts` — lint-style boundary test for all sites that flip `Character.alive = false`. P8 duel deaths and P11 sibling-rival kills will need this defensive guard.
+- `src/persist/migrations/v1-to-v8-chain.test.ts` — full chain regression + hash parity assertion against `createInitialState`.
+- `src/persist/migrations/v7-to-v8.test.ts` — separate per-field unit test (idempotence test covers smoke).
+- `src/game/rules/conception.test.ts` — parent-edge + gender-draw + callCount + 6 assertions.
+- `src/game/rules/succession.test.ts` — findAdultChildren real-body coverage + widened recompute Vitest.
+- `src/game/replay-harness.test.ts` — callCount budget updates for the gender draw.
+- `src/runtime/tickOrchestrator.test.ts` — applyHappinessPhase slot-8 assertion.
+- `src/runtime/yearPass.test.ts` — applyMaturationStep STEPS-index-1 assertion.
+- `src/game/store.replace-state.test.ts` — 3 new it() blocks for proposalsLog / tutorAssignmentsLog / pendingTutorTraitChoices.
+- `src/llm/prompts/persona.test.ts` — ROLE_LABELS completeness + marriage/happiness paragraph assertions.
+- `eslint/boundaries.test.ts` — 3 positive-control entries for proposal.ts / happiness.ts / maturation.ts.
+
+**Other deferred:**
+- 8 pre-existing `noNonNullAssertion` lint warnings in pre-P3 test files (locationEffects.test.ts, schemes.test.ts, v1-to-v4-chain.test.ts, v3-to-v4.test.ts). Not P7 regressions; cleanup candidate for a separate PR.
+- The 1706-line `plans/phases/07-family-succession.md` carries ~170 advisory items in the C-tail. Many are folded into body; explicit triage tagging deferred to close-phase completion.
+
+**Files of note:**
+- `src/game/rules/proposal.ts` — 13-gate atomic-gating proposal action.
+- `src/game/rules/happiness.ts` — per-tick drift + temptation latch.
+- `src/game/rules/maturation.ts` — year-pass age-18 boundary detection.
+- `src/game/rules/tutor.ts` — applyAssignTutorPure + applyChooseTutorBonusTraitPure.
+- `src/game/rules/aging.ts:40-130` — pruneOrphanedConversationKeys with 3 new branches.
+- `src/game/rules/succession.ts:23` — real findAdultChildren with parent-edge traversal.
+- `src/game/rules/schemes.ts:405-440` — SEDUCTION_DISCOVERY_SCANDAL retro-mutation.
+- `src/game/fixtures/hashCharIdToGender.ts` — FNV-1a 32-bit gender derivation.
+- `src/game/fixtures/marriageIdFactory.ts` — deterministic MarriageId factory.
+- `src/runtime/events/family.ts` — familyBus + 4 diff publishers.
+- `src/persist/schema.ts:184-256` — CharacterPreV5/CharacterPreV8 strip helpers; `liftLegacyCharactersFromV8Pre`.
+- `src/persist/schema.ts:880-960` — SaveV8Schema + toSaveV8 + fromSaveV8.
+- `src/persist/migrations/v7-to-v8.ts` — pure migration composition.
+- `plans/phases/07-family-succession.md` — 1706-line plan, 6 converge-plan cycles.

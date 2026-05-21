@@ -38,7 +38,9 @@ describe("hashCharIdToGender — FNV-1a 32-bit golden outputs", () => {
   it("distributes across the 0/1 bit space (regression guard)", () => {
     // Spot-check: not all inputs hash to the same gender. If the algorithm
     // were broken (e.g., constant return), this would catch it.
-    const sample = ["a", "b", "c", "d", "e", "f", "g", "h"].map((s) => hashCharIdToGender(s as CharacterId));
+    const sample = ["a", "b", "c", "d", "e", "f", "g", "h"].map((s) =>
+      hashCharIdToGender(s as CharacterId),
+    );
     const females = sample.filter((g) => g === "Female").length;
     const males = sample.filter((g) => g === "Male").length;
     expect(females).toBeGreaterThan(0);

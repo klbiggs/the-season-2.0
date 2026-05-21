@@ -230,12 +230,27 @@ export type StoreState = GameState & StoreActions;
 
 export type SeasonStore = UseBoundStore<StoreApi<StoreState>>;
 
+// P7 imports.
+import { type ProposalOutcome, applyProposalPure } from "../game/rules/proposal";
+import {
+  type AssignTutorRejection,
+  type ChooseTutorBonusTraitRejection,
+  applyAssignTutorPure,
+  applyChooseTutorBonusTraitPure,
+} from "../game/rules/tutor";
 import { buildPersonaPrompt } from "../llm/prompts/persona";
 import { routeModel } from "../llm/routing";
 import type { ConversationResponse } from "../llm/types";
 import { conversationOrchestrator } from "../runtime/conversationOrchestrator";
 import { conversationBus, publishCharacterDeaths } from "../runtime/events/conversation";
 import type { BallEntryRejection } from "../runtime/events/conversation";
+import {
+  familyBus,
+  publishArchetypeReclassificationsFromSuccession,
+  publishChildMaturationTransitions,
+  publishMarriageTransitions,
+  publishTemptationLatchTransitions,
+} from "../runtime/events/family";
 import { locationBus } from "../runtime/events/location";
 import { publishSchemeTransitions, schemeBus } from "../runtime/events/scheme";
 import { publishWhisperTransitions, whisperBus } from "../runtime/events/whispers";
@@ -244,21 +259,6 @@ import { publishWhisperTransitions, whisperBus } from "../runtime/events/whisper
 // have been declared above.
 import { advanceTickPure } from "../runtime/tickOrchestrator";
 import { runYearPassPure } from "../runtime/yearPass";
-// P7 imports.
-import { applyProposalPure, type ProposalOutcome } from "../game/rules/proposal";
-import {
-  type AssignTutorRejection,
-  type ChooseTutorBonusTraitRejection,
-  applyAssignTutorPure,
-  applyChooseTutorBonusTraitPure,
-} from "../game/rules/tutor";
-import {
-  familyBus,
-  publishArchetypeReclassificationsFromSuccession,
-  publishChildMaturationTransitions,
-  publishMarriageTransitions,
-  publishTemptationLatchTransitions,
-} from "../runtime/events/family";
 
 // Apply a full GameState swap to the immer draft. Used by every store
 // action that produces a new GameState via pure rules + orchestrator.
@@ -1038,7 +1038,8 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (outcome.accepted) {
           familyBus.publish({
             kind: "ProposalAccepted",
-            proposerId: stateBefore.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId ?? targetCharacterId,
+            proposerId:
+              stateBefore.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId ?? targetCharacterId,
             targetId: targetCharacterId,
             marriageId: outcome.marriageId,
             tick: tickAdvanced.tick,
@@ -1046,7 +1047,8 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         } else {
           familyBus.publish({
             kind: "ProposalRejected",
-            proposerId: stateBefore.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId ?? targetCharacterId,
+            proposerId:
+              stateBefore.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId ?? targetCharacterId,
             targetId: targetCharacterId,
             scandalDelta: outcome.scandalDelta,
             tick: tickAdvanced.tick,
@@ -1082,11 +1084,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        const result = applyChooseTutorBonusTraitPure(
-          stateBefore,
-          childCharacterId,
-          chosenTraitId,
-        );
+        const result = applyChooseTutorBonusTraitPure(stateBefore, childCharacterId, chosenTraitId);
         if (!result.ok) return { ok: false, reason: result.reason };
         set((draft) => {
           overwriteFromGameState(draft, result.nextState);
