@@ -1,26 +1,34 @@
 // Conversation orchestrator. Owns:
-//   - per-request AbortController (timeout via setTimeout + abort())
+//   - per-request user-abort + timeout AbortControllers (composed via
+//     AbortSignal.any and passed to client.send)
 //   - currentRequestId monotonic counter (post-await stale-check)
 //   - currentSession (ballroom session state — beginSession/endSession/
 //     currentSessionId methods)
-//   - subscription registration: TargetCharacterDied → personaCacheRegistry
-//     invalidation (module-load subscription)
+//   - subscription registration: TargetCharacterDied → POST
+//     /api/llm/persona/invalidate (module-load subscription;
+//     fire-and-forget; replaces the in-browser personaCacheRegistry
+//     invalidation that pre-P7.5 lived here)
 //
-// Bus-publishing discipline: orchestrator RETURNS ConversationOutcome to the
-// caller (store action); the store action publishes events from its
-// set-completed body. The orchestrator only subscribes (for cache
-// invalidation), never publishes.
+// Bus-publishing discipline: orchestrator RETURNS ConversationOutcome to
+// the caller (store action); the store action publishes events. The
+// orchestrator only subscribes (for cache invalidation), never publishes.
 //
-// Plan: plans/phases/04-ballroom-llm.md "src/runtime/conversationOrchestrator.ts".
+// P7.5: client.ts is timer-free. The orchestrator owns the timeout
+// AbortController AND the user-exit AbortController, composes them via
+// AbortSignal.any, and passes the composed signal to client.send. The
+// `timedOut` flag distinguishes timeout-vs-cancel for the catch-and-map.
 
 import { LLM_TIMEOUT_MS } from "../game/constants";
 import type { ConversationFailure } from "../game/conversation/types";
-import type { Character, GameState } from "../game/entities";
 import { type BallSessionId, makeBallSessionId } from "../game/rng";
-import { personaCacheRegistry } from "../llm/cache";
 import { LlmClient } from "../llm/client";
-import { CancelledError, MissingKeyError, NetworkError, SchemaError } from "../llm/errors";
-import { type ConversationRequest, type ConversationResponse, narrowResponse } from "../llm/types";
+import { CancelledError, NetworkError, SchemaError } from "../llm/errors";
+import {
+  type ConversationResponse,
+  type ProxyConversationRequest,
+  type Tactic,
+  narrowResponse,
+} from "../llm/types";
 import { conversationBus } from "./events/conversation";
 
 export type ConversationOutcome =
@@ -29,8 +37,9 @@ export type ConversationOutcome =
 
 class ConversationOrchestrator {
   private currentRequestId = 0;
-  private currentAbort: AbortController | null = null;
+  private currentUserAbort: AbortController | null = null;
   private currentSession: { sessionId: BallSessionId; tickAtEntry: number } | null = null;
+  private readonly client = new LlmClient();
 
   // ── Session methods (called by store actions enterBallroom/exitBallroom) ──
 
@@ -58,70 +67,54 @@ class ConversationOrchestrator {
   // ── Request lifecycle ────────────────────────────────────────────────────
 
   abortCurrent(): void {
-    if (this.currentAbort !== null) this.currentAbort.abort();
+    if (this.currentUserAbort !== null) this.currentUserAbort.abort();
   }
 
   async send(
-    request: ConversationRequest,
-    apiKey: string,
-    target: Character,
-    // P7: state threaded through so buildPersonaPrompt can render
-    // marriage status + happiness paragraphs requiring state.marriages +
-    // state.characters lookups.
-    state: GameState,
+    request: ProxyConversationRequest,
+    pinnedIntent: Tactic | null,
   ): Promise<ConversationOutcome> {
     // Bump request ID; capture locally. Post-await mutations bail when a
     // later send() has superseded this one.
     const requestId = ++this.currentRequestId;
 
-    const abortController = new AbortController();
-    this.currentAbort = abortController;
+    // Two abort sources, both orchestrator-internal:
+    //   - userAbortController: toggled by abortCurrent() (user exits the
+    //     ballroom mid-fetch).
+    //   - timeoutController: fired by the setTimeout below at 15s.
+    // Compose via AbortSignal.any; client.ts receives a single composed
+    // signal and stays timer-free.
+    const userAbortController = new AbortController();
+    const timeoutController = new AbortController();
+    this.currentUserAbort = userAbortController;
 
-    // Per-request timeout. Flag distinguishes timeout-abort from user-abort;
-    // the client always throws CancelledError on abort — only the
-    // orchestrator knows why.
     let timedOut = false;
     const timeoutHandle = setTimeout(() => {
       timedOut = true;
-      abortController.abort();
+      timeoutController.abort();
     }, LLM_TIMEOUT_MS);
 
+    const composedSignal = AbortSignal.any([userAbortController.signal, timeoutController.signal]);
+
     try {
-      // Fresh per-request LlmClient — a key change between sends takes
-      // effect on the next call without orchestrator re-init.
-      const client = new LlmClient(apiKey); // may throw MissingKeyError
-
-      const cacheName = await personaCacheRegistry.getOrCreatePersonaCache(
-        client.ai,
-        target,
-        request.model,
-        abortController.signal,
-        request.otherCharactersInScene,
-        state,
-      );
-      const requestWithCache: ConversationRequest = { ...request, cacheName };
-
-      const raw = await client.respond(requestWithCache, abortController.signal);
+      const raw = await this.client.send(request, composedSignal);
 
       clearTimeout(timeoutHandle);
-      this.currentAbort = null;
+      this.currentUserAbort = null;
 
       // Stale-check: a later send() may have bumped the counter.
       if (requestId !== this.currentRequestId) {
         return { kind: "Failed", failure: { reason: "cancelled" } };
       }
-      return { kind: "Resolved", response: narrowResponse(raw, request.pinnedIntent) };
+      return { kind: "Resolved", response: narrowResponse(raw, pinnedIntent) };
     } catch (err) {
       clearTimeout(timeoutHandle);
-      this.currentAbort = null;
+      this.currentUserAbort = null;
 
       if (requestId !== this.currentRequestId) {
         return { kind: "Failed", failure: { reason: "cancelled" } };
       }
       // Map typed errors → ConversationFailure reasons.
-      if (err instanceof MissingKeyError) {
-        return { kind: "Failed", failure: { reason: "missing-key" } };
-      }
       if (err instanceof SchemaError) {
         return { kind: "Failed", failure: { reason: "schema", issues: err.issues } };
       }
@@ -139,8 +132,19 @@ class ConversationOrchestrator {
 
 export const conversationOrchestrator = new ConversationOrchestrator();
 
-// Module-load subscription: invalidate persona cache entries when an NPC
-// dies. Published from runYearPass's diff-and-publish body (Step 8).
+// Module-load subscription: POST to /api/llm/persona/invalidate when an
+// NPC dies. Replaces the pre-P7.5 in-browser
+// personaCacheRegistry.invalidateForTarget call — the cache now lives
+// server-side. Fire-and-forget; 50-min TTL bounds staleness on failure.
+// `typeof fetch === 'function'` guard + `.catch(() => {})` survive
+// non-browser test envs without a registered fetch stub.
 conversationBus.subscribe("TargetCharacterDied", (event) => {
-  personaCacheRegistry.invalidateForTarget(event.targetCharacterId);
+  if (typeof fetch !== "function") return;
+  void fetch("/api/llm/persona/invalidate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ targetCharacterId: event.targetCharacterId }),
+  }).catch(() => {
+    /* fire-and-forget */
+  });
 });

@@ -47,8 +47,10 @@ lerna-debug.log*
 .env
 .env.*
 !.env.example
+server/.env
 
 # Claude Code local
 .claude/settings.local.json
 .claude/agent-memory/
+.claude/worktrees/
 plans/phases/.claude/

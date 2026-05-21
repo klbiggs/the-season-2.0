@@ -1,8 +1,17 @@
-// LLM-layer canonical types. Defines ConversationRequest /
-// ConversationResponse (narrowed) / ConversationResponseRaw (Zod-parsed,
-// widened-enum form) plus the post-parse resolver helpers.
-//
-// Plan: plans/phases/04-ballroom-llm.md "Canonical types table".
+// LLM-layer canonical types. The wire-contract module shared between the
+// client (fetch wrapper) and the localhost server (Gemini SDK call). Owns:
+//   - ProxyConversationRequest{Schema} — the wire format (client → server)
+//   - CharacterStateSnapshot{Schema} — the persona-state slice inside ProxyConversationRequest
+//   - ConversationResponseSchema / ConversationResponseRaw — widened-enum
+//     SDK response shape (validated server-side AND client-side)
+//   - ConversationResponse — narrowed form (client-side only, after
+//     narrowResponse applies pin-always-overrides + clamps qualityMultiplier)
+//   - narrowResponse / resolveTactic / resolveMoodHint — pure resolvers
+//     run CLIENT-SIDE only (server never narrows; pin-always-overrides is
+//     a combat-rules concern that lives next to the rest of combat logic)
+//   - Re-exports of types/values consumed by server/prompts/persona.ts
+//     and server/prompts/persona.test.ts — the SINGLE sanctioned cross-tree
+//     edge from server back into the src/ tree (alongside src/game/constants).
 
 import { z } from "zod";
 import {
@@ -12,12 +21,13 @@ import {
   type Tactic,
 } from "../game/constants";
 import type { MODEL_DEFAULT, MODEL_FIRST_MEETING } from "../game/constants";
-// P6: Character type imported directly per boundary rule (c) at
-// eslint.config.js:117-118 — llm element is allowed to import from
-// game-entities for typed parameter shapes.
-import type { Character } from "../game/entities";
+import { CharacterIdSchema, HouseIdSchema } from "../game/conversation/types";
+import { CharacterSchema, MarriageRecordSchema } from "../game/entities";
+import type { Character, GameState, MarriageRecord } from "../game/entities";
 import type { Mood } from "../game/fixtures/moods";
 import { MOODS } from "../game/fixtures/moods";
+import type { Role } from "../game/fixtures/roles";
+import { TRAITS } from "../game/fixtures/traits";
 
 // Re-export the shared conversation types so llm/** consumers have a single
 // import surface. Brand types (CharacterId, HouseId) also re-export so
@@ -36,31 +46,70 @@ export {
   type ConversationFailure,
 } from "../game/conversation/types";
 
+// P7.5: type + value re-exports consumed by server/prompts/persona.ts
+// (production) and server/prompts/persona.test.ts (test factories) via
+// the single sanctioned `server → src/llm/types` boundary edge. Value
+// vs type distinction matters — `TRAITS` is read at runtime so it MUST
+// be a `export {` not `export type {`.
+export { TRAITS };
+export {
+  makeCharacter,
+  makeGameState,
+  makeMarriage,
+  makeMarriagesMap,
+} from "../game/__test-utils__/factories";
+export type { Character, GameState, MarriageRecord };
+export type { Role };
+export type { Mood };
+
 export type Model = typeof MODEL_DEFAULT | typeof MODEL_FIRST_MEETING;
 
-export type ConversationRequest = {
-  targetCharacterId: import("../game/conversation/types").CharacterId;
-  playerHouseId: import("../game/conversation/types").HouseId;
-  pinnedIntent: Tactic | null;
-  freeformMessage: string;
-  history: ReadonlyArray<import("../game/conversation/types").Exchange>;
-  persona: string;
-  // Gemini cache resource name from caches.create; null means cache-miss
-  // (or first-call, or registry-create failure) → use persona directly.
-  cacheName: string | null;
-  model: Model;
-  // P6: scene composition — non-target NPCs whose names + ids the persona
-  // prompt embeds so the model can reference valid CharacterIds in its
-  // generateWhisper toolCall payloads.
-  otherCharactersInScene: ReadonlyArray<Character>;
-};
+// ── P7.5 wire-format schemas ─────────────────────────────────────────────
+
+// CharacterStateSnapshot — the persona-relevant state the client extracts
+// at request-build time so the server can rebuild `buildPersonaPrompt`
+// without consulting GameState. Three marriage states (pinned at
+// formatMarriageStatusLine in server/prompts/persona.ts):
+//   - target.marriageId === null  → targetMarriage: null, spouse: null
+//     → "unmarried"
+//   - marriage exists & dissolved → targetMarriage: {dissolved:true,…}, spouse: null
+//     → "widowed"
+//   - active marriage             → targetMarriage: {dissolved:false,…}, spouse: Character
+//     → "married to NAME"
+export const CharacterStateSnapshotSchema = z.object({
+  target: CharacterSchema,
+  otherCharactersInScene: z.array(CharacterSchema),
+  targetMarriage: MarriageRecordSchema.nullable(),
+  spouse: CharacterSchema.nullable(),
+});
+export type CharacterStateSnapshot = z.infer<typeof CharacterStateSnapshotSchema>;
+
+// ProxyConversationRequest — the wire format sent from the SPA to the
+// localhost Node proxy. Replaces the pre-P7.5 `ConversationRequest` type
+// (deleted). The rules-layer `pinnedIntent` is NOT on the wire; it stays
+// client-side and threads to `narrowResponse(raw, pinnedIntent)` after
+// `client.send()` resolves.
+export const ProxyConversationRequestSchema = z.object({
+  targetCharacterId: CharacterIdSchema,
+  playerHouseId: HouseIdSchema,
+  freeformMessage: z.string(),
+  history: z.array(
+    z.object({
+      speaker: z.enum(["house-head", "other"]),
+      text: z.string(),
+      classifiedTactic: z.enum(["Flattery", "WittyBanter", "SlyGossip", "DeepEmpathy"]).nullable(),
+      tick: z.number().int().nonnegative(),
+    }),
+  ),
+  otherCharactersInScene: z.array(CharacterSchema),
+  characterStateSnapshot: CharacterStateSnapshotSchema,
+});
+export type ProxyConversationRequest = z.infer<typeof ProxyConversationRequestSchema>;
 
 // Widen-and-validate: enum fields parsed as z.string() so unknown values
 // don't trigger SchemaError. Post-parse resolvers (resolveTactic /
 // resolveMoodHint) apply the enum check + fallback per spec §7 line 664
 // "clamp out-of-range fields defensively rather than erroring."
-// P6: widened toolCalls schema — generateWhisper variant promoted from P4's
-// schema-present-contents-empty reservation.
 const GenerateWhisperToolCallSchema = z.object({
   name: z.literal("generateWhisper"),
   args: z.object({
@@ -85,7 +134,6 @@ export type ConversationResponse = {
   classifiedTactic: Tactic;
   qualityMultiplier: number; // clamped to [0.5, 1.5]
   moodHint: Mood | null;
-  // P6: widened from never[] — narrowResponse below drops the P4 cast.
   toolCalls: ReadonlyArray<GenerateWhisperToolCall>;
 };
 
@@ -95,16 +143,9 @@ const TACTIC_SET = new Set<string>(["Flattery", "WittyBanter", "SlyGossip", "Dee
 // (regardless of whether received is a valid enum). If pinned is null, use
 // received when it's a valid enum, else fall back to "Flattery".
 //
-// Spec §3 line 70 is the authoritative reading: "A pinned explicit intent
-// overrides any classification the language model produces." Line 312's
-// "fall back to pinned" wording is the defensive edge case for when the
-// model returns garbage AND no pin is set.
-//
-// Why pin-overrides: the pin is the player's explicit declaration of
-// intent. Different tactics route to different bonus/penalty trait maps,
-// so the choice of tactic changes the combat math. If the model could
-// always win the tactic-choice argument, the pin button would be
-// mechanically a no-op in the common case (models return valid enum >99%).
+// Spec §3 line 70: "A pinned explicit intent overrides any classification
+// the language model produces." This resolver runs CLIENT-SIDE only after
+// the proxy returns the raw Gemini response.
 export function resolveTactic(received: string, pinned: Tactic | null): Tactic {
   if (pinned !== null) return pinned;
   if (TACTIC_SET.has(received)) return received as Tactic;
@@ -113,8 +154,6 @@ export function resolveTactic(received: string, pinned: Tactic | null): Tactic {
 
 const MOOD_SET = new Set<string>(MOODS);
 
-// resolveMoodHint: returns received if valid enum, else null (drop-if-invalid).
-// Pure assignment when consumer applies — no PRNG draws.
 export function resolveMoodHint(received: string | undefined): Mood | null {
   if (received === undefined) return null;
   if (MOOD_SET.has(received)) return received as Mood;
@@ -123,7 +162,7 @@ export function resolveMoodHint(received: string | undefined): Mood | null {
 
 // Composes resolveTactic + resolveMoodHint + qualityMultiplier clamp.
 // Produces the narrowed ConversationResponse shape consumed by the
-// store-action's combat resolution.
+// store-action's combat resolution. Client-side ONLY.
 export function narrowResponse(
   raw: ConversationResponseRaw,
   pinnedIntent: Tactic | null,
@@ -137,7 +176,6 @@ export function narrowResponse(
     classifiedTactic: resolveTactic(raw.classifiedTactic, pinnedIntent),
     qualityMultiplier,
     moodHint: resolveMoodHint(raw.moodHint),
-    // P6: cast removed — schema is now properly typed; pass-through.
     toolCalls: raw.toolCalls,
   };
 }

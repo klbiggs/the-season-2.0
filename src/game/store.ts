@@ -176,16 +176,15 @@ export type StoreActions = {
   escapeBankruptcy: () => { ok: true } | { ok: false; reason: EscapeRejection };
   refreshWardrobe: () => { ok: true } | { ok: false; reason: WardrobeRejection };
   // P4 ballroom actions. enterBallroom/exitBallroom manage session state on
-  // the orchestrator. sendBallroomMessage threads the BYOK API key in from
-  // the React caller (read via useContext(KeyContext)). All four return
-  // typed discriminated unions for UI prose rendering.
+  // the orchestrator. sendBallroomMessage POSTs through the localhost proxy
+  // at /api/llm/conversation (the proxy holds the Gemini key server-side).
+  // All four return typed discriminated unions for UI prose rendering.
   enterBallroom: () =>
     | { ok: true; sessionId: BallSessionId }
     | { ok: false; reason: BallEntryRejection };
   exitBallroom: (playerComposureAtExit: number) => void;
   sendBallroomMessage: (
     input: BallroomMessageInput,
-    apiKey: string,
   ) => Promise<
     { ok: true; outcome: ConversationResponse } | { ok: false; reason: ConversationFailure }
   >;
@@ -238,8 +237,6 @@ import {
   applyAssignTutorPure,
   applyChooseTutorBonusTraitPure,
 } from "../game/rules/tutor";
-import { buildPersonaPrompt } from "../llm/prompts/persona";
-import { routeModel } from "../llm/routing";
 import type { ConversationResponse } from "../llm/types";
 import { conversationOrchestrator } from "../runtime/conversationOrchestrator";
 import { conversationBus, publishCharacterDeaths } from "../runtime/events/conversation";
@@ -557,14 +554,11 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           finalPlayerComposure: playerComposureAtExit,
         });
       },
-      sendBallroomMessage: async (input, apiKey) => {
+      sendBallroomMessage: async (input) => {
         const stateBefore = get();
         // Defensive — UI should never reach this without an open session.
         if (conversationOrchestrator.currentSessionId() === null) {
           return { ok: false, reason: { reason: "cancelled" } };
-        }
-        if (!apiKey) {
-          return { ok: false, reason: { reason: "missing-key" } };
         }
         const target = stateBefore.characters.get(input.targetCharacterId);
         const playerHead = stateBefore.houses.get(PLAYER_HOUSE_ID);
@@ -579,16 +573,36 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         const otherCharactersInScene = [...stateBefore.characters.values()]
           .filter((c) => c.alive && c.id !== target.id && c.houseId !== PLAYER_HOUSE_ID)
           .sort((a, b) => a.id.localeCompare(b.id));
+
+        // P7.5: client extracts the persona-state snapshot here (resolving
+        // spouse inline) so the server can rebuild the persona without
+        // GameState access. Three marriage states pinned at
+        // formatMarriageStatusLine in server/prompts/persona.ts.
+        let targetMarriage: MarriageRecord | null = null;
+        let spouse: Character | null = null;
+        if (target.marriageId !== null) {
+          const m = stateBefore.marriages.get(target.marriageId);
+          if (m !== undefined) {
+            targetMarriage = m;
+            if (!m.dissolved) {
+              const spouseId = m.spouseAId === target.id ? m.spouseBId : m.spouseAId;
+              spouse = stateBefore.characters.get(spouseId) ?? null;
+            }
+          }
+        }
+
         const request = {
           targetCharacterId: target.id,
           playerHouseId: PLAYER_HOUSE_ID,
-          pinnedIntent: input.pinnedTactic,
           freeformMessage: input.freeformMessage,
           history,
-          persona: buildPersonaPrompt(target, otherCharactersInScene, stateBefore),
-          cacheName: null,
-          model: routeModel(history),
           otherCharactersInScene,
+          characterStateSnapshot: {
+            target,
+            otherCharactersInScene,
+            targetMarriage,
+            spouse,
+          },
         };
 
         // Publish ConversationSent BEFORE awaiting the LLM (per
@@ -601,7 +615,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           stance: input.stance,
         });
 
-        const result = await conversationOrchestrator.send(request, apiKey, target, stateBefore);
+        const result = await conversationOrchestrator.send(request, input.pinnedTactic);
         if (result.kind === "Failed") {
           conversationBus.publish({
             kind: "ConversationFailed",

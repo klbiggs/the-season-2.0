@@ -27,9 +27,8 @@
 
 **Hard frame:**
 - Browser-based; no desktop wrapper (Tauri, Electron) in scope.
-- Single-player; offline-capable except for the optional LLM-driven conversation.
-- BYOK credential model for the LLM (the player supplies their own Gemini API key).
-- Static SPA — no backend in v1.
+- Single-player; LLM conversation proxied through a localhost-only Node server holding the API key.
+- No public backend; the game runs on the developer machine only (the proxy is single-user and not deployed).
 
 ---
 
@@ -43,18 +42,19 @@
 | State machines | **XState v5** | §3 explicitly enumerates 6+ state machines; modeling them inline prevents in-between-states bugs |
 | Determinism | **`seedrandom` wrapped in a per-house `Rng` with `{seed, callCount}`** | Round-trips through save/load; one canonical source forbidden from `Math.random` (lint-enforced) |
 | Persistence | **Dexie (IndexedDB) + Zod-validated migrations** | Saves can grow large with embeddings; IndexedDB handles it; migrations are named pure functions per §9 |
-| LLM | **`@google/genai` browser-direct, BYOK, context-cached persona blocks, function-calling for structured output** | Forces structured outputs via function-calling (validated by Zod), caches per-character persona via explicit `caches.create` resources between turns, no backend needed |
+| LLM | **`@google/genai` on a localhost Node proxy; key in `server/.env`; persona context-cached server-side; function-calling for structured output via `/api/llm/conversation`** | Forces structured outputs via function-calling (validated by Zod), caches per-character persona via explicit `caches.create` resources between turns; the key never reaches the browser bundle |
+| Local LLM proxy | **Node 22+ http (no framework), bound to 127.0.0.1:8787** | Single endpoint; holds Gemini key out of the bundle without adding a hosted backend |
 | Embeddings (optional, deferred) | **Voyage AI** | Best-in-class retrieval quality; cheap; in-browser cosine similarity over a bounded array — no vector DB needed at this scale |
 | Animations | **Framer Motion** | DOM-native, perfect for portrait slides on faux-pas/sabotage/scheme completion |
 | Social web visualization | **react-force-graph-2d** (canvas-backed, D3-force under the hood, custom node sprites for portraits) | The one spatial surface in the app |
 | All other rendering | **DOM + CSS + SVG** | Strategy map = 7 location pins. Ballroom = 5 portrait cards. Elopement = 7-tile row. Ledger = tables. No game engine needed. |
 | Lint / format | **Biome** | Single config, faster than ESLint+Prettier |
 | Tests | **Vitest** (pure logic ~100% coverage) + **Playwright** (UI flows) | Pure-logic tests are the determinism contract |
-| Hosting | **Vercel** or **Netlify**, static SPA | No backend in v1 |
+| Hosting | **Local dev only** (`pnpm dev` runs Vite + Node proxy concurrently) | Not deployed publicly in v1 |
 
 **Explicitly NOT in the stack:**
 - No PixiJS / Phaser / Three.js (visual budget doesn't justify a renderer).
-- No backend / Supabase / Convex in v1 (BYOK + IndexedDB means none required).
+- No *public* backend / Supabase / Convex / auth service. The localhost proxy is the single concession — single-user, never deployed, holds only the Gemini key.
 - No boardgame.io (its turn/phase abstractions don't fit the spec's irregular tick clock).
 - No Redux / Redux Toolkit (Zustand + Immer covers it).
 - No Tauri / Electron (browser only).
@@ -193,33 +193,21 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 - Schema is Zod-validated per version (`SaveV3Schema.parse(state)` before running migrations from v3).
 - The vector index (optional) is a binary sidecar keyed by save-game identifier — not part of the JSON save.
 
-### 5.4 LLM Integration Contract (§5)
+### 5.4 LLM Integration Contract (§5) — P7.5 relocated to localhost proxy
 
-- **SDK:** `@google/genai` in the browser; user supplies Gemini API key via UI (BYOK).
-- **Routing:**
-  - First-meeting (empty `(houseId, targetCharId)` history): `gemini-3.1-pro-preview`.
-  - All other turns: `gemini-3.5-flash`.
-- **Structured output via function-calling.** Define a single `FunctionDeclaration` named `respond` with `parametersJsonSchema`:
-  ```ts
-  {
-    dialogue: string,
-    classifiedTactic: "Flattery" | "WittyBanter" | "SlyGossip" | "DeepEmpathy",
-    qualityMultiplier: number,   // clamped [0.5, 1.5] defensively
-    moodHint?: Mood,
-    toolCalls?: Array<{ name: "generateWhisper", args: {...} }>
-  }
-  ```
-  Force the model with `config.toolConfig.functionCallingConfig: { mode: FunctionCallingConfigMode.ANY, allowedFunctionNames: ["respond"] }`. Validate the returned `response.functionCalls[0].args` with Zod on receipt.
-- **Context caching:** Cache the per-character persona block (traits, mood, archetype, faction, recent biographical notes) via `ai.caches.create({ model, config: { systemInstruction, ttl: "3600s" } })` on first conversation with a target. Subsequent `generateContent` calls reference the cache by name via `config.cachedContent`. The dynamic suffix (recency window + player's freeform message) is passed as `contents` — uncached. **NOTE:** Gemini's caching is EXPLICIT and stateful (vs Anthropic's per-message implicit `cache_control`) — the cache resource has its own lifecycle (TTL, expiration); cache misses fall back to non-cached prompts seamlessly.
-- **System instruction budget under 1500 tokens** (§5).
-- **15-second timeout** via `AbortController.signal.timeout()` passed in `config.abortSignal`.
-- **Failure paths** (timeout, network, schema, missing key) all:
+- **Transport:** SPA → `POST /api/llm/conversation` → localhost Node proxy (`server/`, bound to `127.0.0.1:8787`) → Gemini SDK. The SDK is no longer in the browser bundle (moved to `devDependencies`). The proxy holds the key in `server/.env` (gitignored); browser never sees it.
+- **Wire format:** `ProxyConversationRequestSchema` in `src/llm/types.ts` (shared client/server). Includes a `characterStateSnapshot` carrying the persona-relevant Character/Marriage state — server reads the snapshot directly without consulting GameState. The rules-layer `pinnedIntent` is NOT on the wire; it stays client-side.
+- **Routing:** server-decided in `server/routing.ts` based on conversation history. First-meeting (empty history) → `gemini-3.1-pro-preview`; subsequent turns → `gemini-3.5-flash`.
+- **Structured output via function-calling.** Single forced function `respond` (server registers both `RESPOND_TOOL` and `GENERATE_WHISPER_TOOL` per `server/tools.ts`); `config.toolConfig.functionCallingConfig.mode = ANY` with `allowedFunctionNames: ["respond"]`. Server validates the response shape with Zod (`ConversationResponseSchema`) before returning; client re-validates defensively.
+- **Context caching:** lives server-side in `server/personaCache.ts` (in-memory `Map<key, {name, createdAt}>` with 60-min TTL via `PERSONA_CACHE_TTL_MS`). Browser invalidation hook (`TargetCharacterDied` event) POSTs to `/api/llm/persona/invalidate` (fire-and-forget). Cache lifetime = server process lifetime; dev-server restart wipes the map. Cache-create failures (non-abort) swallow and fall back to passing `systemInstruction` directly that turn.
+- **Timeout budget:** orchestrator owns a 15s client-side `AbortController` (composed with the user-exit signal via `AbortSignal.any`); server owns a 13s composite AbortController covering BOTH `caches.create` AND `generateContent`. First-meeting Pro paths can plausibly exceed 13s — accepted v1 behavior; client retries hit the now-populated cache.
+- **Failure paths** (timeout, network, schema, cancelled — `missing-key` removed at P7.5 since the browser no longer holds a key):
   - Do NOT advance the tick.
   - Do NOT call the combat resolver.
   - Do NOT append to conversation history.
   - DO re-enable UI controls + surface a user-readable banner.
-- **Pre-flight key check:** validate shape (`/^AIza/`, non-empty) — no network roundtrip per §5. Google API keys start with `AIza` followed by 35 characters.
-- **Sticky banner** when key absent — disables only the conversation send affordance.
+- **Pre-flight key check:** lives in `server/env.ts:validateEnv()`, called from `listen()` (NOT module-load) — fails fast with a clear assertion if `GEMINI_API_KEY` is missing or shape-malformed (`/^AIza/`). The regex moved from `src/game/constants.ts` to `server/env.ts`; no client-side consumer remains.
+- **Pin-always-overrides** (`narrowResponse` + `resolveTactic` + `resolveMoodHint` in `src/llm/types.ts`) stays CLIENT-SIDE only — the server never narrows; combat-rule pin handling lives next to the rest of combat logic.
 - **Out-of-range values clamped defensively**, not errored.
 - **Unknown classifications fall back to the pinned intent (or Flattery if none pinned).**
 
@@ -256,6 +244,7 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P5 | Schemes & Multi-Tick Operations | [`phases/05-schemes.md`](./phases/05-schemes.md) | P1, P4 | ✅ done |
 | P6 | Whispers, Espionage & Staff | [`phases/06-whispers-espionage.md`](./phases/06-whispers-espionage.md) | P1, P4, P5 | ✅ done |
 | P7 | Family, Marriage & Succession | [`phases/07-family-succession.md`](./phases/07-family-succession.md) | P1 | ✅ done |
+| P7.5 | LLM key relocation to localhost proxy | [`phases/07-5-llm-relocation.md`](./phases/07-5-llm-relocation.md) | P4 | ✅ done |
 | P8 | Rival Houses, Patronesses & Duels | [`phases/08-rivals-patronesses.md`](./phases/08-rivals-patronesses.md) | P1, P5 | — |
 | P9 | Elopement Sprint Overlay | [`phases/09-elopement.md`](./phases/09-elopement.md) | P5 | — |
 | P10 | Artifacts, Wardrobe, Forgery & Theft | [`phases/10-artifacts.md`](./phases/10-artifacts.md) | P7 | — |
@@ -267,6 +256,8 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P16 | Polish — Audio, i18n, Procedural Identity | [`phases/16-polish.md`](./phases/16-polish.md) | most prior | — |
 | P17 | (Optional) Semantic Memory | [`phases/17-semantic-memory.md`](./phases/17-semantic-memory.md) | P4, P6, P5 | — |
 | P18 | (Optional) LLM Flavor Content | [`phases/18-llm-flavor.md`](./phases/18-llm-flavor.md) | P4, P10 | — |
+
+**Note**: P7.5 is a cross-cutting architectural amendment (LLM-key relocation), not a new feature phase. P8+ "Depends on" columns do NOT inherit P7.5.
 
 ---
 
@@ -351,7 +342,7 @@ Every §3 capability is owned by exactly one phase:
 | Artifacts/forgeries per house capped | P10 |
 | Vector index capped FIFO | P17 |
 | 30-run replay stability | P0 harness; every phase adds its own determinism tests |
-| Credential never persisted / logged | P4 BYOK input |
+| Credential never persisted / logged | P7.5 `server/.env` (gitignored); browser never sees the key |
 | Structured logging on decision points | every phase |
 | Conversation failure logging without credential leak | P4 |
 | Designer constants in one canonical location each | P0 sets up `constants.ts`; every phase adds its own constants there |
@@ -393,4 +384,4 @@ Carrying forward all 24 open questions with a recommended default for each. Reso
 
 ## TL;DR
 
-> **React 19 + Vite + TS + Tailwind/shadcn + Zustand/Immer + XState v5 + Dexie + Zod + Google Gen AI SDK (BYOK, context-cached personas, function-calling for structured output) + react-force-graph for the social web.** Static SPA, no backend. Pure-logic rules layer with seeded RNG round-tripping through versioned save migrations. Build in 19 phases (17 required + 2 optional), each independently shippable. P0 → P4 form the spine that proves determinism, separation, state machines, migrations, and the LLM round-trip. After that, every phase fills in rules and views over a sound foundation.
+> **React 19 + Vite + TS + Tailwind/shadcn + Zustand/Immer + XState v5 + Dexie + Zod + Google Gen AI SDK (context-cached personas, function-calling for structured output) + react-force-graph for the social web.** Localhost Node proxy holds the Gemini key — single-user dev only; no public backend. Pure-logic rules layer with seeded RNG round-tripping through versioned save migrations. Build in 19 phases (17 required + 2 optional), each independently shippable. P0 → P4 form the spine that proves determinism, separation, state machines, migrations, and the LLM round-trip; P7.5 relocated the LLM key off the browser. After that, every phase fills in rules and views over a sound foundation.

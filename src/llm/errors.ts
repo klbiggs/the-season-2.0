@@ -4,16 +4,11 @@
 // is mechanical. Mirrors src/persist/errors.ts pattern (P2).
 //
 // Plan: plans/phases/04-ballroom-llm.md "src/llm/errors.ts".
+// P7.5: MissingKeyError removed — the browser no longer holds an API key
+// (the localhost proxy validates server-side via server/env.ts). Proxy-down
+// failures (5xx, ECONNREFUSED) map to NetworkError client-side.
 
 import { z } from "zod";
-
-export class MissingKeyError extends Error {
-  readonly reason = "missing-key" as const;
-  constructor() {
-    super("Gemini API key absent or empty.");
-    this.name = "MissingKeyError";
-  }
-}
 
 export class TimeoutError extends Error {
   readonly reason = "timeout" as const;
@@ -47,7 +42,7 @@ export class CancelledError extends Error {
   }
 }
 
-export type LlmError = MissingKeyError | TimeoutError | NetworkError | SchemaError | CancelledError;
+export type LlmError = TimeoutError | NetworkError | SchemaError | CancelledError;
 
 // Converts a thrown ZodError into the issues array shape SchemaError expects.
 // Non-Zod errors surface as a single generic issue. Lives here (not in

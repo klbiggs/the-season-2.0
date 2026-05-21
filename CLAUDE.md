@@ -16,7 +16,7 @@ Always reach for the spec and the relevant phase subplan before inferring intent
 
 ## Tech stack (locked — do not second-guess)
 
-React 19 + Vite 6 + TypeScript (strict) · Tailwind v4 + shadcn/ui · Zustand + Immer · XState v5 · Dexie (IndexedDB) + Zod migrations · `@google/genai` (Gemini SDK; BYOK, context-cached personas, function-calling for structured output) · Framer Motion · `react-force-graph-2d` for the social web · Biome · Vitest + Playwright · Vercel/Netlify static SPA. **No backend in v1. No PixiJS/Phaser/Three.js. No Tauri/Electron. No Redux. No boardgame.io.** Rationale in `plans/MASTER.md` §2.
+React 19 + Vite 6 + TypeScript (strict) · Tailwind v4 + shadcn/ui · Zustand + Immer · XState v5 · Dexie (IndexedDB) + Zod migrations · `@google/genai` (Gemini SDK; **server-side only via the localhost Node proxy at `server/`**, context-cached personas, function-calling for structured output) · Framer Motion · `react-force-graph-2d` for the social web · Biome · Vitest + Playwright · **Local dev only — `pnpm dev` runs Vite + the Node proxy concurrently; not deployed publicly.** **Localhost-only Node proxy (`server/`) holds the Gemini key; no public backend. No PixiJS/Phaser/Three.js. No Tauri/Electron. No Redux. No boardgame.io.** Rationale in `plans/MASTER.md` §2.
 
 ## Non-negotiable architectural rules
 
@@ -86,16 +86,19 @@ Build in phases per `plans/MASTER.md` §6. P0–P4 are the spine — get determi
 
 ## LLM integration specifics
 
-When wiring `src/llm/`:
-- BYOK — user supplies their Gemini API key in the UI; never persist to disk, never log.
-- Pre-flight key check is shape-only (`/^AIza/`), no network round-trip. Google API keys conventionally start with `AIza` followed by 35 chars.
-- Structured output via function-calling: a single `FunctionDeclaration` named `respond` declared in `tools[].functionDeclarations`, forced via `config.toolConfig.functionCallingConfig: { mode: FunctionCallingConfigMode.ANY, allowedFunctionNames: ["respond"] }`. Validate `response.functionCalls[0].args` with Zod; clamp out-of-range fields defensively.
-- Context-cache the per-character persona block via `ai.caches.create({ model, config: { systemInstruction, ttl: "3600s" } })` (explicit, stateful — different from Anthropic's per-message implicit `cache_control`). Subsequent `generateContent` calls pass `config.cachedContent: cache.name`. Cache misses fall back to non-cached prompts.
-- Model routing: `gemini-3.5-flash` default; `gemini-3.1-pro-preview` on first-meeting (empty `(houseId, targetCharId)` history).
-- 15-second timeout via `AbortController.signal.timeout(15_000)` passed in `config.abortSignal`.
-- Failure paths (timeout, network, schema, missing key) must: not advance tick, not call combat resolver, not append to history, re-enable UI, surface banner. All four paths have Vitest coverage.
-- Use the Context7 MCP for `@google/genai` SDK details — don't guess.
-- **Pin-always-overrides for player-explicit tactic affordances (P4, spec §3 line 70).** When a player pins an explicit intent (`pinnedIntent: Tactic | null`) and the LLM returns a `classifiedTactic`, the resolver returns the pin whenever it is non-null — regardless of whether the model's classification is a valid enum. Spec §3 line 70 is the authoritative reading; line 312's "fall back to pinned" wording is the defensive edge case for when the model returns garbage AND no pin is set. Reverting to "model wins when classification is valid" makes the pin button mechanically a no-op in the >99% common case where the model returns a valid enum, which defeats the player's explicit-intent affordance. See `src/llm/types.ts:resolveTactic` and `src/llm/types.test.ts`.
+Post-P7.5: the LLM round-trip splits across the SPA (`src/llm/`) and the localhost Node proxy (`server/`). Key never reaches the browser.
+
+- **Key holding**: `GEMINI_API_KEY` lives in `server/.env` (gitignored). Pre-flight validation is enforced server-side in `server/env.ts:validateEnv()` called from `listen()` (not module-load — tests can import the module without crashing). Shape check is `/^AIza/`. `server/` is the ONLY top-level dir outside `src/` that owns runtime code; boundary contract permits `server` → `src/game/constants` and `server` → `src/llm/types` only.
+- **Transport**: SPA fetches `POST /api/llm/conversation` (and fire-and-forget `POST /api/llm/persona/invalidate` from the `TargetCharacterDied` subscription). Vite's `server.proxy` forwards `/api/*` to `127.0.0.1:8787` in dev.
+- **Wire format**: `ProxyConversationRequestSchema` in `src/llm/types.ts` (shared client/server). The persona-relevant state slice is `characterStateSnapshot: { target, otherCharactersInScene, targetMarriage, spouse }` — client extracts at request-build time (resolving spouse inline); server reads directly without GameState access.
+- **Structured output via function-calling**: single forced function `respond` (server's `server/conversation.ts` registers both `RESPOND_TOOL` and `GENERATE_WHISPER_TOOL`); `toolConfig.functionCallingConfig.mode = ANY` with `allowedFunctionNames: ["respond"]`. Server validates `response.functionCalls[0].args` with Zod (`ConversationResponseSchema`) before returning; client re-validates defensively. Clamp out-of-range fields.
+- **Context caching**: server-side in `server/personaCache.ts` (`Map<key, {name, createdAt}>` with 60-min TTL via `PERSONA_CACHE_TTL_MS`). `ai.caches.create({ model, config: { systemInstruction, ttl: PERSONA_CACHE_TTL_SECONDS } })`. Cache lifetime = server process; restart wipes the map. Cache-create non-abort failures swallow and fall back to passing `systemInstruction` directly.
+- **Model routing**: server-decided in `server/routing.ts` based on history. `gemini-3.5-flash` default; `gemini-3.1-pro-preview` on first-meeting (empty `(houseId, targetCharId)` history).
+- **Timeout budget**: orchestrator owns a 15s `AbortController` (composed with the user-exit signal via `AbortSignal.any` and passed to client.ts which is timer-free); server owns a 13s composite controller covering BOTH `caches.create` AND `generateContent`. First-meeting Pro paths can plausibly exceed 13s — accepted v1 behavior; user retries hit the populated cache.
+- **Failure paths** (timeout, network, schema, cancelled — NOTE: `missing-key` was removed at P7.5 since the browser no longer holds a key): not advance tick, not call combat resolver, not append to history, re-enable UI, surface banner. All paths have Vitest coverage.
+- **Use the Context7 MCP** for `@google/genai` SDK details — don't guess.
+- **Pin-always-overrides for player-explicit tactic affordances (P4, spec §3 line 70).** Pin handling stays CLIENT-SIDE (`narrowResponse` + `resolveTactic` + `resolveMoodHint` in `src/llm/types.ts`). When a player pins an explicit intent (`pinnedIntent: Tactic | null`) and the LLM returns a `classifiedTactic`, the resolver returns the pin whenever it is non-null — regardless of whether the model's classification is a valid enum. The server never narrows; combat-rule pin handling lives next to the rest of combat logic. See `src/llm/types.ts:resolveTactic` and `src/llm/types.test.ts`.
+- **Persona prompt format version bump (P6 LLM-cache discipline)**: every change to `buildPersonaPrompt`'s output format MUST bump `PERSONA_CACHE_VERSION` in `src/game/constants.ts`. After P7.5 the function lives at `server/prompts/persona.ts` but the constant stays in `src/game/constants.ts` via the sanctioned `server → src/game/constants` cross-tree edge.
 
 ## Library documentation
 
@@ -108,11 +111,11 @@ Before declaring a phase or task done:
 - `pnpm lint` — Biome clean; boundary-rule clean.
 - `pnpm typecheck` — strict TS clean.
 - For UI changes: run the dev server and exercise the golden path in a browser. If you can't test the UI, say so explicitly rather than claiming success.
-- For LLM-touching changes: exercise all four failure paths (timeout, network, schema, missing key), not just the happy path.
+- For LLM-touching changes: exercise the failure paths (timeout, network, schema, cancelled), not just the happy path. Coverage splits between client tests (HTTP status → ConversationFailure mapping) and server tests (Gemini SDK exception → HTTP status mapping).
 
 ## What not to do
 
-- Don't introduce a backend / Supabase / Convex / auth service "to be safe." BYOK + IndexedDB is the design.
+- Don't expose the Gemini key in the browser bundle, localStorage, or IndexedDB — it lives in `server/.env` only. Don't expand the proxy beyond LLM relay — saves stay in IndexedDB on the client; the proxy is single-purpose. Don't deploy the proxy publicly (no rate-limiting, no auth, single-user dev frame only).
 - Don't add a renderer (Pixi/Phaser/Three) for the map or ballroom — they're DOM.
 - Don't add abstractions for hypothetical future requirements. Three similar lines beats a premature helper.
 - Don't widen scope beyond the active phase's "In scope" list without an explicit user OK.

@@ -15,7 +15,7 @@
 // + the proposal/maturation/scheme tests that exercise the full year-pass
 // composition).
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 

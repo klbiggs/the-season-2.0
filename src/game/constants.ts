@@ -253,15 +253,20 @@ export const LLM_OUTPUT_TOKEN_BUDGET = 600;
 // (buildPersonaPrompt keeps personas <300 tokens; P18 polishes adds a
 // runtime check if needed).
 export const LLM_SYSTEM_INSTRUCTION_TOKEN_BUDGET = 1500;
-// Spec §5 line 621 "validate shape ... no network roundtrip" + CLAUDE.md
-// LLM specifics "shape-only". Google API keys start with `AIza` followed
-// by 35 chars; the regex intentionally accepts any non-empty suffix.
-export const BYOK_KEY_SHAPE_REGEX = /^AIza.+/;
+// P7.5: GEMINI_KEY_SHAPE_REGEX (formerly BYOK_KEY_SHAPE_REGEX) was deleted
+// from this file — the key is server-only now and the regex lives in
+// server/env.ts as a local constant. No client-side consumer remains.
 
-// Gemini context-cache constants.
-// 1-hour TTL for per-character persona context caches. Gemini's caching
-// is explicit and stateful (vs Anthropic's implicit per-message form).
+// Gemini context-cache constants. Consumer split is intentional:
+//   - PERSONA_CACHE_TTL_SECONDS: STRING "3600s" — the Gemini wire format
+//     passed to `ai.caches.create({ ttl: ... })`.
+//   - PERSONA_CACHE_TTL_MS: NUMBER 3600000 — the server-local
+//     `Date.now() - createdAt < TTL_MS` expiry check in
+//     server/personaCache.ts. The two MUST agree (60 minutes); don't
+//     "unify" by computing one from the other — Gemini's wire format is
+//     a string and arithmetic on it would be NaN.
 export const PERSONA_CACHE_TTL_SECONDS = "3600s" as const;
+export const PERSONA_CACHE_TTL_MS = 3_600_000;
 // Prefix for the human-readable displayName of each persona cache.
 export const PERSONA_CACHE_DISPLAY_NAME_PREFIX = "season-persona-" as const;
 

@@ -1,11 +1,9 @@
-// P4 ship: single `respond` FunctionDeclaration. P6 extends with the
-// `generateWhisper` declaration (registered in client.ts alongside
-// RESPOND_TOOL; toolConfig.functionCallingConfig.allowedFunctionNames
-// stays ["respond"] — generateWhisper is REGISTERED for tool-decl-level
-// shape constraint on the model's emitted toolCalls payloads, but is not
-// forced as a second top-level call).
+// Function-call tool declarations for forced structured output. RESPOND_TOOL
+// is the only allowed function (toolConfig.allowedFunctionNames = ["respond"]);
+// GENERATE_WHISPER_TOOL is registered so the model can emit valid
+// generateWhisper payloads inside respond's toolCalls field.
 //
-// Plan: plans/phases/06-whispers-espionage.md "LLM tool surface widening".
+// Moved from src/llm/tools.ts at P7.5; server owns function-call config now.
 
 import type { FunctionDeclaration } from "@google/genai";
 
@@ -28,9 +26,6 @@ export const RESPOND_TOOL: FunctionDeclaration = {
         type: "string",
         enum: ["Receptive", "Defensive", "Distracted", "Jealous", "Grieving"],
       },
-      // P6: widened items schema — constrains the model AT GENERATION TIME
-      // to emit only generateWhisper toolCalls with the right shape. The
-      // ConversationResponseSchema Zod parse at types.ts is defense-in-depth.
       toolCalls: {
         type: "array",
         items: {
@@ -54,11 +49,6 @@ export const RESPOND_TOOL: FunctionDeclaration = {
   },
 };
 
-// P6: generateWhisper tool — emit an in-character rumor about a third
-// party. Registered in client.ts:tools[] alongside RESPOND_TOOL. Not
-// forced via allowedFunctionNames (which stays ["respond"]); the model
-// freely includes generateWhisper payloads inside respond's toolCalls
-// when the in-character moment naturally produces gossip.
 export const GENERATE_WHISPER_TOOL: FunctionDeclaration = {
   name: GENERATE_WHISPER_TOOL_NAME,
   description:

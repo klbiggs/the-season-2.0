@@ -5,9 +5,9 @@ import type { ConversationFailure } from "../../game/conversation/types";
 
 const REASON_PROSE: Readonly<Record<ConversationFailure["reason"], string>> = {
   timeout: "The conversation took too long. Try again.",
-  network: "We couldn't reach the dialogue service. Check your connection and try again.",
+  network:
+    "Network error: the local LLM proxy may not be running. Start it via 'pnpm dev:server' and retry.",
   schema: "The dialogue service returned an unexpected response.",
-  "missing-key": "No API key configured. Enter your Gemini API key in settings.",
   cancelled: "Conversation cancelled.",
 };
 

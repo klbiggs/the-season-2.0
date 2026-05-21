@@ -11,7 +11,6 @@ import { type ConversationFailure, makePairKey } from "../../game/conversation/t
 import { INDEPENDENT_HOUSE_ID, PLAYER_HOUSE_ID } from "../../game/rng";
 import type { SeasonStore } from "../../game/store";
 import { conversationBus } from "../../runtime/events/conversation";
-import { useApiKey } from "../shared/KeyContext";
 import { ChatLog } from "./ChatLog";
 import { ComposureBar } from "./ComposureBar";
 import { ConversationFailureBanner } from "./ConversationFailureBanner";
@@ -32,8 +31,6 @@ export function BallroomView({ store, onExit }: Props) {
   const characters = store((s) => s.characters);
   const conversationHistory = store((s) => s.conversationHistory);
   const houses = store((s) => s.houses);
-
-  const { key } = useApiKey();
 
   // Independent's living NPCs are the ballroom roster at P4 (P8 may
   // augment with rival-house NPCs).
@@ -77,31 +74,25 @@ export function BallroomView({ store, onExit }: Props) {
   const pairKey = selectedTargetId !== null ? makePairKey(PLAYER_HOUSE_ID, selectedTargetId) : null;
   const exchanges = pairKey !== null ? (conversationHistory.get(pairKey) ?? []) : [];
 
-  const disabledReason =
-    key === null || key === ""
-      ? "Enter your Gemini API key in settings to send messages."
-      : inFlight
-        ? "Awaiting response…"
-        : selectedTarget === undefined
-          ? "Select a target NPC."
-          : "";
+  const disabledReason = inFlight
+    ? "Awaiting response…"
+    : selectedTarget === undefined
+      ? "Select a target NPC."
+      : "";
 
-  const sendDisabled = key === null || key === "" || inFlight || selectedTarget === undefined;
+  const sendDisabled = inFlight || selectedTarget === undefined;
 
   const onSend = async () => {
-    if (selectedTargetId === null || key === null || key === "") return;
+    if (selectedTargetId === null) return;
     setInFlight(true);
     setFailure(null);
     try {
-      await store.getState().sendBallroomMessage(
-        {
-          targetCharacterId: selectedTargetId,
-          pinnedTactic,
-          stance,
-          freeformMessage: draftMessage,
-        },
-        key,
-      );
+      await store.getState().sendBallroomMessage({
+        targetCharacterId: selectedTargetId,
+        pinnedTactic,
+        stance,
+        freeformMessage: draftMessage,
+      });
       setDraftMessage("");
     } finally {
       setInFlight(false);

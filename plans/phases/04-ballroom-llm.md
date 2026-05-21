@@ -1,5 +1,7 @@
 # P4 — LLM Conversation & Ballroom
 
+> ⚠️ **Post-P7 amendment**: the BYOK key flow described below was relocated to a localhost Node proxy at P7.5. See [`plans/phases/07-5-llm-relocation.md`](./07-5-llm-relocation.md) and [`plans/MASTER.md` §5.4](../MASTER.md#54-llm-integration-contract-5--p75-relocated-to-localhost-proxy) for the current architecture. This phase plan is preserved as the historical record of what shipped at the time, per CLAUDE.md "Don't edit closed phase plans" rule (the one-line callout above is a documented exception with rationale: post-ship architectural relocation).
+
 > Part of [The Season Master Plan](../MASTER.md). Prior: [P3 — Strategy Map](./03-strategy-map.md). Next: [P5 — Schemes](./05-schemes.md).
 
 **Goal.** The signature surface. At a high-society ball, the player sees up to 5 NPCs in a ring, selects a target, optionally pins a tactic, types a freeform message, and receives in-character dialogue + deterministic state deltas. P4 introduces the first non-deterministic subsystem (the LLM round-trip via Google's Gemini API through `@google/genai`) inside the project's existing determinism contract — the conversation layer must NOT advance the gameplay PRNG call-count, and the four enumerated failure paths (timeout / network / schema / missing-key) must each leave game state untouched while keeping every other system fully functional. P4 also introduces the first minimal NPC pool so the ballroom has actual cards to render.

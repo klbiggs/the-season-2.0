@@ -1,48 +1,39 @@
 // Conversation orchestrator tests — happy path + session methods.
-// Uses the default __mocks__/@google/genai mock (deterministic hash-derived
-// responses). The four SDK-failure-path tests (timeout/network/schema/
-// cancelled via abort during in-flight) are exercised by integration tests
-// elsewhere; the orchestrator's catch-and-map logic is straightforward
-// (type-based instanceof checks), and the typed-error classes carry their
-// own `reason` discriminator.
-
-import { vi } from "vitest";
-vi.mock("@google/genai");
+// P7.5: client tests use the global `fetch` stub registered in
+// vitest.setup.ts; the @google/genai SDK is no longer reachable from the
+// browser tree. MissingKeyError tests deleted with the BYOK relocation.
 
 import { afterEach, describe, expect, it } from "vitest";
-import { makeCharacter, makeGameState } from "../game/__test-utils__/factories";
-import type { Character } from "../game/entities";
+import { makeCharacter } from "../game/__test-utils__/factories";
 import type { CharacterId, HouseId } from "../game/rng";
-import type { ConversationRequest } from "../llm/types";
+import type { ProxyConversationRequest } from "../llm/types";
 import { conversationOrchestrator } from "./conversationOrchestrator";
 
-const baseRequest = (): ConversationRequest => ({
-  targetCharacterId: "npc-test" as CharacterId,
-  playerHouseId: "player" as HouseId,
-  pinnedIntent: null,
-  freeformMessage: "Hello.",
-  history: [],
-  persona: "You are a test NPC.",
-  cacheName: null,
-  model: "gemini-3.5-flash",
-  otherCharactersInScene: [],
-});
-
-const target = (): Character => makeCharacter({ id: "npc-test" as CharacterId });
+const baseRequest = (): ProxyConversationRequest => {
+  const target = makeCharacter({ id: "npc-test" as CharacterId });
+  return {
+    targetCharacterId: target.id,
+    playerHouseId: "player" as HouseId,
+    freeformMessage: "Hello.",
+    history: [],
+    otherCharactersInScene: [],
+    characterStateSnapshot: {
+      target,
+      otherCharactersInScene: [],
+      targetMarriage: null,
+      spouse: null,
+    },
+  };
+};
 
 afterEach(() => {
   conversationOrchestrator.endSession();
   conversationOrchestrator.abortCurrent();
 });
 
-describe("conversationOrchestrator.send (happy path via deterministic mock)", () => {
+describe("conversationOrchestrator.send (happy path via deterministic fetch stub)", () => {
   it("returns Resolved with narrowed ConversationResponse", async () => {
-    const result = await conversationOrchestrator.send(
-      baseRequest(),
-      "AIza-test-key",
-      target(),
-      makeGameState(),
-    );
+    const result = await conversationOrchestrator.send(baseRequest(), null);
     expect(result.kind).toBe("Resolved");
     if (result.kind === "Resolved") {
       expect(result.response.dialogue.length).toBeGreaterThan(0);
@@ -55,32 +46,10 @@ describe("conversationOrchestrator.send (happy path via deterministic mock)", ()
     }
   });
 
-  it("missing-key failure: empty apiKey rejects before SDK is touched", async () => {
-    const result = await conversationOrchestrator.send(
-      baseRequest(),
-      "",
-      target(),
-      makeGameState(),
-    );
-    expect(result.kind).toBe("Failed");
-    if (result.kind === "Failed") expect(result.failure.reason).toBe("missing-key");
-  });
-
-  it("missing-key failure: malformed apiKey (no AIza prefix) rejects", async () => {
-    const result = await conversationOrchestrator.send(
-      baseRequest(),
-      "garbage",
-      target(),
-      makeGameState(),
-    );
-    expect(result.kind).toBe("Failed");
-    if (result.kind === "Failed") expect(result.failure.reason).toBe("missing-key");
-  });
-
   it("produces deterministic responses for identical requests (replay-harness contract)", async () => {
     const req = baseRequest();
-    const r1 = await conversationOrchestrator.send(req, "AIza-test-key", target(), makeGameState());
-    const r2 = await conversationOrchestrator.send(req, "AIza-test-key", target(), makeGameState());
+    const r1 = await conversationOrchestrator.send(req, null);
+    const r2 = await conversationOrchestrator.send(req, null);
     if (r1.kind === "Resolved" && r2.kind === "Resolved") {
       expect(r1.response.dialogue).toBe(r2.response.dialogue);
       expect(r1.response.classifiedTactic).toBe(r2.response.classifiedTactic);

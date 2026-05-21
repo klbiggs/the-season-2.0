@@ -60,20 +60,23 @@ export const ExchangeSchema = z.object({
 export type Exchange = z.infer<typeof ExchangeSchema>;
 export type Speaker = Exchange["speaker"];
 
-// Five-reason discriminated union shared by orchestrator return type,
+// Four-reason discriminated union shared by orchestrator return type,
 // event-bus payload, store-action result, and UI banner prose mapping.
 // Lives here (NOT in runtime/events/conversation.ts) so game/store.ts can
 // import without crossing into the runtime/events layer.
+//
+// P7.5: the prior `"missing-key"` variant was removed when BYOK was
+// relocated to a localhost-only Node proxy. Proxy-down failures map to
+// `"network"`; the browser never validates the key.
 export type ConversationFailure =
   | { reason: "timeout" }
   | { reason: "network" }
   | { reason: "schema"; issues: ReadonlyArray<{ path: string; message: string }> }
-  | { reason: "missing-key" }
   | { reason: "cancelled" };
 
-// Re-export brand types so llm/** consumers reach them via this module
-// (the llm layer is forbidden from importing game/rng directly per
-// eslint rule c). CharacterId and HouseId are needed by ConversationRequest,
-// PersonaCacheRegistry's cache-key composition, and the orchestrator's
-// public types.
+// Re-export brand types + schemas so llm/** consumers reach them via this
+// module (the llm layer is forbidden from importing game/rng directly per
+// eslint rule b). CharacterId and HouseId are needed by ProxyConversationRequest
+// (P7.5 wire format) + the orchestrator's public types.
 export type { CharacterId, HouseId } from "../rng";
+export { CharacterIdSchema, HouseIdSchema } from "../rng";
