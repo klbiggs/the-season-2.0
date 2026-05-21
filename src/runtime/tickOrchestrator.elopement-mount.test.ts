@@ -9,12 +9,12 @@
 
 import { describe, expect, it } from "vitest";
 import { SEDUCTION_DISCOVERY_PROBABILITY } from "../game/constants";
-import { createInitialState } from "../game/store";
-import { drawNext } from "../game/rng";
 import type { GameState, Scheme } from "../game/entities";
+import { drawNext } from "../game/rng";
 import { PLAYER_HOUSE_ID } from "../game/rng";
 import type { CharacterId, SchemeId } from "../game/rng";
 import { applySchemeResolutionPhase } from "../game/rules/schemes";
+import { createInitialState } from "../game/store";
 
 // Walk a fixed seed's draw stream until we find a call-count offset that
 // yields a draw < SEDUCTION_DISCOVERY_PROBABILITY at the next draw site.

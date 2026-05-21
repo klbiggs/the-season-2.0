@@ -97,19 +97,13 @@ describe("Elopement gate — typed-rejection wrappers", () => {
 
   it("assignTutor returns ElopementInProgress", () => {
     const store = setupWithActiveSprint();
-    const result = store.getState().assignTutor(
-      "child" as CharacterId,
-      "tutor" as CharacterId,
-    );
+    const result = store.getState().assignTutor("child" as CharacterId, "tutor" as CharacterId);
     expect(result).toEqual({ ok: false, reason: { kind: "ElopementInProgress" } });
   });
 
   it("chooseTutorBonusTrait returns ElopementInProgress", () => {
     const store = setupWithActiveSprint();
-    const result = store.getState().chooseTutorBonusTrait(
-      "child" as CharacterId,
-      "Witty" as never,
-    );
+    const result = store.getState().chooseTutorBonusTrait("child" as CharacterId, "Witty" as never);
     expect(result).toEqual({ ok: false, reason: { kind: "ElopementInProgress" } });
   });
 

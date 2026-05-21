@@ -512,6 +512,13 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishCharacterDeaths(stateBefore, afterTick);
         publishSchemeTransitions(stateBefore, afterTick);
         publishWhisperTransitions(stateBefore, afterTick);
+        // P9 followup: P7 publisher-trio drift fix — marriage dissolutions
+        // (aging orphan-prune branch 3) and temptation-latch flips
+        // (happiness-drift phase slot 8) can both land during a P3 pre-tick
+        // wrapper's advanceTickPure chain. CLAUDE.md "5/5/6 publisher trio"
+        // claimed these fired on P3 wrappers but the calls were missing.
+        publishMarriageTransitions(stateBefore, afterTick);
+        publishTemptationLatchTransitions(stateBefore, afterTick);
         // P9: applySchemeResolutionPhase can mount state.elopement on a
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
@@ -572,6 +579,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishCharacterDeaths(stateBefore, afterTick);
         publishSchemeTransitions(stateBefore, afterTick);
         publishWhisperTransitions(stateBefore, afterTick);
+        // P9 followup: see travel wrapper for rationale (CLAUDE.md 5/5/6 pin).
+        publishMarriageTransitions(stateBefore, afterTick);
+        publishTemptationLatchTransitions(stateBefore, afterTick);
         publishElopementTransitions(stateBefore, afterTick);
         return { outcome };
       },
@@ -606,6 +616,13 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishCharacterDeaths(stateBefore, afterTick);
         publishSchemeTransitions(stateBefore, afterTick);
         publishWhisperTransitions(stateBefore, afterTick);
+        // P9 followup: P7 publisher-trio drift fix — marriage dissolutions
+        // (aging orphan-prune branch 3) and temptation-latch flips
+        // (happiness-drift phase slot 8) can both land during a P3 pre-tick
+        // wrapper's advanceTickPure chain. CLAUDE.md "5/5/6 publisher trio"
+        // claimed these fired on P3 wrappers but the calls were missing.
+        publishMarriageTransitions(stateBefore, afterTick);
+        publishTemptationLatchTransitions(stateBefore, afterTick);
         // P9: applySchemeResolutionPhase can mount state.elopement on a
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
@@ -642,6 +659,13 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishCharacterDeaths(stateBefore, afterTick);
         publishSchemeTransitions(stateBefore, afterTick);
         publishWhisperTransitions(stateBefore, afterTick);
+        // P9 followup: P7 publisher-trio drift fix — marriage dissolutions
+        // (aging orphan-prune branch 3) and temptation-latch flips
+        // (happiness-drift phase slot 8) can both land during a P3 pre-tick
+        // wrapper's advanceTickPure chain. CLAUDE.md "5/5/6 publisher trio"
+        // claimed these fired on P3 wrappers but the calls were missing.
+        publishMarriageTransitions(stateBefore, afterTick);
+        publishTemptationLatchTransitions(stateBefore, afterTick);
         // P9: applySchemeResolutionPhase can mount state.elopement on a
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
