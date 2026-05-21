@@ -2,26 +2,43 @@
 // who aren't already in the heirless terminal state. Composes:
 //   1. Skip if house.heirless === true (idempotence gate).
 //   2. Family pool (primary): living adult chars with role Spouse|Heir|Dependent.
-//   3. Adult-children pool (secondary): empty at P1; helper returns []; P7
-//      fills in real parent-child traversal.
+//   3. Adult-children pool (secondary): P7 fills real parent-edge traversal
+//      via findAdultChildren below.
 //   4. Marriage dissolution for the dead head's marriage record (if any).
 //   5. Heirless terminal flag if both pools are empty.
 //   6. Promotion: new head, generation++, -20 reputation, ancestor summary.
-//   7. Q4 classifier stub call.
+//   7. Q4 classifier widened to every surviving family-house character —
+//      heir's role is HeadOfHouse post-promotion; siblings/spinsters/etc.
+//      classify per their post-aging role.
 
 import { ADULTHOOD_AGE_IN_YEARS, SUCCESSION_REPUTATION_PENALTY } from "../constants";
 import type { Character, GameState, House, MarriageRecord } from "../entities";
 import { classifyArchetype } from "../fixtures/archetypes";
+import type { CharacterId } from "../rng";
 import { getMarriageOrThrow } from "../util/lookups";
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
-// P1 stub: parent-child traversal doesn't exist yet (no parent IDs on
-// Character; child records ship at P7). Returns [] regardless of inputs.
-export function findAdultChildren(_state: GameState, _deadHeadId: Character["id"]): Character[] {
-  return [];
+// P7: real body. Filters by parent-edge — children whose parentCharacterIds
+// includes the dead head's id, who are alive and adult. Lex-sorted by id so
+// multi-eligible-children promotion is deterministic. No RNG draws.
+//
+// At P7 cross-house children don't exist (conception sets childHouseId to
+// the spouse's house); a future P11 sibling-rival adoption flow would need
+// a defensive `c.houseId === deadHead.houseId` filter.
+export function findAdultChildren(state: GameState, deadHeadId: CharacterId): Character[] {
+  const candidates: Character[] = [];
+  for (const [, c] of state.characters) {
+    if (!c.alive) continue;
+    if (c.age < ADULTHOOD_AGE_IN_YEARS) continue;
+    if (c.parentCharacterIds === null) continue;
+    if (!c.parentCharacterIds.includes(deadHeadId)) continue;
+    candidates.push(c);
+  }
+  candidates.sort((a, b) => a.id.localeCompare(b.id));
+  return candidates;
 }
 
 // Format pinned in succession.ts so the synthetic test reads from the same
@@ -102,14 +119,22 @@ function processDeadHead(state: GameState, house: House, dead: Character): GameS
     ancestorSummary: [...house.ancestorSummary, ancestorLine],
   });
 
-  // Step 7: classify newly-promoted heir's archetype. P1 stub always "None".
+  // Step 7 (P7): classifier widened to every surviving family-house character.
+  // Heir's role flips to HeadOfHouse post-promotion; siblings/spinsters/etc.
+  // classify per their post-aging role + traits + gender + marriage. The
+  // classifier is pure-referentially-transparent (no RNG draws), so the
+  // double-classify (maturation then succession in the same year-pass) is
+  // idempotent for the maturating child.
   const characters = new Map(state.characters);
-  const promoted: Character = {
-    ...heir,
-    role: "HeadOfHouse",
-    archetype: classifyArchetype(heir),
-  };
-  characters.set(heir.id, promoted);
+  for (const [id, c] of state.characters) {
+    if (c.houseId !== house.id) continue;
+    if (!c.alive) continue;
+    const isPromoted = id === heir.id;
+    const post: Character = isPromoted
+      ? { ...c, role: "HeadOfHouse", archetype: classifyArchetype({ ...c, role: "HeadOfHouse" }) }
+      : { ...c, archetype: classifyArchetype(c) };
+    characters.set(id, post);
+  }
 
   return { ...state, marriages, houses, characters };
 }

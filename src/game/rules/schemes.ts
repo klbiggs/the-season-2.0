@@ -19,9 +19,11 @@ import {
   SCHEME_TUNING,
   SEDUCTION_AFFECTION_DELTA_ON_SUCCESS,
   SEDUCTION_DISCOVERY_PROBABILITY,
+  SEDUCTION_DISCOVERY_SCANDAL,
   type SchemeFailureReasonKind,
   type SchemeKind,
   type SchemeStatus,
+  TEMPTATION_DISCOUNTED_SCANDAL,
 } from "../constants";
 import { makePairKey } from "../conversation/types";
 import type { GameState, Grievance, Scheme } from "../entities";
@@ -403,11 +405,39 @@ function resolveSeduction(state: GameState, scheme: Scheme): GameState {
   const baseState = { ...state, rng: newRng };
 
   if (discovered) {
+    // P7: SEDUCTION_DISCOVERY_SCANDAL retro-add. The aggressor's
+    // temptationHookUnlocked latch + target-is-non-spouse selects the
+    // discounted vs full scandal delta (§10 Q23 resolution).
+    const aggressor = state.characters.get(scheme.aggressorCharacterId);
+    const aggressorMarriage =
+      aggressor !== undefined && aggressor.marriageId !== null
+        ? state.marriages.get(aggressor.marriageId)
+        : undefined;
+    const aggressorSpouseId =
+      aggressor !== undefined && aggressorMarriage !== undefined && !aggressorMarriage.dissolved
+        ? aggressorMarriage.spouseAId === aggressor.id
+          ? aggressorMarriage.spouseBId
+          : aggressorMarriage.spouseAId
+        : null;
+    const targetIsSpouse = aggressorSpouseId !== null && targetId === aggressorSpouseId;
+    const scandalDelta =
+      aggressor?.temptationHookUnlocked === true && !targetIsSpouse
+        ? TEMPTATION_DISCOUNTED_SCANDAL
+        : SEDUCTION_DISCOVERY_SCANDAL;
+    const newHouses = new Map(baseState.houses);
+    const ownerHouse = newHouses.get(scheme.ownerHouseId);
+    if (ownerHouse !== undefined) {
+      newHouses.set(scheme.ownerHouseId, {
+        ...ownerHouse,
+        scandal: clamp(ownerHouse.scandal + scandalDelta, 0, 100),
+      });
+    }
+    const stateWithScandal = { ...baseState, houses: newHouses };
     // Single-publish: status field flips to "Failed" with reason "Discovered";
     // the diff helper's publisher discriminator routes this to a
     // SeductionDiscovered event (NOT SchemeFailed). P9's elopement-sprint
     // overlay listens for SeductionDiscovered.
-    return flipSchemeStatus(baseState, scheme.id, "Failed", "Discovered");
+    return flipSchemeStatus(stateWithScandal, scheme.id, "Failed", "Discovered");
   }
 
   // Not-discovered: apply +80 affection (clamped), flip to Completed.

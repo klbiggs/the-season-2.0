@@ -44,6 +44,7 @@ import {
   type RngState,
   type SchemeId,
   type StaffId,
+  type TraitId,
   type WhisperId,
   createRngState,
 } from "./rng";
@@ -212,6 +213,17 @@ export type StoreActions = {
     newAssignment: StaffAssignment,
   ) => { ok: true } | { ok: false; reason: AssignStaffRejection };
   spymasterIntercept: () => { ok: true } | { ok: false; reason: SpymasterInterceptRejection };
+  // P7 family actions. proposeMarriage is tick-advancing (pre-tick action
+  // pattern). assignTutor and chooseTutorBonusTrait are FREE actions.
+  proposeMarriage: (targetCharacterId: CharacterId) => ProposalOutcome;
+  assignTutor: (
+    childCharacterId: CharacterId,
+    tutorCharacterId: CharacterId,
+  ) => { ok: true; reassignmentCount: number } | { ok: false; reason: AssignTutorRejection };
+  chooseTutorBonusTrait: (
+    childCharacterId: CharacterId,
+    chosenTraitId: TraitId,
+  ) => { ok: true } | { ok: false; reason: ChooseTutorBonusTraitRejection };
 };
 
 export type StoreState = GameState & StoreActions;
@@ -232,6 +244,21 @@ import { publishWhisperTransitions, whisperBus } from "../runtime/events/whisper
 // have been declared above.
 import { advanceTickPure } from "../runtime/tickOrchestrator";
 import { runYearPassPure } from "../runtime/yearPass";
+// P7 imports.
+import { applyProposalPure, type ProposalOutcome } from "../game/rules/proposal";
+import {
+  type AssignTutorRejection,
+  type ChooseTutorBonusTraitRejection,
+  applyAssignTutorPure,
+  applyChooseTutorBonusTraitPure,
+} from "../game/rules/tutor";
+import {
+  familyBus,
+  publishArchetypeReclassificationsFromSuccession,
+  publishChildMaturationTransitions,
+  publishMarriageTransitions,
+  publishTemptationLatchTransitions,
+} from "../runtime/events/family";
 
 // Apply a full GameState swap to the immer draft. Used by every store
 // action that produces a new GameState via pure rules + orchestrator.
@@ -295,6 +322,11 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishCharacterDeaths(before, after);
         publishSchemeTransitions(before, after);
         publishWhisperTransitions(before, after);
+        // P7: marriage dissolutions + temptation latch flips can fire from
+        // tick phases (aging+orphan-prune for marriage dissolution via
+        // Assassination; happiness-phase slot 8 for temptation latch).
+        publishMarriageTransitions(before, after);
+        publishTemptationLatchTransitions(before, after);
       },
       runYearPass: () => {
         const exileGate = get();
@@ -317,6 +349,15 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // the P5 publishSchemeTransitions discipline (year-pass doesn't touch
         // schemes/grievances; runYearPass STILL skips publishSchemeTransitions).
         publishWhisperTransitions(before, after);
+        // P7 — 6-publisher list for runYearPass. Maturation + succession
+        // archetype-reclassify ride exclusively on runYearPass (they don't
+        // fire from advanceTick because year-pass STEPS don't run inside
+        // tick-advance). Marriage dissolutions (branch 3 of pruneOrphaned-
+        // ConversationKeys) and temptation latch flips also fire here.
+        publishMarriageTransitions(before, after);
+        publishTemptationLatchTransitions(before, after);
+        publishChildMaturationTransitions(before, after);
+        publishArchetypeReclassificationsFromSuccession(before, after);
       },
       replaceState: (next: GameState) =>
         set((state) => {
@@ -965,6 +1006,97 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           }
         }
         publishWhisperTransitions(before, result.state, wrapperKeys);
+        return { ok: true };
+      },
+      // ── P7 family actions ─────────────────────────────────────────────
+      proposeMarriage: (targetCharacterId: CharacterId): ProposalOutcome => {
+        const stateBefore = get();
+        // Exile gate at the TOP per CLAUDE.md non-negotiable + P6 pattern.
+        // Optional-chaining `?.exiled` matches the convention from existing
+        // exile-gate publishes at store.ts.
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          whisperBus.publish({
+            kind: "PlayerExileBlocked",
+            tick: stateBefore.tick,
+            action: "proposeMarriage",
+          });
+          return { ok: false, reason: { kind: "PlayerExiled" } } as ProposalOutcome;
+        }
+        const { nextState, outcome } = applyProposalPure(stateBefore, targetCharacterId);
+        if (!outcome.ok) {
+          return outcome;
+        }
+        // Both accept and reject paths consumed a tick (gates 1-13 passed).
+        const tickAdvanced = advanceTickPure(nextState);
+        set((draft) => {
+          overwriteFromGameState(draft, tickAdvanced);
+        });
+        // Canonical proposeMarriage publisher list (5): proposalOutcome
+        // (direct-published below) + marriageTransitions + temptationLatch +
+        // characterDeaths + whisperTransitions. publishSchemeTransitions is
+        // NOT fired (proposal doesn't invoke scheme resolution).
+        if (outcome.accepted) {
+          familyBus.publish({
+            kind: "ProposalAccepted",
+            proposerId: stateBefore.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId ?? targetCharacterId,
+            targetId: targetCharacterId,
+            marriageId: outcome.marriageId,
+            tick: tickAdvanced.tick,
+          });
+        } else {
+          familyBus.publish({
+            kind: "ProposalRejected",
+            proposerId: stateBefore.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId ?? targetCharacterId,
+            targetId: targetCharacterId,
+            scandalDelta: outcome.scandalDelta,
+            tick: tickAdvanced.tick,
+          });
+        }
+        publishMarriageTransitions(stateBefore, tickAdvanced);
+        publishTemptationLatchTransitions(stateBefore, tickAdvanced);
+        publishCharacterDeaths(stateBefore, tickAdvanced);
+        publishWhisperTransitions(stateBefore, tickAdvanced);
+        return outcome;
+      },
+      assignTutor: (childCharacterId: CharacterId, tutorCharacterId: CharacterId) => {
+        const stateBefore = get();
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        const result = applyAssignTutorPure(stateBefore, childCharacterId, tutorCharacterId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((draft) => {
+          overwriteFromGameState(draft, result.nextState);
+        });
+        familyBus.publish({
+          kind: "TutorAssigned",
+          childId: childCharacterId,
+          tutorId: tutorCharacterId,
+          reassignmentCount: result.reassignmentCount,
+          tick: stateBefore.tick,
+        });
+        return { ok: true, reassignmentCount: result.reassignmentCount };
+      },
+      chooseTutorBonusTrait: (childCharacterId: CharacterId, chosenTraitId: TraitId) => {
+        const stateBefore = get();
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        const result = applyChooseTutorBonusTraitPure(
+          stateBefore,
+          childCharacterId,
+          chosenTraitId,
+        );
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((draft) => {
+          overwriteFromGameState(draft, result.nextState);
+        });
+        familyBus.publish({
+          kind: "TutorTraitGranted",
+          childId: childCharacterId,
+          traitId: chosenTraitId,
+          tick: stateBefore.tick,
+        });
         return { ok: true };
       },
     })),

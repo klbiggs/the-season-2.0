@@ -20,6 +20,7 @@
 
 import { applyCourierAndStaffPhase } from "../game/rules/courier";
 import { applyEconomyPhase } from "../game/rules/economy";
+import { applyHappinessPhase } from "../game/rules/happiness";
 import { applyLocationEffectsPhase } from "../game/rules/locationEffects";
 import { applyMoodDriftPhase } from "../game/rules/moods";
 import { applySchemeResolutionPhase } from "../game/rules/schemes";
@@ -37,6 +38,10 @@ function advanceTickPhase(state: GameState): GameState {
 // this type for the runOrchestratorWithPhases injection seam.
 export type TickPhase = (state: GameState) => GameState;
 
+// P7 inserts applyHappinessPhase at slot 8 (between mood drift and the
+// rival-action stub). Happiness reads no RNG (pure threshold check) — cannot
+// perturb the rival roll. The CLAUDE.md "Rivals always run last" contract
+// holds: rival-action stub remains at the terminal position.
 const PHASES: readonly TickPhase[] = [
   advanceTickPhase, // 1. time advance
   applyEconomyPhase, // 2. economy
@@ -45,7 +50,8 @@ const PHASES: readonly TickPhase[] = [
   applySchemeResolutionPhase, // 5. scheme resolution (P5)
   identityPhase, // 6. global-event roll (P1 stub)
   applyMoodDriftPhase, // 7. mood drift
-  identityPhase, // 8. rival-house action roll (P1 stub — ALWAYS last)
+  applyHappinessPhase, // 8. happiness drift (NEW at P7)
+  identityPhase, // 9. rival-house action roll (P1 stub — ALWAYS last)
 ] as const;
 
 export function advanceTickPure(state: GameState): GameState {

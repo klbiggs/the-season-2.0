@@ -66,11 +66,71 @@ export function pruneOrphanedConversationKeys(
       whispersChanged = true;
     }
   }
+
+  // ── P7 BRANCH 1: tutor-assignment prune ──
+  // Every child whose assignedTutorCharacterId references a dead tutor has
+  // the field nulled. tutorBonusTraitGranted is NOT cleared (a previously-
+  // granted bonus persists past tutor death). If maturation hasn't fired
+  // yet, the pending-choice slot will see tutorAlive=false at maturation and
+  // skip the bonus.
+  let charactersChanged = false;
+  let newChars = state.characters;
+  for (const [id, c] of state.characters) {
+    if (c.assignedTutorCharacterId !== null && newlyDeadCharIds.has(c.assignedTutorCharacterId)) {
+      if (!charactersChanged) {
+        newChars = new Map(state.characters);
+        charactersChanged = true;
+      }
+      newChars.set(id, { ...c, assignedTutorCharacterId: null });
+    }
+  }
+
+  // ── P7 BRANCH 2: Dull-spouse exposure prune ──
+  // When a Dull spouse dies, the surviving character's exposure window closes
+  // (happiness drain stops). Reads from newChars (branch-1 accumulator) so a
+  // character whose tutor died AND whose Dull spouse died in the same year-
+  // pass gets BOTH fields cleared.
+  for (const [id, c] of newChars) {
+    if (c.dullSpouseExposureStartTick === null) continue;
+    if (c.marriageId === null) continue;
+    const marriage = state.marriages.get(c.marriageId);
+    if (marriage === undefined || marriage.dissolved) continue;
+    const spouseId = marriage.spouseAId === id ? marriage.spouseBId : marriage.spouseAId;
+    if (!newlyDeadCharIds.has(spouseId)) continue;
+    if (!charactersChanged) {
+      newChars = new Map(state.characters);
+      charactersChanged = true;
+    }
+    const existing = newChars.get(id) ?? c;
+    newChars.set(id, { ...existing, dullSpouseExposureStartTick: null });
+  }
+
+  // ── P7 BRANCH 3: marriage dissolution on either-spouse death ──
+  // Pre-P7, succession step 4 dissolved marriages only when the dead character
+  // was a HEAD. Non-head spouse deaths left marriage.dissolved=false
+  // indefinitely. P7 closes that gap by dissolving every marriage whose either
+  // spouse has died in this newlyDeadCharIds set. succession's explicit
+  // dissolution becomes a redundant no-op (safe to leave as defensive).
+  let marriagesChanged = false;
+  let newMarriages = state.marriages;
+  for (const [mid, m] of state.marriages) {
+    if (m.dissolved) continue;
+    if (newlyDeadCharIds.has(m.spouseAId) || newlyDeadCharIds.has(m.spouseBId)) {
+      if (!marriagesChanged) {
+        newMarriages = new Map(state.marriages);
+        marriagesChanged = true;
+      }
+      newMarriages.set(mid, { ...m, dissolved: true, dissolvedAtTick: state.tick });
+    }
+  }
+
   return {
     ...state,
     conversationHistory: histFiltered,
     affectionMap: affFiltered,
     ...(whispersChanged ? { whispers: newWhispers } : {}),
+    ...(charactersChanged ? { characters: newChars } : {}),
+    ...(marriagesChanged ? { marriages: newMarriages } : {}),
   };
 }
 

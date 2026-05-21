@@ -19,13 +19,20 @@
 
 import { applyAgingStep } from "../game/rules/aging";
 import { applyConceptionStep } from "../game/rules/conception";
+import { applyMaturationStep } from "../game/rules/maturation";
 import { applySuccessionStep } from "../game/rules/succession";
 import type { GameState } from "../game/store";
 
 type YearPassStep = (state: GameState) => GameState;
 
+// P7 inserts applyMaturationStep at slot 2 (between aging + succession).
+// aging-before-maturation: aging increments age; maturation reads exact-18
+// boundary. maturation-before-succession: succession's findAdultChildren now
+// returns adult children (via parent edges); a child crossing 18 same year
+// as their parent's death should be promotable.
 const STEPS: readonly YearPassStep[] = [
   applyAgingStep,
+  applyMaturationStep,
   applySuccessionStep,
   applyConceptionStep,
 ] as const;
