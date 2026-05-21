@@ -4,6 +4,7 @@ import type {
   Character,
   CourierPayload,
   Duel,
+  ElopementSprintState,
   GameState,
   House,
   MarriageRecord,
@@ -66,6 +67,11 @@ export function hashableState(state: GameState): {
   rivalActors: Array<[HouseId, RivalActorState]>;
   factionTensions: Array<[FactionPairKey, number]>;
   duels: Array<[DuelId, Duel]>;
+  // P9: nullable singleton (NOT a Map → NOT projected via serializeRegistry).
+  // When non-null, every field of ElopementSprintState (tile positions,
+  // freshHorsesUsedCount, startedAtTick) participates in the hash so mid-sprint
+  // saves round-trip exactly. When null, hashes as null literal.
+  elopement: ElopementSprintState | null;
 } {
   return {
     tick: state.tick,
@@ -96,6 +102,10 @@ export function hashableState(state: GameState): {
     rivalActors: serializeRegistry(state.rivalActors),
     factionTensions: serializeRegistry(state.factionTensions),
     duels: serializeRegistry(state.duels),
+    // P9: pass the nullable singleton through directly — no Map serialization.
+    // canonicalJSON sorts object keys deterministically so the embedded
+    // ElopementSprintState shape hashes consistently.
+    elopement: state.elopement,
   };
 }
 

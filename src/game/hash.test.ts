@@ -65,6 +65,7 @@ describe("hashableState", () => {
       "conversationHistory",
       "couriers",
       "duels",
+      "elopement",
       "era",
       "factionTensions",
       "houses",
@@ -126,6 +127,7 @@ describe("hashState — Map reorder invariance", () => {
         rivalActors: new Map(),
         factionTensions: new Map(),
         duels: new Map(),
+        elopement: null,
       }),
     ).toBe(
       hashState({
@@ -150,6 +152,7 @@ describe("hashState — Map reorder invariance", () => {
         rivalActors: new Map(),
         factionTensions: new Map(),
         duels: new Map(),
+        elopement: null,
       }),
     );
   });

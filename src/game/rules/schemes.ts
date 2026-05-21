@@ -40,6 +40,7 @@ import {
 import { clamp } from "../util/clamp";
 import { getCharacterOrThrow, getHouseOrThrow } from "../util/lookups";
 import { pruneOrphanedConversationKeys } from "./aging";
+import { startElopementSprintFromDiscoveredSeduction } from "./elopement";
 
 // ── Public input/result types ────────────────────────────────────────────
 
@@ -61,7 +62,9 @@ export type StartSchemeRejection =
   | { kind: "SmugglingPastEraEdge"; completionTick: number; eraTransitionTick: number }
   | { kind: "TargetIsDead"; targetId: CharacterId }
   | { kind: "SelfTarget"; targetId: CharacterId }
-  | { kind: "PlayerExiled" }; // P6 exile-gate variant
+  | { kind: "PlayerExiled" } // P6 exile-gate variant
+  | { kind: "ElopementInProgress" } // P9 Q4 — matches PlayerExiled wrapper-symmetry precedent
+  | { kind: "SeductionAlreadyActiveForAggressor"; activeSchemeId: SchemeId }; // P9 Q2
 // P8+ forward-compat reservation: when rival heads can die mid-tick (P11
 // sibling-rival action paths, P13 WarEffort officer deaths), add
 // `| { kind: "HeadOfHouseDead"; ownerHouseId: HouseId }` to this union AND
@@ -76,7 +79,8 @@ export type StartSchemeResult =
 export type CancelSchemeRejection =
   | { kind: "SchemeNotFound"; schemeId: SchemeId }
   | { kind: "SchemeNotActive"; schemeId: SchemeId; currentStatus: SchemeStatus }
-  | { kind: "PlayerExiled" }; // P6 exile-gate variant
+  | { kind: "PlayerExiled" } // P6 exile-gate variant
+  | { kind: "ElopementInProgress" }; // P9 Q4
 
 export type CancelSchemeResult =
   | { ok: true; state: GameState }
@@ -138,18 +142,21 @@ function selectAggressor(state: GameState, ownerHouseId: HouseId, kind: SchemeKi
 // flipSchemeStatus — overloaded for type-safe Failed-requires-reason.
 // Implementation signature requires failureReason explicitly (no default).
 // Failed transitions MUST pass the 4-arg form; Completed/Cancelled pass null.
-function flipSchemeStatus(
+// P9: exported so the cross-rule import from elopement.ts can call it after
+// startElopementSprintFromDiscoveredSeduction. Rules → rules is boundary-clean
+// per CLAUDE.md non-negotiable #1.
+export function flipSchemeStatus(
   baseState: GameState,
   schemeId: SchemeId,
   newStatus: "Completed" | "Cancelled",
 ): GameState;
-function flipSchemeStatus(
+export function flipSchemeStatus(
   baseState: GameState,
   schemeId: SchemeId,
   newStatus: "Failed",
   failureReason: SchemeFailureReasonKind,
 ): GameState;
-function flipSchemeStatus(
+export function flipSchemeStatus(
   baseState: GameState,
   schemeId: SchemeId,
   newStatus: Exclude<SchemeStatus, "Active">,
@@ -270,6 +277,28 @@ export function tryStartScheme(
   // CLAUDE.md pure-rule structural-sharing contract.
   const durationTicks = SCHEME_TUNING[kind].durationTicks;
   const aggressorCharacterId = selectAggressor(state, ownerHouseId, kind);
+
+  // P9 Q2 gate — per-aggressor Seduction concurrency check.
+  // Inserted post-selectAggressor (so aggressorCharacterId is in scope) and
+  // pre-wealth-deduction (atomic gating per CLAUDE.md non-negotiable §5).
+  // Functionally per-house at v1 because selectAggressor returns the head for
+  // Seduction; future-proof for later phases that may widen the aggressor pool.
+  if (kind === "Seduction") {
+    for (const existing of state.schemes.values()) {
+      if (
+        existing.kind === "Seduction" &&
+        existing.status === "Active" &&
+        existing.ownerHouseId === ownerHouseId &&
+        existing.aggressorCharacterId === aggressorCharacterId
+      ) {
+        return {
+          ok: false,
+          reason: { kind: "SeductionAlreadyActiveForAggressor", activeSchemeId: existing.id },
+        };
+      }
+    }
+  }
+
   const newHouses = new Map(state.houses);
   // P8: gate the wealth-deduction write on skipWealthDeduction. The
   // newHouses.set write is unconditional (always re-writes the owner-slot)
@@ -446,20 +475,18 @@ function resolveSeduction(state: GameState, scheme: Scheme): GameState {
       aggressor?.temptationHookUnlocked === true && !targetIsSpouse
         ? TEMPTATION_DISCOUNTED_SCANDAL
         : SEDUCTION_DISCOVERY_SCANDAL;
-    const newHouses = new Map(baseState.houses);
-    const ownerHouse = newHouses.get(scheme.ownerHouseId);
-    if (ownerHouse !== undefined) {
-      newHouses.set(scheme.ownerHouseId, {
-        ...ownerHouse,
-        scandal: clamp(ownerHouse.scandal + scandalDelta, 0, 100),
-      });
-    }
-    const stateWithScandal = { ...baseState, houses: newHouses };
-    // Single-publish: status field flips to "Failed" with reason "Discovered";
-    // the diff helper's publisher discriminator routes this to a
-    // SeductionDiscovered event (NOT SchemeFailed). P9's elopement-sprint
-    // overlay listens for SeductionDiscovered.
-    return flipSchemeStatus(stateWithScandal, scheme.id, "Failed", "Discovered");
+    // P9: the discovery branch composes scandal + sprint mount + status flip.
+    // startElopementSprintFromDiscoveredSeduction applies the scandal and sets
+    // state.elopement to a fresh ElopementSprintState in one atomic step; the
+    // status flip via flipSchemeStatus drives the SeductionDiscovered bus event
+    // (the diff helper's publisher discriminator routes Failed/Discovered to
+    // SeductionDiscovered, NOT SchemeFailed).
+    const stateWithScandalAndSprint = startElopementSprintFromDiscoveredSeduction(
+      baseState,
+      scheme,
+      scandalDelta,
+    );
+    return flipSchemeStatus(stateWithScandalAndSprint, scheme.id, "Failed", "Discovered");
   }
 
   // Not-discovered: apply +80 affection (clamped), flip to Completed.

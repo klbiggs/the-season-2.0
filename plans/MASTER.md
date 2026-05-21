@@ -257,7 +257,7 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P6 | Whispers, Espionage & Staff | [`phases/06-whispers-espionage.md`](./phases/06-whispers-espionage.md) | P1, P4, P5 | ✅ done |
 | P7 | Family, Marriage & Succession | [`phases/07-family-succession.md`](./phases/07-family-succession.md) | P1 | ✅ done |
 | P8 | Rival Houses, Patronesses & Duels | [`phases/08-rivals-patronesses.md`](./phases/08-rivals-patronesses.md) | P1, P5 | ✅ done |
-| P9 | Elopement Sprint Overlay | [`phases/09-elopement.md`](./phases/09-elopement.md) | P5 | — |
+| P9 | Elopement Sprint Overlay | [`phases/09-elopement.md`](./phases/09-elopement.md) | P5 | ✅ done |
 | P10 | Artifacts, Wardrobe, Forgery & Theft | [`phases/10-artifacts.md`](./phases/10-artifacts.md) | P7 | — |
 | P11 | Sibling Rivals & Inherited Secrets | [`phases/11-sibling-rivals-secrets.md`](./phases/11-sibling-rivals-secrets.md) | P7, P6 | — |
 | P12 | Hyde Park Promenade | [`phases/12-promenade.md`](./phases/12-promenade.md) | P3, P4, P10 | — |
@@ -388,6 +388,9 @@ Carrying forward all 24 open questions with a recommended default for each. Reso
 | 21 | Cultural-pivot before artifact registry ships? | **N/A** — P10 (artifacts) ships before P13 (events) |
 | 22 | Dynasty perks retroactive? | **No** — going-forward only |
 | 23 | Dull-spouse temptation hook auto-unlocks or ledger-elected? | **Auto-unlock on threshold crossing** (less friction). **Resolved at P7** ([phases/07-family-succession.md](./phases/07-family-succession.md)); `temptationHookUnlocked: boolean` field on Character is a one-way latch (set true on first sub-threshold tick post-Dull-marriage; never reverts). Gates discounted-scandal Seduction (`TEMPTATION_DISCOUNTED_SCANDAL = 5` vs P5 baseline `SEDUCTION_DISCOVERY_SCANDAL = 25`). |
+| 24 | Allow concurrent player Seductions per aggressor at v1? | **One Seduction per aggressor at a time** (Q2 verdict). **Resolved at P9 PROVISIONALLY** ([phases/09-elopement.md](./phases/09-elopement.md)); `tryStartScheme` rejects `Seduction` with `{ kind: "SeductionAlreadyActiveForAggressor", activeSchemeId }` when an aggressor already owns an Active Seduction. Functionally per-house at v1 (`selectAggressor` returns the head for Seduction); future-proof for later phases that may widen the aggressor pool. Reopens if v1 play surfaces the constraint as too restrictive. |
+| 25 | On elopement win with one party already married, mint marriage or apply rep-halve only? | **Rep-halve always; marriage minted only if both unmarried (or widow/widower remarriage)** (Q3 verdict). **Resolved at P9** ([phases/09-elopement.md](./phases/09-elopement.md)); `resolveElopementTerminal` Won-branch's marriage-mint predicate uses `isAvailableForRemarriage` (harmonized with `applyProposalPure` gates 10/11 — null marriageId OR the referenced marriage is dissolved). Preserves the affair-archetype Seduction gameplay tone while avoiding bigamous state shape. Future P-later "Abandonment" / "Divorce" action can model explicit dissolution-then-remarriage with its own cost surface. |
+| 26 | Should ticks advance during an active elopement sprint? | **Suspend** — rule-layer gate on every tick-advancing and mutation action when `state.elopement !== null` (Q4 verdict). **Resolved at P9** ([phases/09-elopement.md](./phases/09-elopement.md)); the gate publishes `ElopementBlocked` on `elopementBus` for `advanceTick` / `runYearPass` / `proposeMarriage` and returns a typed `{ kind: "ElopementInProgress" }` rejection on every other player-elected wrapper. See CLAUDE.md "Modal-state rule-layer gate principle" pin. |
 
 ---
 

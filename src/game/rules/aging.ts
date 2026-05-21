@@ -10,10 +10,19 @@
 // applyAgingStep) and tick-phase deaths (from P5's Assassination resolver)
 // share a single source of truth for the cascade.
 
+import { ELOPEMENT_LOSS_SCANDAL_DELTA } from "../constants";
 import { parsePairKey } from "../conversation/types";
-import type { Character, GameState, RivalActorState } from "../entities";
+import type {
+  Character,
+  ElopementSprintState,
+  GameState,
+  House,
+  RivalActorState,
+} from "../entities";
 import { RIVAL_HOUSE_IDS_SET } from "../fixtures/rivals";
+import { PLAYER_HOUSE_ID } from "../rng";
 import type { CharacterId, HouseId } from "../rng";
+import { clamp } from "../util/clamp";
 
 // === VERBATIM MIGRATION of the heir-promotion safety block from
 // applyAgingStep's top-of-function comment (aging.ts:8-14 pre-P5). The
@@ -146,6 +155,40 @@ export function pruneOrphanedConversationKeys(
     });
   }
 
+  // ── P9 BRANCH 5: elopement sprint cleanup on dead sprint character ──
+  // When the eloping character or target dies, terminate the active sprint
+  // as a de-facto Lost outcome: +50 scandal on player house (clamped),
+  // state.elopement → null. P9 is the FIRST phase to route a state.houses
+  // mutation through pruneOrphanedConversationKeys (widened helper
+  // responsibility — see CLAUDE.md pin "modal-state cleanup on death").
+  //
+  // The +50 scandal extrapolates spec §3 line 379 ("loss" → +50 scandal) to
+  // the death-cascade case; the alternative (0 scandal) was rejected as a
+  // perverse incentive at v1.5+ when the Q4 tick-advance gate may be relaxed.
+  // At v1 this branch is unreachable end-to-end via runYearPass because the
+  // Q4 ElopementInProgress gate at the wrapper top blocks year-pass execution
+  // while state.elopement !== null. The branch ships for defense-in-depth and
+  // because the helper's contract is "every death cascade goes through here."
+  let newHouses: Map<HouseId, House> | null = null;
+  let newElopement: ElopementSprintState | null | undefined = undefined;
+  if (state.elopement !== null) {
+    const sprint = state.elopement;
+    if (
+      newlyDeadCharIds.has(sprint.elopingCharacterId) ||
+      newlyDeadCharIds.has(sprint.targetCharacterId)
+    ) {
+      const playerHouse = state.houses.get(PLAYER_HOUSE_ID);
+      if (playerHouse !== undefined) {
+        newHouses = new Map(state.houses);
+        newHouses.set(PLAYER_HOUSE_ID, {
+          ...playerHouse,
+          scandal: clamp(playerHouse.scandal + ELOPEMENT_LOSS_SCANDAL_DELTA, 0, 100),
+        });
+      }
+      newElopement = null;
+    }
+  }
+
   return {
     ...state,
     conversationHistory: histFiltered,
@@ -154,6 +197,8 @@ export function pruneOrphanedConversationKeys(
     ...(charactersChanged ? { characters: newChars } : {}),
     ...(marriagesChanged ? { marriages: newMarriages } : {}),
     ...(newRivalActors !== null ? { rivalActors: newRivalActors } : {}),
+    ...(newHouses !== null ? { houses: newHouses } : {}),
+    ...(newElopement !== undefined ? { elopement: newElopement } : {}),
   };
 }
 

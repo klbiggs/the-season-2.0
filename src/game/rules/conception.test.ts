@@ -44,6 +44,7 @@ function makeState(overrides: Partial<GameState>): GameState {
     rivalActors: new Map(),
     factionTensions: new Map(),
     duels: new Map(),
+    elopement: null,
     ...overrides,
   };
 }
@@ -303,6 +304,7 @@ describe("applyConceptionStep — multi-marriage RNG isolation (synthetic fixtur
         rivalActors: new Map(),
         factionTensions: new Map(),
         duels: new Map(),
+        elopement: null,
       };
       const next1 = applyConceptionStep(state);
       const next2 = applyConceptionStep(state);

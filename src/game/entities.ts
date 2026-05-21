@@ -13,6 +13,8 @@ import {
   COURIER_DIRECTIONS,
   COURIER_PAYLOAD_TYPES,
   COURIER_STATUSES,
+  ELOPEMENT_FRESH_HORSES_MAX_USES,
+  ELOPEMENT_TRACK_LENGTH,
   GRIEVANCE_SOURCES,
   SCHEME_FAILURE_REASONS,
   SCHEME_KINDS,
@@ -202,6 +204,12 @@ export const MarriageRecordSchema = z.object({
   marriedAtTick: z.number().int().nonnegative(),
   dissolved: z.boolean(),
   dissolvedAtTick: z.number().int().nullable(),
+  // P9 addition: true ONLY when the marriage was minted by an elopement win
+  // (spec §4 line 546). Legacy V1-V9 marriages default to false via the Zod
+  // `.default(false)` parse-side backfill — no Pre-shape rebuild required.
+  // Emit-side strip helper drops the field for toSaveV1..V9 round-trip
+  // byte-identity parity.
+  viaElopement: z.boolean().default(false),
 });
 export type MarriageRecord = z.infer<typeof MarriageRecordSchema>;
 
@@ -339,6 +347,27 @@ export const DuelSchema = z.object({
 });
 export type Duel = z.infer<typeof DuelSchema>;
 
+// P9: ElopementSprintState entity. Spec §4 line 551. Singleton (NOT a Map)
+// hosted on GameState.elopement (nullable). The Q2 verdict's per-aggressor
+// `tryStartScheme` gate makes concurrent sprints unreachable; the singleton
+// matches the spec's "overlay route" framing. Numeric bounds reference the
+// canonical constants from constants.ts; entities.ts already imports at
+// runtime so no module-load cycle exists.
+export const ElopementSprintStateSchema = z.object({
+  // The originating Seduction whose Discovered branch launched this sprint.
+  schemeId: SchemeIdSchema,
+  elopingCharacterId: CharacterIdSchema, // = source scheme's aggressorCharacterId
+  targetCharacterId: CharacterIdSchema, // = source scheme's targetCharacterId
+  playerTilePosition: z.number().int().min(0).max(ELOPEMENT_TRACK_LENGTH),
+  fatherTilePosition: z.number().int().min(0).max(ELOPEMENT_TRACK_LENGTH),
+  freshHorsesUsedCount: z.number().int().min(0).max(ELOPEMENT_FRESH_HORSES_MAX_USES),
+  // Provenance anchor for the P14 ledger (sprint duration display); never
+  // read by resolution logic (tile positions drive outcome). Hash-relevant
+  // so mid-sprint save/load reproduces exactly.
+  startedAtTick: z.number().int().nonnegative(),
+});
+export type ElopementSprintState = z.infer<typeof ElopementSprintStateSchema>;
+
 // GameState lives here (not in store.ts) so the rule layer can import it.
 // store.ts re-exports GameState/GameStateSchema for P0-era callers.
 //
@@ -398,5 +427,12 @@ export const GameStateSchema = z.object({
   rivalActors: z.map(HouseIdSchema, RivalActorStateSchema),
   factionTensions: z.map(FactionPairKeySchema, z.number().int().min(0).max(100)),
   duels: z.map(DuelIdSchema, DuelSchema),
+  // P9 addition — nullable singleton holding the active elopement sprint, or
+  // null when no sprint is in flight. Hits the quint-sync surfaces (CLAUDE.md
+  // non-negotiable + the 5th surface createInitialState in store.ts). The Q2
+  // verdict's per-aggressor `tryStartScheme` gate makes concurrent sprints
+  // unreachable; the singleton matches the spec's overlay-route framing.
+  // Hash-relevant when non-null (mid-sprint save/load reproduces tile state).
+  elopement: ElopementSprintStateSchema.nullable(),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

@@ -6,12 +6,7 @@ import type { PatronessRecord, RivalActorState } from "../entities";
 import { FACTION_PAIRS, makeFactionPairKey } from "../fixtures/factions";
 import { PATRONESSES_FIXTURE } from "../fixtures/patronesses";
 import { RIVAL_HOUSES_FIXTURE } from "../fixtures/rivals";
-import {
-  type FactionPairKey,
-  type HouseId,
-  PLAYER_HOUSE_ID,
-  type PatronessId,
-} from "../rng";
+import { type FactionPairKey, type HouseId, PLAYER_HOUSE_ID, type PatronessId } from "../rng";
 import { applyPatronessErosionPhase, checkBallVeto } from "./patronesses";
 
 function seedPatronesses(): Map<PatronessId, PatronessRecord> {
@@ -77,7 +72,10 @@ describe("applyPatronessErosionPhase", () => {
     });
     const houses = new Map([
       [PLAYER_HOUSE_ID, makeHouse({ scandal: 60 })],
-      [rivalSeed.houseId, makeHouse({ id: rivalSeed.houseId, hostility: 30, factionId: rivalSeed.factionId })],
+      [
+        rivalSeed.houseId,
+        makeHouse({ id: rivalSeed.houseId, hostility: 30, factionId: rivalSeed.factionId }),
+      ],
     ]);
     const state = makeGameState({
       tick: 1,
@@ -126,4 +124,3 @@ describe("checkBallVeto", () => {
     expect(result.vetoedBy.sort()).toEqual([id0, id2].sort());
   });
 });
-

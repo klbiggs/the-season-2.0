@@ -607,3 +607,27 @@ export const DUEL_PARRY_PROBABILITY = 0.5;
 // Reputation cost for issuing a duel challenge (the "demand satisfaction"
 // action). Designer-tunable; pinned to keep the action from being free-clickable.
 export const DUEL_DEMAND_SATISFACTION_REPUTATION_COST = -5;
+
+// ── P9: Elopement sprint tunings (spec §3 lines 84-90 + 372-379) ──────────
+
+export const ELOPEMENT_TRACK_LENGTH = 7;
+export const ELOPEMENT_PLAYER_START_TILE = 2;
+export const ELOPEMENT_FATHER_START_TILE = 0;
+export const ELOPEMENT_PUSH_PLAYER_ADVANCE = 1;
+export const ELOPEMENT_PUSH_FATHER_ADVANCE = 1;
+export const ELOPEMENT_PUSH_COMPOSURE_COST = 5;
+export const ELOPEMENT_FRESH_HORSES_PLAYER_ADVANCE = 2;
+export const ELOPEMENT_FRESH_HORSES_WEALTH_COST = 10;
+export const ELOPEMENT_FRESH_HORSES_MAX_USES = 3;
+export const ELOPEMENT_LOSS_SCANDAL_DELTA = 50;
+
+if (ELOPEMENT_PLAYER_START_TILE >= ELOPEMENT_TRACK_LENGTH) {
+  throw new Error(
+    "ELOPEMENT_PLAYER_START_TILE >= ELOPEMENT_TRACK_LENGTH: player would start at/past finish line",
+  );
+}
+if (ELOPEMENT_FATHER_START_TILE >= ELOPEMENT_PLAYER_START_TILE) {
+  throw new Error(
+    "ELOPEMENT_FATHER_START_TILE >= ELOPEMENT_PLAYER_START_TILE: father would start ahead of or alongside the player",
+  );
+}

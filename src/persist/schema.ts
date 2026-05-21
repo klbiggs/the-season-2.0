@@ -5,6 +5,7 @@ import {
   CharacterSchema,
   CourierPayloadSchema,
   DuelSchema,
+  ElopementSprintStateSchema,
   type GameState,
   type Grievance,
   type House,
@@ -57,14 +58,13 @@ import {
 import { PLAYER_HOUSE_ID } from "../game/rng";
 import { DEFAULT_CAMPAIGN_NAME } from "../game/store";
 
-// Live save-format version. P8 bumps to 9 with 2 new House fields
-// (hostility, factionId) + 1 new Grievance field (defendantCharacterId,
-// nullable) + 4 new top-level GameState Maps (patronesses, rivalActors,
-// factionTensions, duels). Legacy toSaveV1..V8 retain their literal
-// `version: N` writes; only toSaveV9 references SAVE_VERSION_CURRENT.
-// House.hostility/factionId + Grievance.defendantCharacterId use Zod
-// `.default()` so legacy V6/V7/V8 saves missing the fields parse cleanly.
-export const SAVE_VERSION_CURRENT = 9 as const;
+// Live save-format version. P9 bumps to 10 with 1 new top-level field
+// (elopement: ElopementSprintState | null) + 1 new MarriageRecord field
+// (viaElopement: z.boolean().default(false)). Legacy toSaveV1..V9 retain
+// their literal `version: N` writes; only toSaveV10 references
+// SAVE_VERSION_CURRENT. MarriageRecord.viaElopement uses Zod `.default()` so
+// legacy V1..V9 saves missing the field parse cleanly.
+export const SAVE_VERSION_CURRENT = 10 as const;
 
 // ── HousePreV4 (legacy on-disk House shape for V1/V2/V3 saves) ────────────
 // Omits the 5 P3-added fields (currentLocation, etc.) AND the P5 grievances
@@ -497,6 +497,8 @@ function fromSaveV1Bare(save: SaveV1): GameState {
     rivalActors: new Map(),
     factionTensions: new Map(),
     duels: new Map(),
+    // P9: elopement field defaults to null on every legacy lift.
+    elopement: null,
   };
 }
 
@@ -506,7 +508,7 @@ function fromSaveV1Bare(save: SaveV1): GameState {
 // seeded by migrate_v1_to_v2; Independent is seeded by seedIndependent here).
 export function fromSaveV1(save: SaveV1): GameState {
   const playerSeed = extractPlayerSeed(save.rng);
-  return seedRivalsAndPatronessesIntoLegacyState(
+  const result = seedRivalsAndPatronessesIntoLegacyState(
     seedWhispersCouriersStaffIntoLegacyState(
       seedSchemesAndGrievancesIntoLegacyState(
         seedIndependentIntoLegacyState(fromSaveV1Bare(save), playerSeed),
@@ -514,6 +516,9 @@ export function fromSaveV1(save: SaveV1): GameState {
     ),
     playerSeed,
   );
+  // P9: elopement field defaults to null on every legacy lift (no active
+  // sprint can exist in a pre-P9 save format).
+  return { ...result, elopement: null };
 }
 
 // ── SaveV2 (P1 on-disk format — legacy at P3+) ────────────────────────────
@@ -577,12 +582,14 @@ function fromSaveV2Bare(save: SaveV2): GameState {
     rivalActors: new Map(),
     factionTensions: new Map(),
     duels: new Map(),
+    // P9: elopement field defaults to null on every legacy lift.
+    elopement: null,
   };
 }
 
 export function fromSaveV2(save: SaveV2): GameState {
   const playerSeed = extractPlayerSeed(save.rng);
-  return seedRivalsAndPatronessesIntoLegacyState(
+  const result = seedRivalsAndPatronessesIntoLegacyState(
     seedWhispersCouriersStaffIntoLegacyState(
       seedSchemesAndGrievancesIntoLegacyState(
         seedIndependentIntoLegacyState(fromSaveV2Bare(save), playerSeed),
@@ -590,6 +597,7 @@ export function fromSaveV2(save: SaveV2): GameState {
     ),
     playerSeed,
   );
+  return { ...result, elopement: null };
 }
 
 // ── SaveV3 (P2 on-disk format — legacy at P3+) ────────────────────────────
@@ -650,12 +658,14 @@ function fromSaveV3Bare(save: SaveV3): GameState {
     rivalActors: new Map(),
     factionTensions: new Map(),
     duels: new Map(),
+    // P9: elopement field defaults to null on every legacy lift.
+    elopement: null,
   };
 }
 
 export function fromSaveV3(save: SaveV3): GameState {
   const playerSeed = extractPlayerSeed(save.rng);
-  return seedRivalsAndPatronessesIntoLegacyState(
+  const result = seedRivalsAndPatronessesIntoLegacyState(
     seedWhispersCouriersStaffIntoLegacyState(
       seedSchemesAndGrievancesIntoLegacyState(
         seedIndependentIntoLegacyState(fromSaveV3Bare(save), playerSeed),
@@ -663,6 +673,7 @@ export function fromSaveV3(save: SaveV3): GameState {
     ),
     playerSeed,
   );
+  return { ...result, elopement: null };
 }
 
 // ── SaveV4 (P3 on-disk format — legacy at P4+) ────────────────────────────
@@ -729,12 +740,14 @@ export function fromSaveV4Bare(save: SaveV4): GameState {
     rivalActors: new Map(),
     factionTensions: new Map(),
     duels: new Map(),
+    // P9: elopement field defaults to null on every legacy lift.
+    elopement: null,
   };
 }
 
 export function fromSaveV4(save: SaveV4): GameState {
   const playerSeed = extractPlayerSeed(save.rng);
-  return seedRivalsAndPatronessesIntoLegacyState(
+  const result = seedRivalsAndPatronessesIntoLegacyState(
     seedWhispersCouriersStaffIntoLegacyState(
       seedSchemesAndGrievancesIntoLegacyState(
         seedIndependentIntoLegacyState(fromSaveV4Bare(save), playerSeed),
@@ -742,6 +755,7 @@ export function fromSaveV4(save: SaveV4): GameState {
     ),
     playerSeed,
   );
+  return { ...result, elopement: null };
 }
 
 // ── SaveV5 (P4 on-disk format — legacy at P5+) ────────────────────────────
@@ -811,6 +825,8 @@ export function fromSaveV5Bare(save: SaveV5): GameState {
     rivalActors: new Map(),
     factionTensions: new Map(),
     duels: new Map(),
+    // P9: elopement field defaults to null on every legacy lift.
+    elopement: null,
   };
 }
 
@@ -898,6 +914,8 @@ export function fromSaveV6Bare(save: SaveV6): GameState {
     rivalActors: new Map(),
     factionTensions: new Map(),
     duels: new Map(),
+    // P9: elopement field defaults to null on every legacy lift.
+    elopement: null,
   };
 }
 
@@ -1014,6 +1032,8 @@ export function fromSaveV7Bare(save: SaveV7): GameState {
     rivalActors: new Map(),
     factionTensions: new Map(),
     duels: new Map(),
+    // P9: elopement field defaults to null on every legacy lift.
+    elopement: null,
   };
 }
 
@@ -1089,7 +1109,10 @@ export function fromSaveV8Bare(save: SaveV8): GameState {
   // Convert Map<HouseId, House> by deserializing the array form. The House
   // entities carry the .default() Zod backfill for hostility/factionId; the
   // grievances within carry the .default(null) backfill for defendantCharacterId.
-  const partial: Omit<GameState, "patronesses" | "rivalActors" | "factionTensions" | "duels"> = {
+  const partial: Omit<
+    GameState,
+    "patronesses" | "rivalActors" | "factionTensions" | "duels" | "elopement"
+  > = {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
     houses: deserializeRegistry(save.houses) as GameState["houses"],
@@ -1121,6 +1144,7 @@ export function fromSaveV8Bare(save: SaveV8): GameState {
     rivalActors: new Map(),
     factionTensions: new Map(),
     duels: new Map(),
+    elopement: null,
   } as GameState;
 }
 
@@ -1166,7 +1190,7 @@ export type SaveV9 = z.infer<typeof SaveV9Schema>;
 
 export function toSaveV9(state: GameState): SaveV9 {
   return SaveV9Schema.parse({
-    version: SAVE_VERSION_CURRENT,
+    version: 9,
     tick: state.tick,
     rng: serializeRegistry(state.rng),
     houses: serializeRegistry(state.houses),
@@ -1190,8 +1214,9 @@ export function toSaveV9(state: GameState): SaveV9 {
   });
 }
 
-export function fromSaveV9(save: SaveV9): GameState {
-  // V9 is the live format — pure deserialization with no seed helpers.
+// P9 split: Bare core does pure deserialization; public wrapper appends
+// `elopement: null` (V9 saves predate the field).
+export function fromSaveV9Bare(save: SaveV9): Omit<GameState, "elopement"> {
   return {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
@@ -1219,6 +1244,107 @@ export function fromSaveV9(save: SaveV9): GameState {
     rivalActors: deserializeRegistry(save.rivalActors) as GameState["rivalActors"],
     factionTensions: deserializeRegistry(save.factionTensions) as GameState["factionTensions"],
     duels: deserializeRegistry(save.duels) as GameState["duels"],
+  };
+}
+
+export function fromSaveV9(save: SaveV9): GameState {
+  // V9 was the live format pre-P9; V10 is live at P9+. Wrap the Bare core
+  // with `elopement: null` (V9 saves predate the field).
+  return { ...fromSaveV9Bare(save), elopement: null };
+}
+
+// ── SaveV10 (P9 live format) ──────────────────────────────────────────────
+// Adds 1 new top-level field (elopement: ElopementSprintState | null) +
+// 1 new MarriageRecord field (viaElopement: z.boolean().default(false)).
+// MarriageRecord widening uses `.default(false)` per P8 House.hostility/
+// factionId precedent — no Pre-shape rebuild required for parse-side.
+
+export const SaveV10Schema = z.object({
+  version: z.literal(10),
+  tick: z.number().int().nonnegative(),
+  rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
+  characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
+  marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
+  campaignName: z.string(),
+  era: z.enum(["Earlier", "Later"]),
+  conversationHistory: z.array(z.tuple([ConversationPairKeySchema, z.array(ExchangeSchema)])),
+  affectionMap: z.array(z.tuple([ConversationPairKeySchema, z.number().int().min(0).max(100)])),
+  schemes: z.array(z.tuple([SchemeIdSchema, SchemeSchema])),
+  whispers: z.array(z.tuple([WhisperIdSchema, WhisperSchema])),
+  couriers: z.array(z.tuple([CourierPayloadIdSchema, CourierPayloadSchema])),
+  staff: z.array(z.tuple([StaffIdSchema, StaffMemberSchema])),
+  proposalsLog: z.array(z.tuple([CharacterIdSchema, ProposalLogEntrySchema])),
+  tutorAssignmentsLog: z.array(z.tuple([CharacterIdSchema, TutorAssignmentLogEntrySchema])),
+  pendingTutorTraitChoices: z.array(z.tuple([CharacterIdSchema, PendingTutorTraitChoiceSchema])),
+  patronesses: z.array(z.tuple([PatronessIdSchema, PatronessRecordSchema])),
+  rivalActors: z.array(z.tuple([HouseIdSchema, RivalActorStateSchema])),
+  factionTensions: z.array(z.tuple([FactionPairKeySchema, z.number().int().min(0).max(100)])),
+  duels: z.array(z.tuple([DuelIdSchema, DuelSchema])),
+  // P9 addition — nullable singleton.
+  elopement: ElopementSprintStateSchema.nullable(),
+});
+export type SaveV10 = z.infer<typeof SaveV10Schema>;
+
+export function toSaveV10(state: GameState): SaveV10 {
+  return SaveV10Schema.parse({
+    version: SAVE_VERSION_CURRENT,
+    tick: state.tick,
+    rng: serializeRegistry(state.rng),
+    houses: serializeRegistry(state.houses),
+    characters: serializeRegistry(state.characters),
+    marriages: serializeRegistry(state.marriages),
+    campaignName: state.campaignName,
+    era: state.era,
+    conversationHistory: serializeRegistry(state.conversationHistory),
+    affectionMap: serializeRegistry(state.affectionMap),
+    schemes: serializeRegistry(state.schemes),
+    whispers: serializeRegistry(state.whispers),
+    couriers: serializeRegistry(state.couriers),
+    staff: serializeRegistry(state.staff),
+    proposalsLog: serializeRegistry(state.proposalsLog),
+    tutorAssignmentsLog: serializeRegistry(state.tutorAssignmentsLog),
+    pendingTutorTraitChoices: serializeRegistry(state.pendingTutorTraitChoices),
+    patronesses: serializeRegistry(state.patronesses),
+    rivalActors: serializeRegistry(state.rivalActors),
+    factionTensions: serializeRegistry(state.factionTensions),
+    duels: serializeRegistry(state.duels),
+    // P9: nullable singleton serialized as-is (no Map → no serializeRegistry).
+    elopement: state.elopement,
+  });
+}
+
+export function fromSaveV10(save: SaveV10): GameState {
+  // V10 is the live format — pure deserialization with no seed helpers.
+  return {
+    tick: save.tick,
+    rng: deserializeRegistry(save.rng) as GameState["rng"],
+    houses: deserializeRegistry(save.houses) as GameState["houses"],
+    characters: deserializeRegistry(save.characters) as GameState["characters"],
+    marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
+    campaignName: save.campaignName,
+    era: save.era,
+    conversationHistory: deserializeRegistry(
+      save.conversationHistory,
+    ) as GameState["conversationHistory"],
+    affectionMap: deserializeRegistry(save.affectionMap) as GameState["affectionMap"],
+    schemes: deserializeRegistry(save.schemes) as GameState["schemes"],
+    whispers: deserializeRegistry(save.whispers) as GameState["whispers"],
+    couriers: deserializeRegistry(save.couriers) as GameState["couriers"],
+    staff: deserializeRegistry(save.staff) as GameState["staff"],
+    proposalsLog: deserializeRegistry(save.proposalsLog) as GameState["proposalsLog"],
+    tutorAssignmentsLog: deserializeRegistry(
+      save.tutorAssignmentsLog,
+    ) as GameState["tutorAssignmentsLog"],
+    pendingTutorTraitChoices: deserializeRegistry(
+      save.pendingTutorTraitChoices,
+    ) as GameState["pendingTutorTraitChoices"],
+    patronesses: deserializeRegistry(save.patronesses) as GameState["patronesses"],
+    rivalActors: deserializeRegistry(save.rivalActors) as GameState["rivalActors"],
+    factionTensions: deserializeRegistry(save.factionTensions) as GameState["factionTensions"],
+    duels: deserializeRegistry(save.duels) as GameState["duels"],
+    // P9: nullable singleton — direct passthrough.
+    elopement: save.elopement,
   };
 }
 

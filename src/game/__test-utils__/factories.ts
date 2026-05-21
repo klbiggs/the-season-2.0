@@ -32,6 +32,8 @@ export function makeGameState(overrides: Partial<GameState> = {}): GameState {
     rivalActors: new Map(),
     factionTensions: new Map(),
     duels: new Map(),
+    // P9 default
+    elopement: null,
     ...overrides,
   };
 }
@@ -102,6 +104,7 @@ export function makeMarriage(overrides: Partial<MarriageRecord> = {}): MarriageR
     marriedAtTick: 0,
     dissolved: false,
     dissolvedAtTick: null,
+    viaElopement: false,
     ...overrides,
   };
 }

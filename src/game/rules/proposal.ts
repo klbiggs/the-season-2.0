@@ -52,7 +52,8 @@ export type ProposalRejection =
   | { kind: "InsufficientReputation"; current: number; required: number }
   | { kind: "PlayerAlreadyMarried" }
   | { kind: "PlayerHeadDead" }
-  | { kind: "PlayerExiled" };
+  | { kind: "PlayerExiled" }
+  | { kind: "ElopementInProgress" }; // P9 Q4
 
 export type ProposalOutcome =
   | {
@@ -200,6 +201,9 @@ export function applyProposalPure(
       marriedAtTick: state.tick,
       dissolved: false,
       dissolvedAtTick: null,
+      // Player-elected proposal mints a non-elopement marriage. The elopement
+      // win branch (resolveElopementTerminal in rules/elopement.ts) sets true.
+      viaElopement: false,
     };
     const newMarriages = new Map(state.marriages);
     newMarriages.set(marriageId, newMarriage);

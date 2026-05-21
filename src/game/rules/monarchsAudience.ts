@@ -30,7 +30,9 @@ export type AudienceRejection =
   // P6: exile-gate variant. requestAudience returns
   // { outcome: { kind: "Denied", reason: { kind: "PlayerExiled" } } }
   // when the player house is exiled (Scandal Sheet attribution endgame).
-  | { kind: "PlayerExiled" };
+  | { kind: "PlayerExiled" }
+  // P9 Q4: same Denied-wrapping for ElopementInProgress.
+  | { kind: "ElopementInProgress" };
 
 export type AudienceOutcome =
   | { kind: "Denied"; reason: AudienceRejection }

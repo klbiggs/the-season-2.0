@@ -41,6 +41,7 @@ function makeState(overrides: Partial<GameState>): GameState {
     rivalActors: new Map(),
     factionTensions: new Map(),
     duels: new Map(),
+    elopement: null,
     ...overrides,
   };
 }

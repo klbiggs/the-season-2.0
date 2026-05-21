@@ -124,3 +124,35 @@ describe("replaceState set-body completeness", () => {
     expect(store.getState().pendingTutorTraitChoices.size).toBe(1);
   });
 });
+
+describe("P9 quint-sync: state.elopement (overwriteFromGameState 5th surface)", () => {
+  // Branch 5 of pruneOrphanedConversationKeys can flip state.elopement to null;
+  // overwriteFromGameState must mirror the field on every set call. Forgetting
+  // the `draft.elopement = next.elopement` line would silently CLEAR mid-sprint
+  // state on the next tick-advancing action.
+  it("replaceState carries a non-null elopement through", () => {
+    const store = createStore({ seed: "p9-quint-A" });
+    const sprint = {
+      schemeId: "s-test" as never,
+      elopingCharacterId: "e1" as never,
+      targetCharacterId: "t1" as never,
+      playerTilePosition: 3,
+      fatherTilePosition: 1,
+      freshHorsesUsedCount: 0,
+      startedAtTick: 0,
+    };
+    const synth = {
+      ...createInitialState("p9-quint-A"),
+      elopement: sprint,
+    };
+    store.getState().replaceState(synth);
+    expect(store.getState().elopement).toEqual(sprint);
+  });
+
+  it("tick-advance from null elopement state preserves elopement: null", () => {
+    const store = createStore({ seed: "p9-quint-B" });
+    expect(store.getState().elopement).toBeNull();
+    store.getState().advanceTick();
+    expect(store.getState().elopement).toBeNull();
+  });
+});
