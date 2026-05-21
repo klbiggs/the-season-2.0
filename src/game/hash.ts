@@ -3,11 +3,15 @@ import type { ConversationPairKey, Exchange } from "./conversation/types";
 import type {
   Character,
   CourierPayload,
+  Duel,
+  ElopementSprintState,
   GameState,
   House,
   MarriageRecord,
+  PatronessRecord,
   PendingTutorTraitChoice,
   ProposalLogEntry,
+  RivalActorState,
   Scheme,
   StaffMember,
   TutorAssignmentLogEntry,
@@ -16,8 +20,11 @@ import type {
 import type {
   CharacterId,
   CourierPayloadId,
+  DuelId,
+  FactionPairKey,
   HouseId,
   MarriageId,
+  PatronessId,
   RngState,
   SchemeId,
   StaffId,
@@ -53,6 +60,18 @@ export function hashableState(state: GameState): {
   proposalsLog: Array<[CharacterId, ProposalLogEntry]>;
   tutorAssignmentsLog: Array<[CharacterId, TutorAssignmentLogEntry]>;
   pendingTutorTraitChoices: Array<[CharacterId, PendingTutorTraitChoice]>;
+  // P8: rivals/patronesses/duels/faction-tension projections. House.hostility
+  // and House.factionId are projected via serializeRegistry(state.houses) —
+  // no per-House-field edit needed here.
+  patronesses: Array<[PatronessId, PatronessRecord]>;
+  rivalActors: Array<[HouseId, RivalActorState]>;
+  factionTensions: Array<[FactionPairKey, number]>;
+  duels: Array<[DuelId, Duel]>;
+  // P9: nullable singleton (NOT a Map → NOT projected via serializeRegistry).
+  // When non-null, every field of ElopementSprintState (tile positions,
+  // freshHorsesUsedCount, startedAtTick) participates in the hash so mid-sprint
+  // saves round-trip exactly. When null, hashes as null literal.
+  elopement: ElopementSprintState | null;
 } {
   return {
     tick: state.tick,
@@ -77,6 +96,16 @@ export function hashableState(state: GameState): {
     proposalsLog: serializeRegistry(state.proposalsLog),
     tutorAssignmentsLog: serializeRegistry(state.tutorAssignmentsLog),
     pendingTutorTraitChoices: serializeRegistry(state.pendingTutorTraitChoices),
+    // P8: 4 new top-level Maps. House.hostility + House.factionId project
+    // automatically via serializeRegistry(state.houses).
+    patronesses: serializeRegistry(state.patronesses),
+    rivalActors: serializeRegistry(state.rivalActors),
+    factionTensions: serializeRegistry(state.factionTensions),
+    duels: serializeRegistry(state.duels),
+    // P9: pass the nullable singleton through directly — no Map serialization.
+    // canonicalJSON sorts object keys deterministically so the embedded
+    // ElopementSprintState shape hashes consistently.
+    elopement: state.elopement,
   };
 }
 

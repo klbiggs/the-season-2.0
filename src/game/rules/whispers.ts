@@ -50,7 +50,8 @@ export type WeaponizeWhisperRejection =
   | { kind: "BlackmailInsufficientScandalCapacity"; have: number; cap: 100; need: number }
   | { kind: "SubjectIsDead"; subjectId: CharacterId }
   | { kind: "SubjectIsSelf"; subjectId: CharacterId }
-  | { kind: "PlayerExiled" };
+  | { kind: "PlayerExiled" }
+  | { kind: "ElopementInProgress" }; // P9 Q4
 
 export type DismissWhisperResult =
   | { ok: true; state: GameState }
@@ -59,7 +60,8 @@ export type DismissWhisperResult =
 export type DismissWhisperRejection =
   | { kind: "WhisperNotFound"; whisperId: WhisperId }
   | { kind: "WhisperAlreadyTerminal"; whisperId: WhisperId; currentStatus: WhisperStatus }
-  | { kind: "PlayerExiled" };
+  | { kind: "PlayerExiled" }
+  | { kind: "ElopementInProgress" }; // P9 Q4
 
 // ── Generation (called from sendBallroomMessage post-resolve block) ──────
 

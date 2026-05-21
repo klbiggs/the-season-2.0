@@ -32,7 +32,8 @@ export type { ConversationFailure };
 // P4 only has the WrongLocation variant; P8 will add PatronessVeto.
 export type BallEntryRejection =
   | { kind: "WrongLocation"; current: LocationId }
-  | { kind: "PlayerExiled" }; // P6 exile-gate variant
+  | { kind: "PlayerExiled" } // P6 exile-gate variant
+  | { kind: "ElopementInProgress" }; // P9 Q4 — enterBallroom is the upstream gate for sendBallroomMessage
 
 export type ConversationEvent =
   | {

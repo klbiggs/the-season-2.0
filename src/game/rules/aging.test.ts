@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { makeCharacter, makeCharactersMap } from "../__test-utils__/factories";
+import { makeCharacter, makeCharactersMap, makeHouse } from "../__test-utils__/factories";
+import { ELOPEMENT_LOSS_SCANDAL_DELTA } from "../constants";
 import { type ConversationPairKey, type Exchange, makePairKey } from "../conversation/types";
 import type { Character, GameState, MarriageRecord } from "../entities";
 import type { CharacterId, HouseId, MarriageId, RngState } from "../rng";
 import { PLAYER_HOUSE_ID } from "../rng.seeds";
-import { applyAgingStep } from "./aging";
+import { applyAgingStep, pruneOrphanedConversationKeys } from "./aging";
 
 function makeState(overrides: Partial<GameState>): GameState {
   return {
@@ -24,6 +25,12 @@ function makeState(overrides: Partial<GameState>): GameState {
     proposalsLog: new Map(),
     tutorAssignmentsLog: new Map(),
     pendingTutorTraitChoices: new Map(),
+    // P8 defaults
+    patronesses: new Map(),
+    rivalActors: new Map(),
+    factionTensions: new Map(),
+    duels: new Map(),
+    elopement: null,
     ...overrides,
   };
 }
@@ -147,5 +154,92 @@ describe("applyAgingStep orphan-prune (P4)", () => {
     const next = applyAgingStep(state);
     expect(next.conversationHistory).toBe(state.conversationHistory);
     expect(next.affectionMap).toBe(state.affectionMap);
+  });
+});
+
+describe("pruneOrphanedConversationKeys branch 5 — elopement sprint cleanup", () => {
+  // Branch 5 nulls state.elopement and bumps player house scandal by +50 when
+  // the eloping character or target appears in newlyDeadCharIds. The branch
+  // is unreachable end-to-end at v1 (Q4 gate blocks tick-advance while sprint
+  // active), so these tests invoke pruneOrphanedConversationKeys DIRECTLY
+  // with synthetic state.
+
+  it("nulls state.elopement and applies +50 scandal on eloping-character death", () => {
+    const elopingId = "elope-1" as CharacterId;
+    const targetId = "target-1" as CharacterId;
+    const eloping = makeCharacter({ id: elopingId, alive: false, diedAtTick: 5 });
+    const target = makeCharacter({ id: targetId });
+    const playerHouse = makeHouse({ id: PLAYER_HOUSE_ID, scandal: 10 });
+    const state = makeState({
+      tick: 5,
+      characters: makeCharactersMap([eloping, target]),
+      houses: new Map([[PLAYER_HOUSE_ID, playerHouse]]),
+      elopement: {
+        schemeId: "s1" as never,
+        elopingCharacterId: elopingId,
+        targetCharacterId: targetId,
+        playerTilePosition: 3,
+        fatherTilePosition: 1,
+        freshHorsesUsedCount: 0,
+        startedAtTick: 0,
+      },
+    });
+    const result = pruneOrphanedConversationKeys(state, new Set([elopingId]));
+    expect(result.elopement).toBeNull();
+    expect(result.houses.get(PLAYER_HOUSE_ID)?.scandal).toBe(10 + ELOPEMENT_LOSS_SCANDAL_DELTA);
+  });
+
+  it("nulls state.elopement and applies +50 scandal on target death", () => {
+    const elopingId = "elope-2" as CharacterId;
+    const targetId = "target-2" as CharacterId;
+    const eloping = makeCharacter({ id: elopingId });
+    const target = makeCharacter({ id: targetId, alive: false, diedAtTick: 5 });
+    const playerHouse = makeHouse({ id: PLAYER_HOUSE_ID, scandal: 0 });
+    const state = makeState({
+      tick: 5,
+      characters: makeCharactersMap([eloping, target]),
+      houses: new Map([[PLAYER_HOUSE_ID, playerHouse]]),
+      elopement: {
+        schemeId: "s1" as never,
+        elopingCharacterId: elopingId,
+        targetCharacterId: targetId,
+        playerTilePosition: 3,
+        fatherTilePosition: 1,
+        freshHorsesUsedCount: 0,
+        startedAtTick: 0,
+      },
+    });
+    const result = pruneOrphanedConversationKeys(state, new Set([targetId]));
+    expect(result.elopement).toBeNull();
+    expect(result.houses.get(PLAYER_HOUSE_ID)?.scandal).toBe(ELOPEMENT_LOSS_SCANDAL_DELTA);
+  });
+
+  it("leaves state.elopement untouched when an unrelated character dies", () => {
+    const elopingId = "elope-3" as CharacterId;
+    const targetId = "target-3" as CharacterId;
+    const otherId = "other" as CharacterId;
+    const sprint = {
+      schemeId: "s1" as never,
+      elopingCharacterId: elopingId,
+      targetCharacterId: targetId,
+      playerTilePosition: 3,
+      fatherTilePosition: 1,
+      freshHorsesUsedCount: 0,
+      startedAtTick: 0,
+    };
+    const playerHouse = makeHouse({ id: PLAYER_HOUSE_ID, scandal: 5 });
+    const state = makeState({
+      tick: 5,
+      characters: makeCharactersMap([
+        makeCharacter({ id: elopingId }),
+        makeCharacter({ id: targetId }),
+        makeCharacter({ id: otherId, alive: false }),
+      ]),
+      houses: new Map([[PLAYER_HOUSE_ID, playerHouse]]),
+      elopement: sprint,
+    });
+    const result = pruneOrphanedConversationKeys(state, new Set([otherId]));
+    expect(result.elopement).toEqual(sprint);
+    expect(result.houses.get(PLAYER_HOUSE_ID)?.scandal).toBe(5);
   });
 });

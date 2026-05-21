@@ -12,7 +12,7 @@
 
 import { HAPPINESS_INITIAL } from "../constants";
 import type { Character, House } from "../entities";
-import { type CharacterId, INDEPENDENT_HOUSE_ID, type TraitId } from "../rng";
+import { type CharacterId, type FactionId, INDEPENDENT_HOUSE_ID, type TraitId } from "../rng";
 import { hashCharIdToGender } from "./hashCharIdToGender";
 import type { Mood } from "./moods";
 import type { Role } from "./roles";
@@ -95,8 +95,8 @@ export function buildBaselineNpcCharacter(seed: BaselineNpcSeed): Character {
     composure: 100,
     maxComposure: 100,
     // P7 defaults. Gender derived from FNV-1a hash — same source-of-truth as
-    // the legacy-lift path's seedV8FieldsIntoLegacyState; the v1→v8 chain test
-    // hash parity assertion depends on these two paths agreeing.
+    // the legacy-lift path's defaultV8CharacterFields (in src/persist/schema.ts);
+    // the v1→v8 chain test hash parity assertion depends on these two paths agreeing.
     happiness: HAPPINESS_INITIAL,
     temptationHookUnlocked: false,
     assignedTutorCharacterId: null,
@@ -126,5 +126,10 @@ export function buildIndependentHouse(): House {
     grievances: [],
     // P6: not exiled at fresh state.
     exiled: false,
+    // P8: hostility 0 (Independent never raises hostility — load-bearing only
+    // on rival entries). factionId "faction-crown" (Independent + player share
+    // the neutral Crown affiliation; no patroness on this faction).
+    hostility: 0,
+    factionId: "faction-crown" as FactionId,
   };
 }

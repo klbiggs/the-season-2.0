@@ -19,8 +19,10 @@ import {
   type SaveV6,
   type SaveV7,
   type SaveV8,
-  SaveV8Schema,
-  toSaveV8,
+  type SaveV9,
+  type SaveV10,
+  SaveV10Schema,
+  toSaveV10,
 } from "./schema";
 
 // Slot for dev/scaffold UI. UI components and the round-trip test reference
@@ -32,12 +34,12 @@ export const DEV_SLOT = "dev";
 const DB_NAME = "the-season";
 const DEXIE_SCHEMA_VERSION = 1;
 
-// P7: data widens to include SaveV8. Type widening is documentation-only —
+// P9: data widens to include SaveV10. Type widening is documentation-only —
 // structured-clone returns raw shapes at runtime. Narrow via .version
 // (load() is the only sanctioned narrowing site).
 type SaveRecord = {
   slot: string;
-  data: SaveV1 | SaveV2 | SaveV3 | SaveV4 | SaveV5 | SaveV6 | SaveV7 | SaveV8;
+  data: SaveV1 | SaveV2 | SaveV3 | SaveV4 | SaveV5 | SaveV6 | SaveV7 | SaveV8 | SaveV9 | SaveV10;
 };
 
 class SeasonDB extends Dexie {
@@ -59,20 +61,21 @@ function db(): SeasonDB {
 }
 
 export async function save(slot: string, state: GameState): Promise<void> {
-  // Sync prep: toSaveV8 serializes and Zod-validates synchronously.
-  const data = toSaveV8(state);
+  // P9: toSaveV10 is the live emitter (was toSaveV9 pre-P9). Sync prep:
+  // serializes and Zod-validates synchronously.
+  const data = toSaveV10(state);
   // Async IO: structured-clone copy into IndexedDB.
   await db().saves.put({ slot, data });
 }
 
-// Load returns SaveV8 by routing legacy SaveV1..V7 records through
+// Load returns SaveV10 by routing legacy SaveV1..V9 records through
 // runMigrations. Errors are SaveLoadError variants:
 // - UnknownSaveVersionError: version field missing, non-numeric, or < 1
 // - SaveVersionTooNewError: version > SAVE_VERSION_CURRENT
-// - InvalidSaveSchemaError: Zod validation failed for the SaveV8 final shape
+// - InvalidSaveSchemaError: Zod validation failed for the SaveV10 final shape
 // - MigrationFailedError (from runMigrations): a migration step threw or
 //   produced output that failed the next version's schema
-export async function load(slot: string): Promise<SaveV8 | undefined> {
+export async function load(slot: string): Promise<SaveV10 | undefined> {
   const record = await db().saves.get(slot);
   if (record === undefined) return undefined;
   const raw = record.data as unknown;
@@ -94,7 +97,7 @@ export async function load(slot: string): Promise<SaveV8 | undefined> {
   }
   if (observedVersion === SAVE_VERSION_CURRENT) {
     try {
-      return SaveV8Schema.parse(raw);
+      return SaveV10Schema.parse(raw);
     } catch (cause) {
       throw asInvalidSaveSchemaError(cause);
     }
@@ -102,7 +105,7 @@ export async function load(slot: string): Promise<SaveV8 | undefined> {
   // Legacy version path — route through migrations.
   const migrated = runMigrations(raw, observedVersion, SAVE_VERSION_CURRENT, MIGRATIONS);
   try {
-    return SaveV8Schema.parse(migrated);
+    return SaveV10Schema.parse(migrated);
   } catch (cause) {
     throw asInvalidSaveSchemaError(cause);
   }

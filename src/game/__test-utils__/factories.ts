@@ -5,7 +5,7 @@
 // the boundary check.
 
 import type { Character, GameState, House, MarriageRecord } from "../entities";
-import type { CharacterId, HouseId, MarriageId, RngState } from "../rng";
+import type { CharacterId, FactionId, HouseId, MarriageId, RngState } from "../rng";
 import { PLAYER_HOUSE_ID } from "../rng.seeds";
 
 export function makeGameState(overrides: Partial<GameState> = {}): GameState {
@@ -27,6 +27,13 @@ export function makeGameState(overrides: Partial<GameState> = {}): GameState {
     proposalsLog: new Map(),
     tutorAssignmentsLog: new Map(),
     pendingTutorTraitChoices: new Map(),
+    // P8 defaults
+    patronesses: new Map(),
+    rivalActors: new Map(),
+    factionTensions: new Map(),
+    duels: new Map(),
+    // P9 default
+    elopement: null,
     ...overrides,
   };
 }
@@ -82,6 +89,9 @@ export function makeHouse(overrides: Partial<House> = {}): House {
     grievances: [],
     // P6 default — not exiled at fresh state.
     exiled: false,
+    // P8 defaults — crown faction + zero hostility.
+    hostility: 0,
+    factionId: "faction-crown" as FactionId,
     ...overrides,
   };
 }
@@ -94,6 +104,7 @@ export function makeMarriage(overrides: Partial<MarriageRecord> = {}): MarriageR
     marriedAtTick: 0,
     dissolved: false,
     dissolvedAtTick: null,
+    viaElopement: false,
     ...overrides,
   };
 }

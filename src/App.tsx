@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import type { SeasonStore } from "./game/store";
 import type { SaveLoadError } from "./persist/errors";
 import { BallroomView } from "./ui/ballroom/BallroomView";
+import { ElopementOverlay } from "./ui/elopement/ElopementOverlay";
 import { MapView } from "./ui/map/MapView";
 import { CorruptSaveBanner } from "./ui/shared/CorruptSaveBanner";
 import { SettingsMenu } from "./ui/shared/SettingsMenu";
@@ -23,6 +24,7 @@ export function App({ store, seed }: Props) {
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [loadError, setLoadError] = useState<SaveLoadError | null>(null);
   const [inBallroom, setInBallroom] = useState(false);
+  const elopement = store((s) => s.elopement);
 
   useEffect(() => {
     if (statusMessage === "") return;
@@ -49,7 +51,9 @@ export function App({ store, seed }: Props) {
       >
         {statusMessage}
       </p>
-      {inBallroom ? (
+      {elopement !== null ? (
+        <ElopementOverlay store={store} />
+      ) : inBallroom ? (
         <BallroomView store={store} onExit={() => setInBallroom(false)} />
       ) : (
         <MapView store={store} onEnterBallroom={() => setInBallroom(true)} />

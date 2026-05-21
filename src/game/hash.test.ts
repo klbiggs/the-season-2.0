@@ -64,11 +64,16 @@ describe("hashableState", () => {
       "characters",
       "conversationHistory",
       "couriers",
+      "duels",
+      "elopement",
       "era",
+      "factionTensions",
       "houses",
       "marriages",
+      "patronesses",
       "pendingTutorTraitChoices",
       "proposalsLog",
+      "rivalActors",
       "rng",
       "schemes",
       "staff",
@@ -117,6 +122,12 @@ describe("hashState — Map reorder invariance", () => {
         proposalsLog: new Map(),
         tutorAssignmentsLog: new Map(),
         pendingTutorTraitChoices: new Map(),
+        // P8 defaults
+        patronesses: new Map(),
+        rivalActors: new Map(),
+        factionTensions: new Map(),
+        duels: new Map(),
+        elopement: null,
       }),
     ).toBe(
       hashState({
@@ -136,6 +147,12 @@ describe("hashState — Map reorder invariance", () => {
         proposalsLog: new Map(),
         tutorAssignmentsLog: new Map(),
         pendingTutorTraitChoices: new Map(),
+        // P8 defaults
+        patronesses: new Map(),
+        rivalActors: new Map(),
+        factionTensions: new Map(),
+        duels: new Map(),
+        elopement: null,
       }),
     );
   });

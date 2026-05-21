@@ -4,31 +4,49 @@ import {
   type Character,
   CharacterSchema,
   CourierPayloadSchema,
+  DuelSchema,
+  ElopementSprintStateSchema,
   type GameState,
   type Grievance,
   type House,
   HouseSchema,
   MarriageRecordSchema,
+  PatronessRecordSchema,
   PendingTutorTraitChoiceSchema,
   ProposalLogEntrySchema,
+  RivalActorStateSchema,
   SchemeSchema,
   StaffMemberSchema,
   TutorAssignmentLogEntrySchema,
   WhisperSchema,
 } from "../game/entities";
+import { FACTION_PAIRS } from "../game/fixtures/factions";
 import { hashCharIdToGender } from "../game/fixtures/hashCharIdToGender";
 import {
   BASELINE_NPCS,
   buildBaselineNpcCharacter,
   buildIndependentHouse,
 } from "../game/fixtures/npcs";
+import { PATRONESSES_FIXTURE } from "../game/fixtures/patronesses";
+import {
+  RIVAL_CHARACTER_IDS_SET,
+  RIVAL_HOUSES_FIXTURE,
+  RIVAL_HOUSE_IDS_SET,
+  buildRivalActorState,
+  buildRivalCharacter,
+  buildRivalHouse,
+  buildRivalRngState,
+} from "../game/fixtures/rivals";
 import { buildBaselineStaffMap } from "../game/fixtures/staff";
 import {
   CharacterIdSchema,
   CourierPayloadIdSchema,
+  DuelIdSchema,
+  FactionPairKeySchema,
   HouseIdSchema,
   INDEPENDENT_HOUSE_ID,
   MarriageIdSchema,
+  PatronessIdSchema,
   RngStateSchema,
   SchemeIdSchema,
   StaffIdSchema,
@@ -40,13 +58,13 @@ import {
 import { PLAYER_HOUSE_ID } from "../game/rng";
 import { DEFAULT_CAMPAIGN_NAME } from "../game/store";
 
-// Live save-format version. P7 bumps to 8 with 7 new Character fields
-// (happiness, temptationHookUnlocked, assignedTutorCharacterId,
-// tutorBonusTraitGranted, dullSpouseExposureStartTick, parentCharacterIds,
-// gender) and 3 new top-level GameState Maps (proposalsLog,
-// tutorAssignmentsLog, pendingTutorTraitChoices). Legacy toSaveV1..V7 retain
-// their literal `version: N` writes; only toSaveV8 references SAVE_VERSION_CURRENT.
-export const SAVE_VERSION_CURRENT = 8 as const;
+// Live save-format version. P9 bumps to 10 with 1 new top-level field
+// (elopement: ElopementSprintState | null) + 1 new MarriageRecord field
+// (viaElopement: z.boolean().default(false)). Legacy toSaveV1..V9 retain
+// their literal `version: N` writes; only toSaveV10 references
+// SAVE_VERSION_CURRENT. MarriageRecord.viaElopement uses Zod `.default()` so
+// legacy V1..V9 saves missing the field parse cleanly.
+export const SAVE_VERSION_CURRENT = 10 as const;
 
 // ── HousePreV4 (legacy on-disk House shape for V1/V2/V3 saves) ────────────
 // Omits the 5 P3-added fields (currentLocation, etc.) AND the P5 grievances
@@ -76,6 +94,10 @@ function defaultHouseV4Fields(h: HousePreV4): House {
     blockadeBypassEarned: false,
     grievances: [], // NEW at P5
     exiled: false, // NEW at P6
+    // P8: defaults for the new House fields. Non-rival houses default to
+    // hostility 0 + crown faction (player + Independent share this affiliation).
+    hostility: 0,
+    factionId: "faction-crown" as import("../game/rng").FactionId,
   };
 }
 
@@ -99,7 +121,13 @@ const HousePreV6Schema = HouseSchema.omit({ grievances: true, exiled: true });
 type HousePreV6 = z.infer<typeof HousePreV6Schema>;
 
 function defaultHouseV6Fields(h: HousePreV6): House {
-  return { ...h, grievances: [], exiled: false }; // P6 lifts BOTH new fields
+  return {
+    ...h,
+    grievances: [],
+    exiled: false,
+    hostility: 0,
+    factionId: "faction-crown" as import("../game/rng").FactionId,
+  };
 }
 
 function liftLegacyHousesFromV6Pre(
@@ -120,7 +148,12 @@ const HousePreV7Schema = HouseSchema.omit({ exiled: true });
 type HousePreV7 = z.infer<typeof HousePreV7Schema>;
 
 function defaultHouseV7Fields(h: HousePreV7): House {
-  return { ...h, exiled: false }; // P6 adds the terminal-state flag
+  return {
+    ...h,
+    exiled: false,
+    hostility: 0,
+    factionId: "faction-crown" as import("../game/rng").FactionId,
+  };
 }
 
 function liftLegacyHousesFromV7Pre(
@@ -142,32 +175,42 @@ function liftLegacyHousesFromV7Pre(
 function stripGrievancesForLegacyEmit(
   entries: ReadonlyArray<readonly [string, House]>,
 ): Array<[string, HousePreV6]> {
-  return entries.map(([id, h]) => {
-    // P6 extension: drop exiled too — HousePreV6 (V4/V5 target) predates BOTH
-    // grievances and exiled. Without exiled-drop, post-P6 toSaveV4/V5 emit
-    // houses-with-exiled which the (now exiled-omitting) HousePreV6Schema
-    // rejects on re-parse.
-    const { grievances: _g, exiled: _e, ...rest } = h;
-    return [id, rest as HousePreV6];
-  });
+  // P8: filter out rival houses — V4/V5 predate rivals; including them with
+  // factionId stripped to default would corrupt lifted state (rivals would
+  // come back as "faction-crown" instead of their canonical fixture faction).
+  return entries
+    .filter(([id]) => !RIVAL_HOUSE_IDS_SET.has(id as import("../game/rng").HouseId))
+    .map(([id, h]) => {
+      // P6 extension: drop exiled too — HousePreV6 (V4/V5 target) predates BOTH
+      // grievances and exiled. Without exiled-drop, post-P6 toSaveV4/V5 emit
+      // houses-with-exiled which the (now exiled-omitting) HousePreV6Schema
+      // rejects on re-parse.
+      const { grievances: _g, exiled: _e, ...rest } = h;
+      return [id, rest as HousePreV6];
+    });
 }
 
 function stripV6FieldsForLegacyEmit(
   entries: ReadonlyArray<readonly [string, House]>,
 ): Array<[string, HousePreV4]> {
-  return entries.map(([id, h]) => {
-    const {
-      grievances: _g,
-      exiled: _e, // P6 extension — HousePreV4 (V2/V3 target) predates exiled too
-      currentLocation: _cl,
-      consecutiveTicksAtCurrentLocation: _cttcl,
-      lastAudienceTick: _lat,
-      wardrobeLastRefreshTick: _wlrt,
-      blockadeBypassEarned: _bbe,
-      ...rest
-    } = h;
-    return [id, rest as HousePreV4];
-  });
+  // P8: filter out rival houses — V2/V3 predate rivals; including them in
+  // legacy emit would corrupt lifted state (P8 fields stripped, then seeder
+  // re-adds with wrong identity).
+  return entries
+    .filter(([id]) => !RIVAL_HOUSE_IDS_SET.has(id as import("../game/rng").HouseId))
+    .map(([id, h]) => {
+      const {
+        grievances: _g,
+        exiled: _e, // P6 extension — HousePreV4 (V2/V3 target) predates exiled too
+        currentLocation: _cl,
+        consecutiveTicksAtCurrentLocation: _cttcl,
+        lastAudienceTick: _lat,
+        wardrobeLastRefreshTick: _wlrt,
+        blockadeBypassEarned: _bbe,
+        ...rest
+      } = h;
+      return [id, rest as HousePreV4];
+    });
 }
 
 // P6: the only NEW strip site at P6. Used by toSaveV6 — SaveV6 predates
@@ -177,10 +220,13 @@ function stripV6FieldsForLegacyEmit(
 function stripExiledForLegacyEmit(
   entries: ReadonlyArray<readonly [string, House]>,
 ): Array<[string, HousePreV7]> {
-  return entries.map(([id, h]) => {
-    const { exiled: _e, ...rest } = h;
-    return [id, rest as HousePreV7];
-  });
+  // P8: filter out rival houses — V6 predates rivals.
+  return entries
+    .filter(([id]) => !RIVAL_HOUSE_IDS_SET.has(id as import("../game/rng").HouseId))
+    .map(([id, h]) => {
+      const { exiled: _e, ...rest } = h;
+      return [id, rest as HousePreV7];
+    });
 }
 
 // ── CharacterPreV5 (P4): legacy on-disk Character shape for V2/V3/V4 saves
@@ -444,6 +490,15 @@ function fromSaveV1Bare(save: SaveV1): GameState {
     proposalsLog: new Map(),
     tutorAssignmentsLog: new Map(),
     pendingTutorTraitChoices: new Map(),
+    // P8: empty placeholders for the 4 new top-level Maps. Public wrappers
+    // compose with seedRivalsAndPatronessesIntoLegacyState to fill them in
+    // from RIVAL_HOUSES_FIXTURE + PATRONESSES_FIXTURE + FACTION_PAIRS.
+    patronesses: new Map(),
+    rivalActors: new Map(),
+    factionTensions: new Map(),
+    duels: new Map(),
+    // P9: elopement field defaults to null on every legacy lift.
+    elopement: null,
   };
 }
 
@@ -452,11 +507,18 @@ function fromSaveV1Bare(save: SaveV1): GameState {
 // loop as a no-op; correct because V1 saves have no houses (player is
 // seeded by migrate_v1_to_v2; Independent is seeded by seedIndependent here).
 export function fromSaveV1(save: SaveV1): GameState {
-  return seedWhispersCouriersStaffIntoLegacyState(
-    seedSchemesAndGrievancesIntoLegacyState(
-      seedIndependentIntoLegacyState(fromSaveV1Bare(save), extractPlayerSeed(save.rng)),
+  const playerSeed = extractPlayerSeed(save.rng);
+  const result = seedRivalsAndPatronessesIntoLegacyState(
+    seedWhispersCouriersStaffIntoLegacyState(
+      seedSchemesAndGrievancesIntoLegacyState(
+        seedIndependentIntoLegacyState(fromSaveV1Bare(save), playerSeed),
+      ),
     ),
+    playerSeed,
   );
+  // P9: elopement field defaults to null on every legacy lift (no active
+  // sprint can exist in a pre-P9 save format).
+  return { ...result, elopement: null };
 }
 
 // ── SaveV2 (P1 on-disk format — legacy at P3+) ────────────────────────────
@@ -475,13 +537,20 @@ export function toSaveV2(state: GameState): SaveV2 {
   const housesLegacy = stripV6FieldsForLegacyEmit(serializeRegistry(state.houses));
   const charsLegacy: Array<[string, CharacterPreV5]> = [];
   for (const [id, c] of serializeRegistry(state.characters)) {
+    // P8: skip rival characters — V2 predates rivals; round-tripping them
+    // through CharacterPreV5 corrupts gender (lift derives via hashCharIdToGender
+    // which may not match fixture-authored gender).
+    if (RIVAL_CHARACTER_IDS_SET.has(id as import("../game/rng").CharacterId)) continue;
     const { composure: _co, maxComposure: _mc, ...legacy } = c;
     charsLegacy.push([id, legacy]);
   }
+  // P8: also strip rival RNG entries from V2 — they don't have anchoring
+  // rival houses on disk and would parse as orphans.
+  const rngLegacy = serializeRegistry(state.rng).filter(([id]) => !RIVAL_HOUSE_IDS_SET.has(id));
   return SaveV2Schema.parse({
     version: 2,
     tick: state.tick,
-    rng: serializeRegistry(state.rng),
+    rng: rngLegacy,
     houses: housesLegacy,
     characters: charsLegacy,
     marriages: serializeRegistry(state.marriages),
@@ -506,15 +575,29 @@ function fromSaveV2Bare(save: SaveV2): GameState {
     proposalsLog: new Map(),
     tutorAssignmentsLog: new Map(),
     pendingTutorTraitChoices: new Map(),
+    // P8: empty placeholders for the 4 new top-level Maps. Public wrappers
+    // compose with seedRivalsAndPatronessesIntoLegacyState to fill them in
+    // from RIVAL_HOUSES_FIXTURE + PATRONESSES_FIXTURE + FACTION_PAIRS.
+    patronesses: new Map(),
+    rivalActors: new Map(),
+    factionTensions: new Map(),
+    duels: new Map(),
+    // P9: elopement field defaults to null on every legacy lift.
+    elopement: null,
   };
 }
 
 export function fromSaveV2(save: SaveV2): GameState {
-  return seedWhispersCouriersStaffIntoLegacyState(
-    seedSchemesAndGrievancesIntoLegacyState(
-      seedIndependentIntoLegacyState(fromSaveV2Bare(save), extractPlayerSeed(save.rng)),
+  const playerSeed = extractPlayerSeed(save.rng);
+  const result = seedRivalsAndPatronessesIntoLegacyState(
+    seedWhispersCouriersStaffIntoLegacyState(
+      seedSchemesAndGrievancesIntoLegacyState(
+        seedIndependentIntoLegacyState(fromSaveV2Bare(save), playerSeed),
+      ),
     ),
+    playerSeed,
   );
+  return { ...result, elopement: null };
 }
 
 // ── SaveV3 (P2 on-disk format — legacy at P3+) ────────────────────────────
@@ -534,13 +617,15 @@ export function toSaveV3(state: GameState): SaveV3 {
   const housesLegacy = stripV6FieldsForLegacyEmit(serializeRegistry(state.houses));
   const charsLegacy: Array<[string, CharacterPreV5]> = [];
   for (const [id, c] of serializeRegistry(state.characters)) {
+    if (RIVAL_CHARACTER_IDS_SET.has(id as import("../game/rng").CharacterId)) continue;
     const { composure: _co, maxComposure: _mc, ...legacy } = c;
     charsLegacy.push([id, legacy]);
   }
+  const rngLegacy = serializeRegistry(state.rng).filter(([id]) => !RIVAL_HOUSE_IDS_SET.has(id));
   return SaveV3Schema.parse({
     version: 3,
     tick: state.tick,
-    rng: serializeRegistry(state.rng),
+    rng: rngLegacy,
     houses: housesLegacy,
     characters: charsLegacy,
     marriages: serializeRegistry(state.marriages),
@@ -566,15 +651,29 @@ function fromSaveV3Bare(save: SaveV3): GameState {
     proposalsLog: new Map(),
     tutorAssignmentsLog: new Map(),
     pendingTutorTraitChoices: new Map(),
+    // P8: empty placeholders for the 4 new top-level Maps. Public wrappers
+    // compose with seedRivalsAndPatronessesIntoLegacyState to fill them in
+    // from RIVAL_HOUSES_FIXTURE + PATRONESSES_FIXTURE + FACTION_PAIRS.
+    patronesses: new Map(),
+    rivalActors: new Map(),
+    factionTensions: new Map(),
+    duels: new Map(),
+    // P9: elopement field defaults to null on every legacy lift.
+    elopement: null,
   };
 }
 
 export function fromSaveV3(save: SaveV3): GameState {
-  return seedWhispersCouriersStaffIntoLegacyState(
-    seedSchemesAndGrievancesIntoLegacyState(
-      seedIndependentIntoLegacyState(fromSaveV3Bare(save), extractPlayerSeed(save.rng)),
+  const playerSeed = extractPlayerSeed(save.rng);
+  const result = seedRivalsAndPatronessesIntoLegacyState(
+    seedWhispersCouriersStaffIntoLegacyState(
+      seedSchemesAndGrievancesIntoLegacyState(
+        seedIndependentIntoLegacyState(fromSaveV3Bare(save), playerSeed),
+      ),
     ),
+    playerSeed,
   );
+  return { ...result, elopement: null };
 }
 
 // ── SaveV4 (P3 on-disk format — legacy at P4+) ────────────────────────────
@@ -596,13 +695,15 @@ export function toSaveV4(state: GameState): SaveV4 {
   const housesLegacy = stripGrievancesForLegacyEmit(serializeRegistry(state.houses));
   const charsLegacy: Array<[string, CharacterPreV5]> = [];
   for (const [id, c] of serializeRegistry(state.characters)) {
+    if (RIVAL_CHARACTER_IDS_SET.has(id as import("../game/rng").CharacterId)) continue;
     const { composure: _co, maxComposure: _mc, ...legacy } = c;
     charsLegacy.push([id, legacy]);
   }
+  const rngLegacy = serializeRegistry(state.rng).filter(([id]) => !RIVAL_HOUSE_IDS_SET.has(id));
   return SaveV4Schema.parse({
     version: 4,
     tick: state.tick,
-    rng: serializeRegistry(state.rng),
+    rng: rngLegacy,
     houses: housesLegacy,
     characters: charsLegacy,
     marriages: serializeRegistry(state.marriages),
@@ -632,15 +733,29 @@ export function fromSaveV4Bare(save: SaveV4): GameState {
     proposalsLog: new Map(),
     tutorAssignmentsLog: new Map(),
     pendingTutorTraitChoices: new Map(),
+    // P8: empty placeholders for the 4 new top-level Maps. Public wrappers
+    // compose with seedRivalsAndPatronessesIntoLegacyState to fill them in
+    // from RIVAL_HOUSES_FIXTURE + PATRONESSES_FIXTURE + FACTION_PAIRS.
+    patronesses: new Map(),
+    rivalActors: new Map(),
+    factionTensions: new Map(),
+    duels: new Map(),
+    // P9: elopement field defaults to null on every legacy lift.
+    elopement: null,
   };
 }
 
 export function fromSaveV4(save: SaveV4): GameState {
-  return seedWhispersCouriersStaffIntoLegacyState(
-    seedSchemesAndGrievancesIntoLegacyState(
-      seedIndependentIntoLegacyState(fromSaveV4Bare(save), extractPlayerSeed(save.rng)),
+  const playerSeed = extractPlayerSeed(save.rng);
+  const result = seedRivalsAndPatronessesIntoLegacyState(
+    seedWhispersCouriersStaffIntoLegacyState(
+      seedSchemesAndGrievancesIntoLegacyState(
+        seedIndependentIntoLegacyState(fromSaveV4Bare(save), playerSeed),
+      ),
     ),
+    playerSeed,
   );
+  return { ...result, elopement: null };
 }
 
 // ── SaveV5 (P4 on-disk format — legacy at P5+) ────────────────────────────
@@ -663,12 +778,16 @@ export type SaveV5 = z.infer<typeof SaveV5Schema>;
 
 export function toSaveV5(state: GameState): SaveV5 {
   const housesLegacy = stripGrievancesForLegacyEmit(serializeRegistry(state.houses));
+  const charsLegacy = serializeRegistry(state.characters).filter(
+    ([id]) => !RIVAL_CHARACTER_IDS_SET.has(id),
+  );
+  const rngLegacy = serializeRegistry(state.rng).filter(([id]) => !RIVAL_HOUSE_IDS_SET.has(id));
   return SaveV5Schema.parse({
     version: 5,
     tick: state.tick,
-    rng: serializeRegistry(state.rng),
+    rng: rngLegacy,
     houses: housesLegacy,
-    characters: serializeRegistry(state.characters),
+    characters: charsLegacy,
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -699,13 +818,26 @@ export function fromSaveV5Bare(save: SaveV5): GameState {
     proposalsLog: new Map(),
     tutorAssignmentsLog: new Map(),
     pendingTutorTraitChoices: new Map(),
+    // P8: empty placeholders for the 4 new top-level Maps. Public wrappers
+    // compose with seedRivalsAndPatronessesIntoLegacyState to fill them in
+    // from RIVAL_HOUSES_FIXTURE + PATRONESSES_FIXTURE + FACTION_PAIRS.
+    patronesses: new Map(),
+    rivalActors: new Map(),
+    factionTensions: new Map(),
+    duels: new Map(),
+    // P9: elopement field defaults to null on every legacy lift.
+    elopement: null,
   };
 }
 
 export function fromSaveV5(save: SaveV5): GameState {
   // V5 saves already contain Independent by schema; no seedIndependent call.
-  return seedWhispersCouriersStaffIntoLegacyState(
-    seedSchemesAndGrievancesIntoLegacyState(fromSaveV5Bare(save)),
+  const playerSeed = extractPlayerSeed(save.rng);
+  return seedRivalsAndPatronessesIntoLegacyState(
+    seedWhispersCouriersStaffIntoLegacyState(
+      seedSchemesAndGrievancesIntoLegacyState(fromSaveV5Bare(save)),
+    ),
+    playerSeed,
   );
 }
 
@@ -734,12 +866,16 @@ export function toSaveV6(state: GameState): SaveV6 {
   // P6: only NEW strip site at P6 — drops exiled from live House shape
   // before SaveV6Schema (HousePreV7Schema houses) parses the emit.
   const housesLegacy = stripExiledForLegacyEmit(serializeRegistry(state.houses));
+  const charsLegacy = serializeRegistry(state.characters).filter(
+    ([id]) => !RIVAL_CHARACTER_IDS_SET.has(id),
+  );
+  const rngLegacy = serializeRegistry(state.rng).filter(([id]) => !RIVAL_HOUSE_IDS_SET.has(id));
   return SaveV6Schema.parse({
     version: 6,
     tick: state.tick,
-    rng: serializeRegistry(state.rng),
+    rng: rngLegacy,
     houses: housesLegacy,
-    characters: serializeRegistry(state.characters),
+    characters: charsLegacy,
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -771,6 +907,15 @@ export function fromSaveV6Bare(save: SaveV6): GameState {
     proposalsLog: new Map(),
     tutorAssignmentsLog: new Map(),
     pendingTutorTraitChoices: new Map(),
+    // P8: empty placeholders for the 4 new top-level Maps. Public wrappers
+    // compose with seedRivalsAndPatronessesIntoLegacyState to fill them in
+    // from RIVAL_HOUSES_FIXTURE + PATRONESSES_FIXTURE + FACTION_PAIRS.
+    patronesses: new Map(),
+    rivalActors: new Map(),
+    factionTensions: new Map(),
+    duels: new Map(),
+    // P9: elopement field defaults to null on every legacy lift.
+    elopement: null,
   };
 }
 
@@ -778,7 +923,11 @@ export function fromSaveV6(save: SaveV6): GameState {
   // V6 saves don't carry whispers/couriers/staff; the seeder produces baseline
   // staff and empty whispers/couriers so the resulting GameState matches a
   // fresh-state hash post-P6.
-  return seedWhispersCouriersStaffIntoLegacyState(fromSaveV6Bare(save));
+  const playerSeed = extractPlayerSeed(save.rng);
+  return seedRivalsAndPatronessesIntoLegacyState(
+    seedWhispersCouriersStaffIntoLegacyState(fromSaveV6Bare(save)),
+    playerSeed,
+  );
 }
 
 // ── SaveV7 (P6 on-disk format — legacy at P7+) ────────────────────────────
@@ -826,12 +975,22 @@ function stripV8CharacterFieldsForLegacyEmit(
 }
 
 export function toSaveV7(state: GameState): SaveV7 {
+  // P8: V7 predates rival houses + characters. Filter both out of the
+  // legacy emit so the V9 seeder can re-add them with canonical fixture
+  // identity (factionId, gender) on lift.
+  const housesLegacy = serializeRegistry(state.houses).filter(
+    ([id]) => !RIVAL_HOUSE_IDS_SET.has(id),
+  );
+  const charsLegacy = stripV8CharacterFieldsForLegacyEmit(
+    serializeRegistry(state.characters).filter(([id]) => !RIVAL_CHARACTER_IDS_SET.has(id)),
+  );
+  const rngLegacy = serializeRegistry(state.rng).filter(([id]) => !RIVAL_HOUSE_IDS_SET.has(id));
   return SaveV7Schema.parse({
     version: 7,
     tick: state.tick,
-    rng: serializeRegistry(state.rng),
-    houses: serializeRegistry(state.houses),
-    characters: stripV8CharacterFieldsForLegacyEmit(serializeRegistry(state.characters)),
+    rng: rngLegacy,
+    houses: housesLegacy,
+    characters: charsLegacy,
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -866,14 +1025,23 @@ export function fromSaveV7Bare(save: SaveV7): GameState {
     proposalsLog: new Map(),
     tutorAssignmentsLog: new Map(),
     pendingTutorTraitChoices: new Map(),
+    // P8: empty placeholders for the 4 new top-level Maps. Public wrappers
+    // compose with seedRivalsAndPatronessesIntoLegacyState to fill them in
+    // from RIVAL_HOUSES_FIXTURE + PATRONESSES_FIXTURE + FACTION_PAIRS.
+    patronesses: new Map(),
+    rivalActors: new Map(),
+    factionTensions: new Map(),
+    duels: new Map(),
+    // P9: elopement field defaults to null on every legacy lift.
+    elopement: null,
   };
 }
 
 export function fromSaveV7(save: SaveV7): GameState {
   // V7 saves predate the 3 new top-level Maps; seeded as empty by the Bare core.
-  // No additional seed composition needed (V7 already contains Independent
-  // NPCs + schemes + grievances + whispers/couriers/staff by schema).
-  return fromSaveV7Bare(save);
+  // V7 already contains Independent NPCs + schemes + grievances + whispers/
+  // couriers/staff by schema. P8 adds the V9 seeder for rivals + patronesses.
+  return seedRivalsAndPatronessesIntoLegacyState(fromSaveV7Bare(save), extractPlayerSeed(save.rng));
 }
 
 // ── SaveV8 (P7, live save format) ─────────────────────────────────────────
@@ -905,8 +1073,124 @@ export const SaveV8Schema = z.object({
 export type SaveV8 = z.infer<typeof SaveV8Schema>;
 
 export function toSaveV8(state: GameState): SaveV8 {
+  // P8: SaveV8 is no longer current (V9 is). Emit literal version: 8.
+  // V8 predates rivals — filter rival houses/chars/rng out of the legacy emit.
+  const housesLegacy = serializeRegistry(state.houses).filter(
+    ([id]) => !RIVAL_HOUSE_IDS_SET.has(id),
+  );
+  const charsLegacy = serializeRegistry(state.characters).filter(
+    ([id]) => !RIVAL_CHARACTER_IDS_SET.has(id),
+  );
+  const rngLegacy = serializeRegistry(state.rng).filter(([id]) => !RIVAL_HOUSE_IDS_SET.has(id));
   return SaveV8Schema.parse({
-    version: SAVE_VERSION_CURRENT,
+    version: 8,
+    tick: state.tick,
+    rng: rngLegacy,
+    houses: housesLegacy,
+    characters: charsLegacy,
+    marriages: serializeRegistry(state.marriages),
+    campaignName: state.campaignName,
+    era: state.era,
+    conversationHistory: serializeRegistry(state.conversationHistory),
+    affectionMap: serializeRegistry(state.affectionMap),
+    schemes: serializeRegistry(state.schemes),
+    whispers: serializeRegistry(state.whispers),
+    couriers: serializeRegistry(state.couriers),
+    staff: serializeRegistry(state.staff),
+    proposalsLog: serializeRegistry(state.proposalsLog),
+    tutorAssignmentsLog: serializeRegistry(state.tutorAssignmentsLog),
+    pendingTutorTraitChoices: serializeRegistry(state.pendingTutorTraitChoices),
+  });
+}
+
+// Bare V8 deserialize — no rival/patroness seeding. Used by migrate_v8_to_v9
+// and by the public fromSaveV8 wrapper.
+export function fromSaveV8Bare(save: SaveV8): GameState {
+  // Convert Map<HouseId, House> by deserializing the array form. The House
+  // entities carry the .default() Zod backfill for hostility/factionId; the
+  // grievances within carry the .default(null) backfill for defendantCharacterId.
+  const partial: Omit<
+    GameState,
+    "patronesses" | "rivalActors" | "factionTensions" | "duels" | "elopement"
+  > = {
+    tick: save.tick,
+    rng: deserializeRegistry(save.rng) as GameState["rng"],
+    houses: deserializeRegistry(save.houses) as GameState["houses"],
+    characters: deserializeRegistry(save.characters) as GameState["characters"],
+    marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
+    campaignName: save.campaignName,
+    era: save.era,
+    conversationHistory: deserializeRegistry(
+      save.conversationHistory,
+    ) as GameState["conversationHistory"],
+    affectionMap: deserializeRegistry(save.affectionMap) as GameState["affectionMap"],
+    schemes: deserializeRegistry(save.schemes) as GameState["schemes"],
+    whispers: deserializeRegistry(save.whispers) as GameState["whispers"],
+    couriers: deserializeRegistry(save.couriers) as GameState["couriers"],
+    staff: deserializeRegistry(save.staff) as GameState["staff"],
+    proposalsLog: deserializeRegistry(save.proposalsLog) as GameState["proposalsLog"],
+    tutorAssignmentsLog: deserializeRegistry(
+      save.tutorAssignmentsLog,
+    ) as GameState["tutorAssignmentsLog"],
+    pendingTutorTraitChoices: deserializeRegistry(
+      save.pendingTutorTraitChoices,
+    ) as GameState["pendingTutorTraitChoices"],
+  };
+  // P8: empty placeholders for the 4 new top-level Maps. Public wrapper
+  // composes with seedRivalsAndPatronessesIntoLegacyState to populate.
+  return {
+    ...partial,
+    patronesses: new Map(),
+    rivalActors: new Map(),
+    factionTensions: new Map(),
+    duels: new Map(),
+    elopement: null,
+  } as GameState;
+}
+
+export function fromSaveV8(save: SaveV8): GameState {
+  // V8 is no longer live at P8+. Wrap the Bare core with the V9 seeder so
+  // direct-lift consumers (tests + future direct-load paths) produce V9-shape
+  // GameStates with rivals/patronesses/factionTensions/duels seeded.
+  return seedRivalsAndPatronessesIntoLegacyState(fromSaveV8Bare(save), extractPlayerSeed(save.rng));
+}
+
+// ── SaveV9 (P8 live format) ───────────────────────────────────────────────
+// Adds 2 new House fields (hostility, factionId) + 1 new Grievance field
+// (defendantCharacterId, nullable) + 4 new top-level Maps (patronesses,
+// rivalActors, factionTensions, duels). Houses + grievances on disk carry
+// the new fields explicitly (no .default() backfill at SaveV9 — defaults
+// only kick in at parse time for the legacy V8 path).
+
+export const SaveV9Schema = z.object({
+  version: z.literal(9),
+  tick: z.number().int().nonnegative(),
+  rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
+  characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
+  marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
+  campaignName: z.string(),
+  era: z.enum(["Earlier", "Later"]),
+  conversationHistory: z.array(z.tuple([ConversationPairKeySchema, z.array(ExchangeSchema)])),
+  affectionMap: z.array(z.tuple([ConversationPairKeySchema, z.number().int().min(0).max(100)])),
+  schemes: z.array(z.tuple([SchemeIdSchema, SchemeSchema])),
+  whispers: z.array(z.tuple([WhisperIdSchema, WhisperSchema])),
+  couriers: z.array(z.tuple([CourierPayloadIdSchema, CourierPayloadSchema])),
+  staff: z.array(z.tuple([StaffIdSchema, StaffMemberSchema])),
+  proposalsLog: z.array(z.tuple([CharacterIdSchema, ProposalLogEntrySchema])),
+  tutorAssignmentsLog: z.array(z.tuple([CharacterIdSchema, TutorAssignmentLogEntrySchema])),
+  pendingTutorTraitChoices: z.array(z.tuple([CharacterIdSchema, PendingTutorTraitChoiceSchema])),
+  // P8 additions.
+  patronesses: z.array(z.tuple([PatronessIdSchema, PatronessRecordSchema])),
+  rivalActors: z.array(z.tuple([HouseIdSchema, RivalActorStateSchema])),
+  factionTensions: z.array(z.tuple([FactionPairKeySchema, z.number().int().min(0).max(100)])),
+  duels: z.array(z.tuple([DuelIdSchema, DuelSchema])),
+});
+export type SaveV9 = z.infer<typeof SaveV9Schema>;
+
+export function toSaveV9(state: GameState): SaveV9 {
+  return SaveV9Schema.parse({
+    version: 9,
     tick: state.tick,
     rng: serializeRegistry(state.rng),
     houses: serializeRegistry(state.houses),
@@ -923,11 +1207,16 @@ export function toSaveV8(state: GameState): SaveV8 {
     proposalsLog: serializeRegistry(state.proposalsLog),
     tutorAssignmentsLog: serializeRegistry(state.tutorAssignmentsLog),
     pendingTutorTraitChoices: serializeRegistry(state.pendingTutorTraitChoices),
+    patronesses: serializeRegistry(state.patronesses),
+    rivalActors: serializeRegistry(state.rivalActors),
+    factionTensions: serializeRegistry(state.factionTensions),
+    duels: serializeRegistry(state.duels),
   });
 }
 
-export function fromSaveV8(save: SaveV8): GameState {
-  // V8 is the live format — pure deserialization with no seed helpers.
+// P9 split: Bare core does pure deserialization; public wrapper appends
+// `elopement: null` (V9 saves predate the field).
+export function fromSaveV9Bare(save: SaveV9): Omit<GameState, "elopement"> {
   return {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
@@ -951,6 +1240,178 @@ export function fromSaveV8(save: SaveV8): GameState {
     pendingTutorTraitChoices: deserializeRegistry(
       save.pendingTutorTraitChoices,
     ) as GameState["pendingTutorTraitChoices"],
+    patronesses: deserializeRegistry(save.patronesses) as GameState["patronesses"],
+    rivalActors: deserializeRegistry(save.rivalActors) as GameState["rivalActors"],
+    factionTensions: deserializeRegistry(save.factionTensions) as GameState["factionTensions"],
+    duels: deserializeRegistry(save.duels) as GameState["duels"],
+  };
+}
+
+export function fromSaveV9(save: SaveV9): GameState {
+  // V9 was the live format pre-P9; V10 is live at P9+. Wrap the Bare core
+  // with `elopement: null` (V9 saves predate the field).
+  return { ...fromSaveV9Bare(save), elopement: null };
+}
+
+// ── SaveV10 (P9 live format) ──────────────────────────────────────────────
+// Adds 1 new top-level field (elopement: ElopementSprintState | null) +
+// 1 new MarriageRecord field (viaElopement: z.boolean().default(false)).
+// MarriageRecord widening uses `.default(false)` per P8 House.hostility/
+// factionId precedent — no Pre-shape rebuild required for parse-side.
+
+export const SaveV10Schema = z.object({
+  version: z.literal(10),
+  tick: z.number().int().nonnegative(),
+  rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
+  characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
+  marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
+  campaignName: z.string(),
+  era: z.enum(["Earlier", "Later"]),
+  conversationHistory: z.array(z.tuple([ConversationPairKeySchema, z.array(ExchangeSchema)])),
+  affectionMap: z.array(z.tuple([ConversationPairKeySchema, z.number().int().min(0).max(100)])),
+  schemes: z.array(z.tuple([SchemeIdSchema, SchemeSchema])),
+  whispers: z.array(z.tuple([WhisperIdSchema, WhisperSchema])),
+  couriers: z.array(z.tuple([CourierPayloadIdSchema, CourierPayloadSchema])),
+  staff: z.array(z.tuple([StaffIdSchema, StaffMemberSchema])),
+  proposalsLog: z.array(z.tuple([CharacterIdSchema, ProposalLogEntrySchema])),
+  tutorAssignmentsLog: z.array(z.tuple([CharacterIdSchema, TutorAssignmentLogEntrySchema])),
+  pendingTutorTraitChoices: z.array(z.tuple([CharacterIdSchema, PendingTutorTraitChoiceSchema])),
+  patronesses: z.array(z.tuple([PatronessIdSchema, PatronessRecordSchema])),
+  rivalActors: z.array(z.tuple([HouseIdSchema, RivalActorStateSchema])),
+  factionTensions: z.array(z.tuple([FactionPairKeySchema, z.number().int().min(0).max(100)])),
+  duels: z.array(z.tuple([DuelIdSchema, DuelSchema])),
+  // P9 addition — nullable singleton.
+  elopement: ElopementSprintStateSchema.nullable(),
+});
+export type SaveV10 = z.infer<typeof SaveV10Schema>;
+
+export function toSaveV10(state: GameState): SaveV10 {
+  return SaveV10Schema.parse({
+    version: SAVE_VERSION_CURRENT,
+    tick: state.tick,
+    rng: serializeRegistry(state.rng),
+    houses: serializeRegistry(state.houses),
+    characters: serializeRegistry(state.characters),
+    marriages: serializeRegistry(state.marriages),
+    campaignName: state.campaignName,
+    era: state.era,
+    conversationHistory: serializeRegistry(state.conversationHistory),
+    affectionMap: serializeRegistry(state.affectionMap),
+    schemes: serializeRegistry(state.schemes),
+    whispers: serializeRegistry(state.whispers),
+    couriers: serializeRegistry(state.couriers),
+    staff: serializeRegistry(state.staff),
+    proposalsLog: serializeRegistry(state.proposalsLog),
+    tutorAssignmentsLog: serializeRegistry(state.tutorAssignmentsLog),
+    pendingTutorTraitChoices: serializeRegistry(state.pendingTutorTraitChoices),
+    patronesses: serializeRegistry(state.patronesses),
+    rivalActors: serializeRegistry(state.rivalActors),
+    factionTensions: serializeRegistry(state.factionTensions),
+    duels: serializeRegistry(state.duels),
+    // P9: nullable singleton serialized as-is (no Map → no serializeRegistry).
+    elopement: state.elopement,
+  });
+}
+
+export function fromSaveV10(save: SaveV10): GameState {
+  // V10 is the live format — pure deserialization with no seed helpers.
+  return {
+    tick: save.tick,
+    rng: deserializeRegistry(save.rng) as GameState["rng"],
+    houses: deserializeRegistry(save.houses) as GameState["houses"],
+    characters: deserializeRegistry(save.characters) as GameState["characters"],
+    marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
+    campaignName: save.campaignName,
+    era: save.era,
+    conversationHistory: deserializeRegistry(
+      save.conversationHistory,
+    ) as GameState["conversationHistory"],
+    affectionMap: deserializeRegistry(save.affectionMap) as GameState["affectionMap"],
+    schemes: deserializeRegistry(save.schemes) as GameState["schemes"],
+    whispers: deserializeRegistry(save.whispers) as GameState["whispers"],
+    couriers: deserializeRegistry(save.couriers) as GameState["couriers"],
+    staff: deserializeRegistry(save.staff) as GameState["staff"],
+    proposalsLog: deserializeRegistry(save.proposalsLog) as GameState["proposalsLog"],
+    tutorAssignmentsLog: deserializeRegistry(
+      save.tutorAssignmentsLog,
+    ) as GameState["tutorAssignmentsLog"],
+    pendingTutorTraitChoices: deserializeRegistry(
+      save.pendingTutorTraitChoices,
+    ) as GameState["pendingTutorTraitChoices"],
+    patronesses: deserializeRegistry(save.patronesses) as GameState["patronesses"],
+    rivalActors: deserializeRegistry(save.rivalActors) as GameState["rivalActors"],
+    factionTensions: deserializeRegistry(save.factionTensions) as GameState["factionTensions"],
+    duels: deserializeRegistry(save.duels) as GameState["duels"],
+    // P9: nullable singleton — direct passthrough.
+    elopement: save.elopement,
+  };
+}
+
+// ── seedRivalsAndPatronessesIntoLegacyState (P8) ──────────────────────────
+// Idempotent helper: seeds 3 rival houses + 9 rival-associated characters +
+// 3 per-rival RNG entries + 5 patronesses + 3 RivalActorState + 6 faction-
+// tension entries (all 0) + empty duels Map. Skip if already present. Called
+// by the public fromSaveV1..V8 wrappers AND by migrate_v8_to_v9 as the seed
+// side of bare+wrap composition.
+//
+// playerSeed: the campaign seed string (NOT the post-draw form) — required
+// for the per-rival RNG seed format `${campaignSeed}|${rivalHouseId}`.
+export function seedRivalsAndPatronessesIntoLegacyState(
+  state: GameState,
+  playerSeed: string,
+): GameState {
+  // Lazy: only mutate when at least one piece is missing. Idempotent under
+  // repeated calls.
+  const rng = new Map(state.rng);
+  const houses = new Map(state.houses);
+  const characters = new Map(state.characters);
+  const rivalActors = new Map(state.rivalActors ?? new Map());
+
+  for (const seed of RIVAL_HOUSES_FIXTURE) {
+    if (!houses.has(seed.houseId)) {
+      houses.set(seed.houseId, buildRivalHouse(seed));
+    }
+    if (!characters.has(seed.headSeed.characterId)) {
+      characters.set(
+        seed.headSeed.characterId,
+        buildRivalCharacter(seed.headSeed, seed.houseId, "HeadOfHouse", 35),
+      );
+    }
+    for (const s of seed.associatedSeeds) {
+      if (!characters.has(s.characterId)) {
+        characters.set(s.characterId, buildRivalCharacter(s, seed.houseId, "Dependent", 30));
+      }
+    }
+    if (!rng.has(seed.houseId)) {
+      rng.set(seed.houseId, buildRivalRngState(playerSeed, seed.houseId));
+    }
+    if (!rivalActors.has(seed.houseId)) {
+      rivalActors.set(seed.houseId, buildRivalActorState(seed));
+    }
+  }
+
+  const patronesses = new Map(state.patronesses ?? new Map());
+  for (const p of PATRONESSES_FIXTURE) {
+    if (!patronesses.has(p.id)) patronesses.set(p.id, p);
+  }
+
+  const factionTensions = new Map(state.factionTensions ?? new Map());
+  for (const pair of FACTION_PAIRS) {
+    if (!factionTensions.has(pair)) factionTensions.set(pair, 0);
+  }
+
+  const duels = state.duels ?? new Map();
+
+  return {
+    ...state,
+    rng,
+    houses,
+    characters,
+    rivalActors,
+    patronesses,
+    factionTensions,
+    duels,
   };
 }
 

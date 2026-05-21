@@ -2,8 +2,9 @@
 // Used by:
 //   - buildBaselineNpcCharacter (bootstrap path) — derives gender for the 5
 //     baseline NPCs + player character from their ids.
-//   - seedV8FieldsIntoLegacyState (migration path) — derives gender for every
-//     character in a V7 save being lifted to V8.
+//   - defaultV8CharacterFields (in src/persist/schema.ts, called from
+//     liftLegacyCharactersFromV8Pre on legacy V5/V6/V7 character lifts) —
+//     derives gender for every character being lifted to V8 shape.
 //
 // Both consumers MUST share this single source of truth — the v1→v8 chain-
 // test hash-parity assertion fails if the two paths produce different genders

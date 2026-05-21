@@ -12,8 +12,10 @@ import {
   MONARCH_AUDIENCE_COOLDOWN_TICKS,
   MONARCH_AUDIENCE_FULL_SUCCESS_THRESHOLD,
   MONARCH_AUDIENCE_PARTIAL_SCANDAL_DELTA,
+  MONARCH_AUDIENCE_PATRONESS_BONUS,
   MONARCH_AUDIENCE_REPUTATION_COST,
   MONARCH_AUDIENCE_REPUTATION_THRESHOLD,
+  MONARCH_AUDIENCE_RIVAL_HOSTILITY_DROP,
   MONARCH_AUDIENCE_WEALTH_COST,
 } from "../constants";
 import type { GameState } from "../entities";
@@ -28,7 +30,9 @@ export type AudienceRejection =
   // P6: exile-gate variant. requestAudience returns
   // { outcome: { kind: "Denied", reason: { kind: "PlayerExiled" } } }
   // when the player house is exiled (Scandal Sheet attribution endgame).
-  | { kind: "PlayerExiled" };
+  | { kind: "PlayerExiled" }
+  // P9 Q4: same Denied-wrapping for ElopementInProgress.
+  | { kind: "ElopementInProgress" };
 
 export type AudienceOutcome =
   | { kind: "Denied"; reason: AudienceRejection }
@@ -93,10 +97,6 @@ export function applyAudience(
   if (isFullSuccess) {
     // Scandal wiped to zero.
     scandal = 0;
-    // P3 stub: patronesses (+5 each) and rivals (-5 hostility each) loops
-    // are empty here. P8 fills these in; the ordering contract (audience
-    // hostility drop BEFORE rival-action phase) is wired via the pre-tick
-    // action pattern + orchestrator phase 8 being "rival action".
   } else {
     scandal = clamp(scandal + MONARCH_AUDIENCE_PARTIAL_SCANDAL_DELTA, 0, 100);
   }
@@ -110,9 +110,34 @@ export function applyAudience(
     lastAudienceTick: state.tick,
   });
 
+  // P8: full-success rewards — rival hostility drop + patroness favor bonus.
+  // MONARCH_AUDIENCE_RIVAL_HOSTILITY_DROP is a POSITIVE magnitude (constants.ts:89);
+  // the patch SUBTRACTS the magnitude to actually drop hostility. Order:
+  // player record written above first, then rival hostility (writes into the
+  // same `houses` Map clone), then patronesses (separate clone allocated only
+  // on the FullSuccess branch to save allocations on Partial outcomes).
+  let patronesses = state.patronesses;
+  if (isFullSuccess) {
+    for (const [rid] of state.rivalActors) {
+      const rh = houses.get(rid);
+      if (rh === undefined) continue;
+      houses.set(rid, {
+        ...rh,
+        hostility: clamp(rh.hostility - MONARCH_AUDIENCE_RIVAL_HOSTILITY_DROP, 0, 100),
+      });
+    }
+    patronesses = new Map(state.patronesses);
+    for (const [pid, p] of state.patronesses) {
+      patronesses.set(pid, {
+        ...p,
+        favor: clamp(p.favor + MONARCH_AUDIENCE_PATRONESS_BONUS, 0, 100),
+      });
+    }
+  }
+
   const outcome: AudienceOutcome = isFullSuccess
     ? { kind: "FullSuccess", preCostReputation }
     : { kind: "Partial", preCostReputation };
 
-  return { state: { ...state, houses }, outcome };
+  return { state: { ...state, houses, patronesses }, outcome };
 }

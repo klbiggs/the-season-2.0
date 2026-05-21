@@ -18,19 +18,33 @@
 // (player head's deathAge only), unchanged from P3.
 
 import { HAPPINESS_INITIAL, LIFESPAN_RANGE } from "./constants";
-import type { Character, House, StaffMember } from "./entities";
+import type { Character, House, RivalActorState, StaffMember } from "./entities";
 import { hashCharIdToGender } from "./fixtures/hashCharIdToGender";
 import { STARTING_HEAD_CHARACTER_ID, STARTING_HEAD_NAME } from "./fixtures/names";
 import { BASELINE_NPCS, buildBaselineNpcCharacter, buildIndependentHouse } from "./fixtures/npcs";
+import {
+  RIVAL_HOUSES_FIXTURE,
+  buildRivalActorState,
+  buildRivalCharacter,
+  buildRivalHouse,
+  buildRivalRngState,
+} from "./fixtures/rivals";
 import { BASELINE_STAFF, buildBaselineStaffMember } from "./fixtures/staff";
-import { type RngState, drawInt } from "./rng";
+import { type FactionId, type HouseId, type RngState, drawInt } from "./rng";
 import { PLAYER_HOUSE_ID } from "./rng";
 
-export function seedStartingFamily(rngState: RngState): {
+export function seedStartingFamily(
+  rngState: RngState,
+  campaignSeed: string,
+): {
   rngState: RngState;
   houses: ReadonlyArray<House>;
   characters: ReadonlyArray<Character>;
   staff: ReadonlyArray<StaffMember>;
+  // P8 additions — bootstrap also seeds rival actors + per-rival RNG entries.
+  // The migration path produces byte-identical structures via the V8→V9 seeder.
+  rivalActors: ReadonlyArray<RivalActorState>;
+  rivalRngEntries: ReadonlyArray<[HouseId, RngState]>;
 } {
   // Roll deathAge ∈ [70, 95] inclusive via drawInt(_, 26) + 70.
   // This is the ONLY draw consumed by this helper (NPC deathAges are
@@ -90,6 +104,10 @@ export function seedStartingFamily(rngState: RngState): {
     // P6: not exiled at fresh state. Symmetric with defaultHouseV*Fields
     // helpers in schema.ts.
     exiled: false,
+    // P8: player house is on the Crown faction; hostility 0 (load-bearing
+    // only on rival entries — predicate reads House.hostility for rivals).
+    hostility: 0,
+    factionId: "faction-crown" as FactionId,
   };
 
   // P4: Independent house + 5 NPCs. Built from constants — no RNG draws.
@@ -99,10 +117,33 @@ export function seedStartingFamily(rngState: RngState): {
   // Draw budget preserved: only the player deathAge draw above consumes RNG.
   const staff = BASELINE_STAFF.map(buildBaselineStaffMember);
 
+  // P8: 3 rival houses + 9 rival-associated characters + 3 per-rival RNG
+  // entries + 3 RivalActorState entries. Built from constants — no RNG draws.
+  // Per-rival seed = `${campaignSeed}|${houseId}` (string-concat, engine-stable).
+  const rivalHouses: House[] = [];
+  const rivalCharacters: Character[] = [];
+  const rivalActors: RivalActorState[] = [];
+  const rivalRngEntries: [HouseId, RngState][] = [];
+  for (const seed of RIVAL_HOUSES_FIXTURE) {
+    rivalHouses.push(buildRivalHouse(seed));
+    // Head is adult (age 35); associated chars are adults (age 30).
+    rivalCharacters.push(buildRivalCharacter(seed.headSeed, seed.houseId, "HeadOfHouse", 35));
+    rivalCharacters.push(
+      buildRivalCharacter(seed.associatedSeeds[0], seed.houseId, "Dependent", 30),
+    );
+    rivalCharacters.push(
+      buildRivalCharacter(seed.associatedSeeds[1], seed.houseId, "Dependent", 30),
+    );
+    rivalActors.push(buildRivalActorState(seed));
+    rivalRngEntries.push([seed.houseId, buildRivalRngState(campaignSeed, seed.houseId)]);
+  }
+
   return {
     rngState: postDeathRoll,
-    houses: [playerHouse, independentHouse],
-    characters: [playerCharacter, ...npcs],
+    houses: [playerHouse, independentHouse, ...rivalHouses],
+    characters: [playerCharacter, ...npcs, ...rivalCharacters],
     staff,
+    rivalActors,
+    rivalRngEntries,
   };
 }

@@ -245,8 +245,8 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P6 | Whispers, Espionage & Staff | [`phases/06-whispers-espionage.md`](./phases/06-whispers-espionage.md) | P1, P4, P5 | ✅ done |
 | P7 | Family, Marriage & Succession | [`phases/07-family-succession.md`](./phases/07-family-succession.md) | P1 | ✅ done |
 | P7.5 | LLM key relocation to localhost proxy | [`phases/07-5-llm-relocation.md`](./phases/07-5-llm-relocation.md) | P4 | ✅ done |
-| P8 | Rival Houses, Patronesses & Duels | [`phases/08-rivals-patronesses.md`](./phases/08-rivals-patronesses.md) | P1, P5 | — |
-| P9 | Elopement Sprint Overlay | [`phases/09-elopement.md`](./phases/09-elopement.md) | P5 | — |
+| P8 | Rival Houses, Patronesses & Duels | [`phases/08-rivals-patronesses.md`](./phases/08-rivals-patronesses.md) | P1, P5 | ✅ done |
+| P9 | Elopement Sprint Overlay | [`phases/09-elopement.md`](./phases/09-elopement.md) | P5 | ✅ done |
 | P10 | Artifacts, Wardrobe, Forgery & Theft | [`phases/10-artifacts.md`](./phases/10-artifacts.md) | P7 | — |
 | P11 | Sibling Rivals & Inherited Secrets | [`phases/11-sibling-rivals-secrets.md`](./phases/11-sibling-rivals-secrets.md) | P7, P6 | — |
 | P12 | Hyde Park Promenade | [`phases/12-promenade.md`](./phases/12-promenade.md) | P3, P4, P10 | — |
@@ -356,14 +356,14 @@ Carrying forward all 24 open questions with a recommended default for each. Reso
 
 | # | Question | Default for v1 |
 |---|---|---|
-| 1 | Heirs inherit patroness favor scores or reset? | **Inherit** (continuity > reset) |
-| 2 | Rival-house registry procedurally seeded or canonical? | **Canonical** (matches prior implementation; predictability for testing) |
+| 1 | Heirs inherit patroness favor scores or reset? | **Inherit** (continuity > reset). **Resolved at P8** ([phases/08-rivals-patronesses.md](./phases/08-rivals-patronesses.md)); patroness favor is stored as a top-level `state.patronesses: Map<PatronessId, PatronessRecord>` keyed by patroness identity (NOT per-house). Succession (existing `applySuccessionStep` in `runYearPass`) leaves this Map untouched, so the heir reads the same favor values the prior head did — "inherit" is free of any copy-on-promote action. |
+| 2 | Rival-house registry procedurally seeded or canonical? | **Canonical** (matches prior implementation; predictability for testing). **Resolved at P8** ([phases/08-rivals-patronesses.md](./phases/08-rivals-patronesses.md)); `RIVAL_HOUSES_FIXTURE` at `src/game/fixtures/rivals.ts` ships three hardcoded `RivalHouseSeed` entries (id, displayName, factionId, startingReputation, startingHostility, associatedCharacterIds). Bootstrap seeds the fixture into `state.houses` (rivals are full `House` entities, not a separate registry) + `state.rivalActors: Map<HouseId, RivalActorState>` for the per-rival action loop. The V8→V9 migration seeds the same fixture into legacy saves via `seedRivalsAndPatronessesIntoLegacyState`. |
 | 3 | Sibling-rival mechanic active in v1? | **Yes** (specced detail level suggests intent) |
 | 4 | Archetype classification on mid-life trait acquisition? | **No** — only at succession + child maturation per §3. **Resolved at P1** ([phases/01-tick-engine.md](./phases/01-tick-engine.md)); P7 implements full rules. |
 | 5 | LLM routing for proposal/scheme/duel/audience in v1? | **No** — first-meeting only. **Resolved at P4** ([phases/04-ballroom-llm.md](./phases/04-ballroom-llm.md)); `routeModel(history)` is the single decision point — empty `(houseId, targetCharId)` history → Gemini Pro, otherwise Gemini Flash. Pre-wiring (proposal/scheme/duel/audience override seams) is explicitly NOT shipped at P4. |
 | 6 | Seduction discovery one-shot or multi-tick suspicion? | **Resolved at P5** ([phases/05-schemes.md](./phases/05-schemes.md)): one-shot binary at completion with `SEDUCTION_DISCOVERY_PROBABILITY = 0.2`. Multi-tick suspicion is a v1.5 candidate — its surface area (per-tick rolls, NPC suspicion levels, mid-flight cancellation paths) doesn't fit the v1 elopement-sprint scope and would force a save-format change. `accumulatedAffection` field reserved on the Scheme entity for the eventual v1.5 transition. |
 | 7 | Treason Framing in v1? | **Yes** — ships with P10 |
-| 8 | Faction tension graphical visualization? | **No** — numeric in rival ledger only |
+| 8 | Faction tension graphical visualization? | **No** — numeric in rival ledger only. **Resolved at P8** ([phases/08-rivals-patronesses.md](./phases/08-rivals-patronesses.md)); faction tension lives as `state.factionTensions: Map<FactionPairKey, number>` (3 factions → 3 unordered pairs). The Rivals ledger tab renders a 3×3 numeric matrix (diagonal blank); no D3/force-graph or canvas node. Graphical viz is a v1.5 candidate. |
 | 9 | Social Web replaces textual ledgers? | **Coexist** in v1 |
 | 10 | Wardrobe decay global tick or per-artifact-family? | **Global tick** (simpler; per-family in v1.5) |
 | 11 | Forged artifacts detectable by Observant NPCs? | **Hidden until per-tick surfacing roll** (simpler) |
@@ -379,6 +379,9 @@ Carrying forward all 24 open questions with a recommended default for each. Reso
 | 21 | Cultural-pivot before artifact registry ships? | **N/A** — P10 (artifacts) ships before P13 (events) |
 | 22 | Dynasty perks retroactive? | **No** — going-forward only |
 | 23 | Dull-spouse temptation hook auto-unlocks or ledger-elected? | **Auto-unlock on threshold crossing** (less friction). **Resolved at P7** ([phases/07-family-succession.md](./phases/07-family-succession.md)); `temptationHookUnlocked: boolean` field on Character is a one-way latch (set true on first sub-threshold tick post-Dull-marriage; never reverts). Gates discounted-scandal Seduction (`TEMPTATION_DISCOUNTED_SCANDAL = 5` vs P5 baseline `SEDUCTION_DISCOVERY_SCANDAL = 25`). |
+| 24 | Allow concurrent player Seductions per aggressor at v1? | **One Seduction per aggressor at a time** (Q2 verdict). **Resolved at P9 PROVISIONALLY** ([phases/09-elopement.md](./phases/09-elopement.md)); `tryStartScheme` rejects `Seduction` with `{ kind: "SeductionAlreadyActiveForAggressor", activeSchemeId }` when an aggressor already owns an Active Seduction. Functionally per-house at v1 (`selectAggressor` returns the head for Seduction); future-proof for later phases that may widen the aggressor pool. Reopens if v1 play surfaces the constraint as too restrictive. |
+| 25 | On elopement win with one party already married, mint marriage or apply rep-halve only? | **Rep-halve always; marriage minted only if both unmarried (or widow/widower remarriage)** (Q3 verdict). **Resolved at P9** ([phases/09-elopement.md](./phases/09-elopement.md)); `resolveElopementTerminal` Won-branch's marriage-mint predicate uses `isAvailableForRemarriage` (harmonized with `applyProposalPure` gates 10/11 — null marriageId OR the referenced marriage is dissolved). Preserves the affair-archetype Seduction gameplay tone while avoiding bigamous state shape. Future P-later "Abandonment" / "Divorce" action can model explicit dissolution-then-remarriage with its own cost surface. |
+| 26 | Should ticks advance during an active elopement sprint? | **Suspend** — rule-layer gate on every tick-advancing and mutation action when `state.elopement !== null` (Q4 verdict). **Resolved at P9** ([phases/09-elopement.md](./phases/09-elopement.md)); the gate publishes `ElopementBlocked` on `elopementBus` for `advanceTick` / `runYearPass` / `proposeMarriage` and returns a typed `{ kind: "ElopementInProgress" }` rejection on every other player-elected wrapper. See CLAUDE.md "Modal-state rule-layer gate principle" pin. |
 
 ---
 

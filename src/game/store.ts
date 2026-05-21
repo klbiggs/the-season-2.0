@@ -4,6 +4,7 @@ import { immer } from "zustand/middleware/immer";
 import {
   ACCIDENTAL_SLIP_DRIP_PER_CONVERSATION,
   CONVERSATION_HISTORY_LIMIT_PER_PAIR,
+  DUEL_DEMAND_SATISFACTION_REPUTATION_COST,
   FAUX_PAS_LOCK_DURATION_IN_TICKS,
   type StaffAssignment,
   type Stance,
@@ -20,6 +21,7 @@ import {
   type Character,
   CharacterSchema,
   type CourierPayload,
+  type Duel,
   type GameState,
   GameStateSchema,
   type Grievance,
@@ -27,20 +29,28 @@ import {
   HouseSchema,
   type MarriageRecord,
   MarriageRecordSchema,
+  type PatronessRecord,
+  type RivalActorState,
   type Scheme,
   type StaffMember,
   type Whisper,
 } from "./entities";
+import { makeDuelId } from "./fixtures/duelIdFactory";
+import { FACTION_PAIRS } from "./fixtures/factions";
 import type { LocationId } from "./fixtures/locations";
+import { PATRONESSES_FIXTURE } from "./fixtures/patronesses";
 import {
   type BallSessionId,
   type CharacterId,
   type CourierPayloadId,
+  type DuelId,
+  type FactionPairKey,
   type GrievanceId,
   type HouseId,
   INDEPENDENT_HOUSE_ID,
   type MarriageId,
   PLAYER_HOUSE_ID,
+  type PatronessId,
   type RngState,
   type SchemeId,
   type StaffId,
@@ -51,6 +61,7 @@ import {
 import { applyBankruptcyEscape, canEscapeBankruptcy } from "./rules/bankruptcyEscape";
 import type { EscapeRejection } from "./rules/bankruptcyEscape";
 import { resolveCombat } from "./rules/combat";
+import { resolveDuel } from "./rules/duel";
 import { type AudienceOutcome, applyAudience } from "./rules/monarchsAudience";
 import {
   type CancelSchemeRejection,
@@ -109,7 +120,7 @@ export function createInitialState(
   campaignName: string = DEFAULT_CAMPAIGN_NAME,
 ): GameState {
   const playerRng = createRngState(seed);
-  const seeded = seedStartingFamily(playerRng);
+  const seeded = seedStartingFamily(playerRng, seed);
   const rng = new Map<HouseId, RngState>();
   rng.set(PLAYER_HOUSE_ID, seeded.rngState);
   // P4: Independent's RNG state is deterministically derived from the
@@ -118,6 +129,11 @@ export function createInitialState(
   // seedIndependentIntoLegacyState so fresh-state and migration paths
   // produce byte-identical Independent RNG.
   rng.set(INDEPENDENT_HOUSE_ID, createRngState(`${seed}|independent`));
+  // P8: 3 per-rival RNG entries. Same `${seed}|${rivalHouseId}` string-concat
+  // form as Independent; mood drift + rival action both consume from these.
+  for (const [rivalId, rivalRng] of seeded.rivalRngEntries) {
+    rng.set(rivalId, rivalRng);
+  }
   const houses = new Map<HouseId, House>();
   for (const h of seeded.houses) houses.set(h.id, h);
   const characters = new Map<CharacterId, Character>();
@@ -126,6 +142,13 @@ export function createInitialState(
   // populated from BASELINE_STAFF via seedStartingFamily.
   const staff = new Map<StaffId, StaffMember>();
   for (const s of seeded.staff) staff.set(s.id, s);
+  // P8: patronesses, rivalActors, factionTensions, duels.
+  const patronesses = new Map<PatronessId, PatronessRecord>();
+  for (const p of PATRONESSES_FIXTURE) patronesses.set(p.id, p);
+  const rivalActors = new Map<HouseId, RivalActorState>();
+  for (const ra of seeded.rivalActors) rivalActors.set(ra.houseId, ra);
+  const factionTensions = new Map<FactionPairKey, number>();
+  for (const pair of FACTION_PAIRS) factionTensions.set(pair, 0);
   return {
     tick: 0,
     rng,
@@ -152,6 +175,14 @@ export function createInitialState(
     proposalsLog: new Map(),
     tutorAssignmentsLog: new Map(),
     pendingTutorTraitChoices: new Map(),
+    // P8: 5 patronesses, 3 rivalActors, 6 factionTensions (all 0), 0 duels.
+    patronesses,
+    rivalActors,
+    factionTensions,
+    duels: new Map<DuelId, Duel>(),
+    // P9: no active sprint on fresh state. Mounted as a side-effect of
+    // applySchemeResolutionPhase when a Seduction discovery roll lands true.
+    elopement: null,
   };
 }
 
@@ -223,13 +254,47 @@ export type StoreActions = {
     childCharacterId: CharacterId,
     chosenTraitId: TraitId,
   ) => { ok: true } | { ok: false; reason: ChooseTutorBonusTraitRejection };
+  // P8: demand-satisfaction → duel. Free action (no tick advance). Reads the
+  // grievance from the player's house (only the player can demand satisfaction
+  // at v1 — rival-perpetrated grievances live on PLAYER_HOUSE_ID's grievances
+  // array). Returns the resolved duel's id + outcome on success.
+  demandSatisfaction: (
+    perpetratorHouseId: HouseId,
+    grievanceId: GrievanceId,
+  ) =>
+    | { ok: true; duelId: DuelId; outcome: import("./entities").DuelOutcome }
+    | { ok: false; reason: DemandSatisfactionRejection };
+  // P9 elopement sprint actions. Free actions — no tick advance. The only
+  // mutations allowed while state.elopement !== null. push/freshHorses mutate
+  // tile positions; surrender always loses.
+  elopementPush: () => { ok: true } | { ok: false; reason: ElopementActionRejection };
+  elopementFreshHorses: () => { ok: true } | { ok: false; reason: ElopementFreshHorsesRejection };
+  elopementSurrender: () => { ok: true } | { ok: false; reason: ElopementActionRejection };
 };
+
+export type DemandSatisfactionRejection =
+  | { kind: "GrievanceNotFound" }
+  | { kind: "GrievanceAlreadyResolved" }
+  | { kind: "LegacyGrievanceUnactionable" }
+  | { kind: "ChallengerDead" }
+  | { kind: "DefenderDead" }
+  | { kind: "DefenderExiled" }
+  | { kind: "PlayerExiled" }
+  | { kind: "ElopementInProgress" };
 
 export type StoreState = GameState & StoreActions;
 
 export type SeasonStore = UseBoundStore<StoreApi<StoreState>>;
 
 // P7 imports.
+// P9 elopement imports.
+import {
+  type ElopementActionRejection,
+  type ElopementFreshHorsesRejection,
+  applyElopementFreshHorsesPure,
+  applyElopementPushPure,
+  applyElopementSurrenderPure,
+} from "../game/rules/elopement";
 import { type ProposalOutcome, applyProposalPure } from "../game/rules/proposal";
 import {
   type AssignTutorRejection,
@@ -241,6 +306,8 @@ import type { ConversationResponse } from "../llm/types";
 import { conversationOrchestrator } from "../runtime/conversationOrchestrator";
 import { conversationBus, publishCharacterDeaths } from "../runtime/events/conversation";
 import type { BallEntryRejection } from "../runtime/events/conversation";
+import { duelBus } from "../runtime/events/duels";
+import { elopementBus, publishElopementTransitions } from "../runtime/events/elopement";
 import {
   familyBus,
   publishArchetypeReclassificationsFromSuccession,
@@ -296,6 +363,18 @@ function overwriteFromGameState(draft: GameState, next: GameState): void {
   draft.proposalsLog = next.proposalsLog;
   draft.tutorAssignmentsLog = next.tutorAssignmentsLog;
   draft.pendingTutorTraitChoices = next.pendingTutorTraitChoices;
+  // P8: 4 new top-level Maps (patronesses, rivalActors, factionTensions, duels).
+  // Same fourth-surface trap as schemes (P5) and proposalsLog (P7) —
+  // schema↔projection↔selector trip-wire enforces top-level keyset equality;
+  // this helper is the write-side mirror. Without these four lines, every
+  // tick-advancing action silently clears the new Maps.
+  draft.patronesses = next.patronesses;
+  draft.rivalActors = next.rivalActors;
+  draft.factionTensions = next.factionTensions;
+  draft.duels = next.duels;
+  // P9 addition — the 5th surface of the quint-sync. Without this line, every
+  // tick-advancing action silently CLEARS state.elopement.
+  draft.elopement = next.elopement;
 }
 
 export function createStore({ seed }: { seed: string }): SeasonStore {
@@ -318,6 +397,15 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           });
           return;
         }
+        // P9 Q4 — ElopementInProgress gate. Void-publish to elopementBus.
+        if (exileGate.elopement !== null) {
+          elopementBus.publish({
+            kind: "ElopementBlocked",
+            tick: exileGate.tick,
+            attemptedAction: "advanceTick",
+          });
+          return;
+        }
         const before = get();
         const after = advanceTickPure(before);
         set((state) => {
@@ -331,6 +419,12 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // Assassination; happiness-phase slot 8 for temptation latch).
         publishMarriageTransitions(before, after);
         publishTemptationLatchTransitions(before, after);
+        // P9: applySchemeResolutionPhase can mount state.elopement on a
+        // discovered Seduction. Diff helper publishes ElopementStarted on
+        // the null → non-null transition. runYearPass does NOT call this
+        // helper (year-pass STEPS doesn't include scheme resolution + Q4
+        // gate blocks runYearPass when sprint already active).
+        publishElopementTransitions(before, after);
       },
       runYearPass: () => {
         const exileGate = get();
@@ -339,6 +433,17 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             kind: "PlayerExileBlocked",
             tick: exileGate.tick,
             action: "runYearPass",
+          });
+          return;
+        }
+        // P9 Q4 — ElopementInProgress gate. Branch-5 of pruneOrphaned-
+        // ConversationKeys is therefore unreachable through runYearPass at
+        // v1 (a future v1.5+ relaxation would need re-evaluation).
+        if (exileGate.elopement !== null) {
+          elopementBus.publish({
+            kind: "ElopementBlocked",
+            tick: exileGate.tick,
+            attemptedAction: "runYearPass",
           });
           return;
         }
@@ -372,6 +477,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
+        if (stateBefore.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
         const check = canTravel(stateBefore, PLAYER_HOUSE_ID, to);
         if (!check.ok) {
           locationBus.publish({
@@ -401,6 +509,16 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishCharacterDeaths(stateBefore, afterTick);
         publishSchemeTransitions(stateBefore, afterTick);
         publishWhisperTransitions(stateBefore, afterTick);
+        // P9 followup: P7 publisher-trio drift fix — marriage dissolutions
+        // (aging orphan-prune branch 3) and temptation-latch flips
+        // (happiness-drift phase slot 8) can both land during a P3 pre-tick
+        // wrapper's advanceTickPure chain. CLAUDE.md "5/5/6 publisher trio"
+        // claimed these fired on P3 wrappers but the calls were missing.
+        publishMarriageTransitions(stateBefore, afterTick);
+        publishTemptationLatchTransitions(stateBefore, afterTick);
+        // P9: applySchemeResolutionPhase can mount state.elopement on a
+        // discovered Seduction during this wrapper's advanceTickPure chain.
+        publishElopementTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       requestAudience: () => {
@@ -417,6 +535,21 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             outcome: exiledOutcome,
           });
           return { outcome: exiledOutcome };
+        }
+        // P9 Q4 — ElopementInProgress gate. requestAudience uses distinct
+        // AudienceOutcome.Denied{ reason } shape (NOT generic ok/reason).
+        if (stateBefore.elopement !== null) {
+          const elopementOutcome: AudienceOutcome = {
+            kind: "Denied",
+            reason: { kind: "ElopementInProgress" },
+          };
+          locationBus.publish({
+            kind: "RequestedAudience",
+            tick: stateBefore.tick,
+            houseId: PLAYER_HOUSE_ID,
+            outcome: elopementOutcome,
+          });
+          return { outcome: elopementOutcome };
         }
         const { state: afterAudience, outcome } = applyAudience(stateBefore, PLAYER_HOUSE_ID);
         // Denied path: state unchanged; no tick advance per cost-paid-only-on-
@@ -443,12 +576,19 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishCharacterDeaths(stateBefore, afterTick);
         publishSchemeTransitions(stateBefore, afterTick);
         publishWhisperTransitions(stateBefore, afterTick);
+        // P9 followup: see travel wrapper for rationale (CLAUDE.md 5/5/6 pin).
+        publishMarriageTransitions(stateBefore, afterTick);
+        publishTemptationLatchTransitions(stateBefore, afterTick);
+        publishElopementTransitions(stateBefore, afterTick);
         return { outcome };
       },
       escapeBankruptcy: () => {
         const stateBefore = get();
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (stateBefore.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const check = canEscapeBankruptcy(stateBefore, PLAYER_HOUSE_ID);
         if (!check.ok) {
@@ -473,12 +613,25 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishCharacterDeaths(stateBefore, afterTick);
         publishSchemeTransitions(stateBefore, afterTick);
         publishWhisperTransitions(stateBefore, afterTick);
+        // P9 followup: P7 publisher-trio drift fix — marriage dissolutions
+        // (aging orphan-prune branch 3) and temptation-latch flips
+        // (happiness-drift phase slot 8) can both land during a P3 pre-tick
+        // wrapper's advanceTickPure chain. CLAUDE.md "5/5/6 publisher trio"
+        // claimed these fired on P3 wrappers but the calls were missing.
+        publishMarriageTransitions(stateBefore, afterTick);
+        publishTemptationLatchTransitions(stateBefore, afterTick);
+        // P9: applySchemeResolutionPhase can mount state.elopement on a
+        // discovered Seduction during this wrapper's advanceTickPure chain.
+        publishElopementTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       refreshWardrobe: () => {
         const stateBefore = get();
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (stateBefore.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const check = canRefreshWardrobe(stateBefore, PLAYER_HOUSE_ID);
         if (!check.ok) {
@@ -503,6 +656,16 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishCharacterDeaths(stateBefore, afterTick);
         publishSchemeTransitions(stateBefore, afterTick);
         publishWhisperTransitions(stateBefore, afterTick);
+        // P9 followup: P7 publisher-trio drift fix — marriage dissolutions
+        // (aging orphan-prune branch 3) and temptation-latch flips
+        // (happiness-drift phase slot 8) can both land during a P3 pre-tick
+        // wrapper's advanceTickPure chain. CLAUDE.md "5/5/6 publisher trio"
+        // claimed these fired on P3 wrappers but the calls were missing.
+        publishMarriageTransitions(stateBefore, afterTick);
+        publishTemptationLatchTransitions(stateBefore, afterTick);
+        // P9: applySchemeResolutionPhase can mount state.elopement on a
+        // discovered Seduction during this wrapper's advanceTickPure chain.
+        publishElopementTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       // ── P4 ballroom actions ───────────────────────────────────────────
@@ -510,6 +673,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         const stateBefore = get();
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (stateBefore.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const player = stateBefore.houses.get(PLAYER_HOUSE_ID);
         if (player === undefined || player.currentLocation !== "Capital") {
@@ -689,6 +855,13 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           fauxPasGrievance = {
             id: `${PLAYER_HOUSE_ID}:FauxPas:${stateBefore.tick}:${fauxPasIndex}` as GrievanceId,
             perpetratorHouseId: PLAYER_HOUSE_ID,
+            // P8: faux-pas grievance defendant is the player head — at v1 the
+            // head is the only player-house character with ballroom-action
+            // affordance. Player-perpetrated so demandSatisfaction would
+            // reject as LegacyGrievanceUnactionable... wait, this is a NEW
+            // post-P8 grievance — set the defendant explicitly per the plan.
+            defendantCharacterId:
+              stateBefore.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId ?? null,
             source: "FauxPas",
             schemeId: null,
             recordedAtTick: stateBefore.tick,
@@ -859,6 +1032,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (state.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
+        if (state.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
         const result = tryStartScheme(state, PLAYER_HOUSE_ID, input);
         if (!result.ok) return { ok: false, reason: result.reason };
         set((draft) => {
@@ -882,6 +1058,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         const state = get();
         if (state.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (state.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         // P5 INVARIANT: cancellation ONLY mutates `status` + `resolvedAtTick`;
         // kind/owner/target fields unchanged. Reading from pre-set snapshot
@@ -911,6 +1090,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         const before = get();
         if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (before.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         // PINNED: ownerHouseId passed explicitly (PLAYER_HOUSE_ID at v1; P8
         // may extend to rival-owned whispers).
@@ -952,6 +1134,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
+        if (before.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
         const result = dismissWhisperPure(before, whisperId);
         if (!result.ok) return { ok: false, reason: result.reason };
         set((draft) => {
@@ -969,6 +1154,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         const before = get();
         if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (before.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const fromAssignment = before.staff.get(staffId)?.assignment;
         const result = tryAssignStaff(before, staffId, newAssignment);
@@ -992,6 +1180,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         const before = get();
         if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (before.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const result = trySpymasterMailIntercept(before);
         if (!result.ok) return { ok: false, reason: result.reason };
@@ -1043,6 +1234,15 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           });
           return { ok: false, reason: { kind: "PlayerExiled" } } as ProposalOutcome;
         }
+        // P9 Q4 — ElopementInProgress dual-fire (typed-return + void-publish).
+        if (stateBefore.elopement !== null) {
+          elopementBus.publish({
+            kind: "ElopementBlocked",
+            tick: stateBefore.tick,
+            attemptedAction: "proposeMarriage",
+          });
+          return { ok: false, reason: { kind: "ElopementInProgress" } } as ProposalOutcome;
+        }
         const { nextState, outcome } = applyProposalPure(stateBefore, targetCharacterId);
         if (!outcome.ok) {
           return outcome;
@@ -1079,12 +1279,16 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishTemptationLatchTransitions(stateBefore, tickAdvanced);
         publishCharacterDeaths(stateBefore, tickAdvanced);
         publishWhisperTransitions(stateBefore, tickAdvanced);
+        publishElopementTransitions(stateBefore, tickAdvanced);
         return outcome;
       },
       assignTutor: (childCharacterId: CharacterId, tutorCharacterId: CharacterId) => {
         const stateBefore = get();
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (stateBefore.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const result = applyAssignTutorPure(stateBefore, childCharacterId, tutorCharacterId);
         if (!result.ok) return { ok: false, reason: result.reason };
@@ -1105,6 +1309,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
+        if (stateBefore.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
         const result = applyChooseTutorBonusTraitPure(stateBefore, childCharacterId, chosenTraitId);
         if (!result.ok) return { ok: false, reason: result.reason };
         set((draft) => {
@@ -1116,6 +1323,201 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           traitId: chosenTraitId,
           tick: stateBefore.tick,
         });
+        return { ok: true };
+      },
+      // P8: demand-satisfaction → duel. Free action (no tick advance). Looks
+      // up the grievance on the PLAYER house (only player demands satisfaction
+      // at v1) cross-filtered by perpetratorHouseId. Validates all rejection
+      // gates first, then deducts reputation, creates the Duel entity, calls
+      // resolveDuel synchronously, writes the post-resolve state back, and
+      // fires publishers.
+      demandSatisfaction: (perpetratorHouseId: HouseId, grievanceId: GrievanceId) => {
+        const before = get();
+        // P9 Q4 — ElopementInProgress at the ABSOLUTE TOP (before grievance
+        // lookup). Sprint blocks the wrapper regardless of grievance state.
+        if (before.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        // Validation reads from `before` — no set yet.
+        const victimHouse = before.houses.get(PLAYER_HOUSE_ID);
+        if (victimHouse === undefined) {
+          return { ok: false, reason: { kind: "GrievanceNotFound" as const } };
+        }
+        const grievance = victimHouse.grievances.find(
+          (g) => g.id === grievanceId && g.perpetratorHouseId === perpetratorHouseId,
+        );
+        if (grievance === undefined) {
+          return { ok: false, reason: { kind: "GrievanceNotFound" as const } };
+        }
+        if (grievance.resolved) {
+          return { ok: false, reason: { kind: "GrievanceAlreadyResolved" as const } };
+        }
+        if (grievance.defendantCharacterId === null) {
+          return { ok: false, reason: { kind: "LegacyGrievanceUnactionable" as const } };
+        }
+        if (victimHouse.exiled) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        const perpHouse = before.houses.get(perpetratorHouseId);
+        if (perpHouse === undefined) {
+          return { ok: false, reason: { kind: "GrievanceNotFound" as const } };
+        }
+        if (perpHouse.exiled) {
+          return { ok: false, reason: { kind: "DefenderExiled" as const } };
+        }
+        const challenger = before.characters.get(victimHouse.headOfHouseCharacterId);
+        const defender = before.characters.get(grievance.defendantCharacterId);
+        if (challenger === undefined || !challenger.alive) {
+          return { ok: false, reason: { kind: "ChallengerDead" as const } };
+        }
+        if (defender === undefined || !defender.alive) {
+          return { ok: false, reason: { kind: "DefenderDead" as const } };
+        }
+
+        // Deduct reputation + construct Duel entity. Atomic per CLAUDE.md.
+        const newHouses = new Map(before.houses);
+        newHouses.set(PLAYER_HOUSE_ID, {
+          ...victimHouse,
+          reputation: clamp(
+            victimHouse.reputation + DUEL_DEMAND_SATISFACTION_REPUTATION_COST,
+            0,
+            100,
+          ),
+        });
+        const preResolveState: GameState = { ...before, houses: newHouses };
+        const duelId = makeDuelId(preResolveState, challenger.id, defender.id);
+        const newDuels = new Map(preResolveState.duels);
+        const initialDuel = {
+          id: duelId,
+          challengerCharacterId: challenger.id,
+          defenderCharacterId: defender.id,
+          grievanceId,
+          initiatedAtTick: preResolveState.tick,
+          status: "Active" as const,
+          resolvedAtTick: null,
+          outcome: null,
+          loserCasualty: "Unharmed" as const,
+          exchangesElapsed: 0,
+        };
+        newDuels.set(duelId, initialDuel);
+        const preResolveStateWithDuel: GameState = { ...preResolveState, duels: newDuels };
+
+        // Run the resolver synchronously. Uses challenger's house RNG.
+        const challengerRng = preResolveStateWithDuel.rng.get(PLAYER_HOUSE_ID);
+        if (challengerRng === undefined) {
+          return { ok: false, reason: { kind: "GrievanceNotFound" as const } };
+        }
+        const {
+          state: postResolveState,
+          finalDuel,
+          rngState: postRng,
+        } = resolveDuel(preResolveStateWithDuel, duelId, challengerRng);
+        const newRng = new Map(postResolveState.rng);
+        newRng.set(PLAYER_HOUSE_ID, postRng);
+        const after: GameState = { ...postResolveState, rng: newRng };
+
+        set((draft) => {
+          overwriteFromGameState(draft, after);
+        });
+
+        // Publishers AFTER set — event-bus discipline per P3 contract.
+        duelBus.publish({
+          kind: "DuelResolved",
+          tick: after.tick,
+          duelId,
+          outcome: finalDuel.outcome ?? "Stalemate",
+          loserCasualty: finalDuel.loserCasualty,
+          exchangesElapsed: finalDuel.exchangesElapsed,
+        });
+        if (finalDuel.outcome !== "Stalemate") {
+          duelBus.publish({
+            kind: "GrievanceResolved",
+            tick: after.tick,
+            grievanceId,
+            perpetratorHouseId,
+          });
+        }
+        if (finalDuel.loserCasualty === "Killed") {
+          publishCharacterDeaths(before, after);
+          publishWhisperTransitions(before, after);
+          publishMarriageTransitions(before, after);
+          publishTemptationLatchTransitions(before, after);
+        }
+        return {
+          ok: true,
+          duelId,
+          outcome: finalDuel.outcome ?? "Stalemate",
+        };
+      },
+      // ── P9: Elopement sprint actions ────────────────────────────────────
+      // Free actions — no tick advance. The ONLY mutations allowed while
+      // state.elopement !== null. Each direct-publishes ElopementProgressed
+      // or ElopementResolved on the elopementBus.
+      elopementPush: () => {
+        const before = get();
+        const result = applyElopementPushPure(before);
+        if (!("elopement" in result)) {
+          // Rejection path
+          return result;
+        }
+        const after = result;
+        set((state) => {
+          overwriteFromGameState(state, after);
+        });
+        // If the sprint resolved (state.elopement nulled), the resolveElopement-
+        // Terminal handled the effect — publish ElopementResolved directly.
+        if (before.elopement !== null && after.elopement === null) {
+          // Re-use the diff helper's publish path to avoid duplication.
+          publishElopementTransitions(before, after);
+        } else if (after.elopement !== null) {
+          elopementBus.publish({
+            kind: "ElopementProgressed",
+            tick: after.tick,
+            schemeId: after.elopement.schemeId,
+            action: "Push",
+            playerTilePosition: after.elopement.playerTilePosition,
+            fatherTilePosition: after.elopement.fatherTilePosition,
+            freshHorsesUsedCount: after.elopement.freshHorsesUsedCount,
+          });
+        }
+        return { ok: true };
+      },
+      elopementFreshHorses: () => {
+        const before = get();
+        const result = applyElopementFreshHorsesPure(before);
+        if (!("elopement" in result)) {
+          return result;
+        }
+        const after = result;
+        set((state) => {
+          overwriteFromGameState(state, after);
+        });
+        if (before.elopement !== null && after.elopement === null) {
+          publishElopementTransitions(before, after);
+        } else if (after.elopement !== null) {
+          elopementBus.publish({
+            kind: "ElopementProgressed",
+            tick: after.tick,
+            schemeId: after.elopement.schemeId,
+            action: "FreshHorses",
+            playerTilePosition: after.elopement.playerTilePosition,
+            fatherTilePosition: after.elopement.fatherTilePosition,
+            freshHorsesUsedCount: after.elopement.freshHorsesUsedCount,
+          });
+        }
+        return { ok: true };
+      },
+      elopementSurrender: () => {
+        const before = get();
+        if (before.elopement === null) {
+          return { ok: false, reason: { kind: "NoActiveSprint" as const } };
+        }
+        const after = applyElopementSurrenderPure(before);
+        set((state) => {
+          overwriteFromGameState(state, after);
+        });
+        // Surrender always terminates; publish ElopementResolved via diff helper.
+        publishElopementTransitions(before, after);
         return { ok: true };
       },
     })),
@@ -1156,5 +1558,14 @@ export function selectGameState(state: StoreState): GameState {
     proposalsLog: state.proposalsLog,
     tutorAssignmentsLog: state.tutorAssignmentsLog,
     pendingTutorTraitChoices: state.pendingTutorTraitChoices,
+    // P8 additions — quad-sync (schema/projection/selector/overwriteFromGameState).
+    // Forgetting these breaks save() (returns a partial GameState whose Zod
+    // parse against SaveV9Schema fails).
+    patronesses: state.patronesses,
+    rivalActors: state.rivalActors,
+    factionTensions: state.factionTensions,
+    duels: state.duels,
+    // P9 addition — quint-sync 3rd surface.
+    elopement: state.elopement,
   };
 }

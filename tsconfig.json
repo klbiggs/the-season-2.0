@@ -20,6 +20,14 @@
     "verbatimModuleSyntax": false,
     "types": ["vite/client", "vitest/globals"]
   },
-  "include": ["src", "tests", "eslint", "vite.config.ts", "vitest.config.ts", "vitest.setup.ts", "playwright.config.ts"],
+  "include": [
+    "src",
+    "tests",
+    "eslint",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "vitest.setup.ts",
+    "playwright.config.ts"
+  ],
   "exclude": ["node_modules", "dist", "playwright-report", "test-results"]
 }

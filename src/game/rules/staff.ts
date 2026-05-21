@@ -45,7 +45,8 @@ export type AssignStaffRejection =
   | { kind: "StaffNotFound"; staffId: StaffId }
   | { kind: "StaffBribedByRival"; staffId: StaffId }
   | { kind: "AssignmentInvalid"; rejectedAssignment: StaffAssignment }
-  | { kind: "PlayerExiled" };
+  | { kind: "PlayerExiled" }
+  | { kind: "ElopementInProgress" }; // P9 Q4
 
 export type SpymasterInterceptResult =
   | { ok: true; state: GameState }
@@ -55,7 +56,8 @@ export type SpymasterInterceptRejection =
   | { kind: "NoLivingSpymaster" }
   | { kind: "InsufficientWealth"; have: number; need: number }
   | { kind: "NoEligibleCourier" }
-  | { kind: "PlayerExiled" };
+  | { kind: "PlayerExiled" }
+  | { kind: "ElopementInProgress" }; // P9 Q4
 
 // ── Phase function (called from applyCourierAndStaffPhase) ───────────────
 

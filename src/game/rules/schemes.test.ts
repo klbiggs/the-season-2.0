@@ -70,6 +70,12 @@ function synthStateWith(overrides: Partial<GameState> = {}): GameState {
     proposalsLog: new Map(),
     tutorAssignmentsLog: new Map(),
     pendingTutorTraitChoices: new Map(),
+    // P8 defaults
+    patronesses: new Map(),
+    rivalActors: new Map(),
+    factionTensions: new Map(),
+    duels: new Map(),
+    elopement: null,
     ...overrides,
   };
 }
@@ -457,6 +463,12 @@ describe("two-pass resolver — Chaperone preempts Seduction", () => {
       proposalsLog: new Map(),
       tutorAssignmentsLog: new Map(),
       pendingTutorTraitChoices: new Map(),
+      // P8 defaults
+      patronesses: new Map(),
+      rivalActors: new Map(),
+      factionTensions: new Map(),
+      duels: new Map(),
+      elopement: null,
     };
     // Launch Seduction first (tick=0)
     const sed = tryStartScheme(state, PLAYER_HOUSE_ID, {
@@ -566,6 +578,12 @@ describe("selectAggressor — validation walk == aggressor walk invariant", () =
       proposalsLog: new Map(),
       tutorAssignmentsLog: new Map(),
       pendingTutorTraitChoices: new Map(),
+      // P8 defaults
+      patronesses: new Map(),
+      rivalActors: new Map(),
+      factionTensions: new Map(),
+      duels: new Map(),
+      elopement: null,
     };
     const result = tryStartScheme(state, PLAYER_HOUSE_ID, {
       kind: "Chaperone",

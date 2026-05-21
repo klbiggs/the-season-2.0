@@ -22,6 +22,8 @@ function rejectionProse(reason: TravelRejection): string {
       return "The route is blockaded during wartime.";
     case "PlayerExiled":
       return "Your house is exiled — no travel possible.";
+    case "ElopementInProgress":
+      return "Elopement in progress — travel is suspended.";
   }
 }
 

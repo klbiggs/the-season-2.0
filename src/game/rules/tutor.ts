@@ -16,6 +16,7 @@ import { type CharacterId, PLAYER_HOUSE_ID, type TraitId } from "../rng";
 
 export type AssignTutorRejection =
   | { kind: "PlayerExiled" }
+  | { kind: "ElopementInProgress" } // P9 Q4
   | { kind: "ChildNotFound" }
   | { kind: "ChildDead" }
   | { kind: "ChildAlreadyAdult" }
@@ -33,6 +34,7 @@ export type AssignTutorOutcome =
 
 export type ChooseTutorBonusTraitRejection =
   | { kind: "PlayerExiled" }
+  | { kind: "ElopementInProgress" } // P9 Q4
   | { kind: "NoPendingChoice" }
   | { kind: "InvalidTrait"; valid: readonly TraitId[] }
   | { kind: "ChildDead" };
