@@ -602,8 +602,9 @@ describe("selectAggressor — validation walk == aggressor walk invariant", () =
     if (!result.ok) throw new Error("unreachable");
     const scheme = result.state.schemes.get(result.schemeId);
     expect(scheme?.aggressorCharacterId).toBe(spymasterAunt.id);
+    if (scheme === undefined) throw new Error("scheme not found");
     // The aggressor must be the family member matching the prereq archetype.
-    const aggressor = result.state.characters.get(scheme!.aggressorCharacterId);
+    const aggressor = result.state.characters.get(scheme.aggressorCharacterId);
     expect(aggressor?.archetype).toBe("Spymaster");
     expect(aggressor?.alive).toBe(true);
     expect(aggressor?.houseId).toBe(PLAYER_HOUSE_ID);

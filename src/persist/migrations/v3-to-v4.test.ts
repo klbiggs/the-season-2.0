@@ -50,7 +50,9 @@ describe("migrate_v3_to_v4", () => {
 
   it("defaults the 5 new House fields", () => {
     const v4 = migrate_v3_to_v4(FIXTURE_V3);
-    const [, house] = v4.houses[0]!;
+    const firstEntry = v4.houses[0];
+    if (firstEntry === undefined) throw new Error("expected at least one house");
+    const [, house] = firstEntry;
     expect(house.currentLocation).toBe("Capital");
     expect(house.consecutiveTicksAtCurrentLocation).toBe(0);
     expect(house.lastAudienceTick).toBeNull();
@@ -60,7 +62,9 @@ describe("migrate_v3_to_v4", () => {
 
   it("preserves legacy House fields", () => {
     const v4 = migrate_v3_to_v4(FIXTURE_V3);
-    const [, house] = v4.houses[0]!;
+    const firstEntry = v4.houses[0];
+    if (firstEntry === undefined) throw new Error("expected at least one house");
+    const [, house] = firstEntry;
     expect(house.wealth).toBe(100);
     expect(house.reputation).toBe(50);
     expect(house.scandal).toBe(0);

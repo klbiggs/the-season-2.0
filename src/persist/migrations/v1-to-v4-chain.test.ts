@@ -35,7 +35,8 @@ describe("v1 → v4 chain via runMigrations(MIGRATIONS)", () => {
       // v4→v5. Player house only here).
       const playerTuple = v4.houses.find(([id]) => id === PLAYER_HOUSE_ID);
       expect(playerTuple).toBeDefined();
-      const house = playerTuple![1];
+      if (playerTuple === undefined) throw new Error("unreachable");
+      const house = playerTuple[1];
       expect(house.currentLocation).toBe("Capital");
       expect(house.consecutiveTicksAtCurrentLocation).toBe(0);
       expect(house.lastAudienceTick).toBeNull();

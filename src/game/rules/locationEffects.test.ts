@@ -7,6 +7,7 @@ import {
   RUSTIC_TRAIT_TICKS_AT_RURAL_ESTATE,
 } from "../constants";
 import { PLAYER_HOUSE_ID, type TraitId } from "../rng";
+import { getHouseOrThrow } from "../util/lookups";
 import { applyLocationEffectsPhase, getLocationDelta } from "./locationEffects";
 
 describe("getLocationDelta", () => {
@@ -60,7 +61,9 @@ describe("applyLocationEffectsPhase — Rustic trait acquisition", () => {
       character: { traits: [] },
     });
     const next = applyLocationEffectsPhase(state);
-    const head = next.characters.get(state.houses.get(PLAYER_HOUSE_ID)!.headOfHouseCharacterId);
+    const head = next.characters.get(
+      getHouseOrThrow(state, PLAYER_HOUSE_ID).headOfHouseCharacterId,
+    );
     expect(head?.traits).toContain("Rustic");
   });
 
@@ -70,7 +73,9 @@ describe("applyLocationEffectsPhase — Rustic trait acquisition", () => {
       character: { traits: [] },
     });
     const next = applyLocationEffectsPhase(state);
-    const head = next.characters.get(state.houses.get(PLAYER_HOUSE_ID)!.headOfHouseCharacterId);
+    const head = next.characters.get(
+      getHouseOrThrow(state, PLAYER_HOUSE_ID).headOfHouseCharacterId,
+    );
     expect(head?.traits).not.toContain("Rustic");
   });
 
@@ -80,7 +85,9 @@ describe("applyLocationEffectsPhase — Rustic trait acquisition", () => {
       character: { traits: ["Rustic" as TraitId] },
     });
     const next = applyLocationEffectsPhase(state);
-    const head = next.characters.get(state.houses.get(PLAYER_HOUSE_ID)!.headOfHouseCharacterId);
+    const head = next.characters.get(
+      getHouseOrThrow(state, PLAYER_HOUSE_ID).headOfHouseCharacterId,
+    );
     // Exactly one Rustic — no duplicate.
     expect(head?.traits.filter((t) => t === "Rustic")).toHaveLength(1);
   });
@@ -91,7 +98,9 @@ describe("applyLocationEffectsPhase — Rustic trait acquisition", () => {
       character: { traits: [] },
     });
     const next = applyLocationEffectsPhase(state);
-    const head = next.characters.get(state.houses.get(PLAYER_HOUSE_ID)!.headOfHouseCharacterId);
+    const head = next.characters.get(
+      getHouseOrThrow(state, PLAYER_HOUSE_ID).headOfHouseCharacterId,
+    );
     expect(head?.traits).not.toContain("Rustic");
   });
 });
