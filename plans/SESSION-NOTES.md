@@ -658,3 +658,36 @@ Items 6 and 8 remain partial:
 **Final tally:** 675 tests / 74 test files (up from 646/71 post-initial-P10; +29 new verification tests). All gates green: ✅ test ✅ lint (8 pre-existing warnings only) ✅ typecheck.
 
 **P10 promoted from 🚧 in progress → ✅ done in MASTER.md §6.**
+
+## P11 — closed 2026-05-23
+
+**Decisions made:**
+- Q3 (sibling-rival mechanic active in v1) resolved YES. Full mechanic + Inherited Secrets + Blood Feuds ship.
+- Promotion eligibility derives initial hostility via **trait-modified baseline** (50 + Jaded/Ambitious/Cunning/Pious modifiers, clamped [1, 100]) — the spec's "affection-delta" formula was non-derivable because `affectionMap` is house-keyed, not character-keyed (`src/game/conversation/types.ts:17`).
+- **No new top-level `GameState` fields** — three new fields live on `House` (`siblingRivals`, `inheritedSecrets`, `bloodFeuds`) with `.default([])` backward-compat. Quad-sync trip-wire untouched.
+- **Closure-capture STEP_BUILDERS** pattern in `runYearPassPure` — pre-succession head snapshot threads to `applySiblingRivalPromotionStep` via lexical closure rather than a transient `GameState` field. Avoids implicit-contract risk of `{ ...state }` spread propagation across STEPS.
+- **`HousePreV12Pre11Schema`** applied to SaveV7-V11 schemas — prevents the post-P11 widened `HouseSchema` from silently including the new ledger fields in legacy save shapes.
+- **`tryStartScheme.input`** widened with `skipSelfTargetGate` + `explicitAggressorCharacterId` for intra-house AutoSabotage routing (P8 field-widening precedent).
+- **`SatisfactionDemanded` resolutionKind dropped** — satisfaction-demanded is a duel-mint path at v1, not a separate resolution kind. `BloodFeud.resolutionKind` shipped as `"DuelWin" | "DuelLoss" | "GenerationalDecay"`.
+- **Branch 10 lazy-clone composition** with Branch 5 — `newHouses ??= new Map(state.houses)` is the canonical guard for multi-branch `state.houses` mutations in `pruneOrphanedConversationKeys`.
+
+**Open questions hit:**
+- Q3 — RESOLVED (see above).
+
+**Deferred / next-up:**
+- **Playwright e2e** — `tests/e2e/p11-sibling-rival-and-feud.spec.ts` not written. Per-RNG-override succession + reconciliation flow would round out the verification matrix.
+- **Per-tick PRNG draw-budget assertion** — surfacing-phase consumes 1 draw per unsurfaced secret (capped at MAX_INHERITED_SECRETS = 12); sibling-rival action loop consumes 1 draw per cooldown-eligible actor. Not pinned with an explicit draw-budget test.
+- **Sibling-rival ledger UI** — P14 owns this surface.
+- **Forger-death surfacing v1.5** — `pruneOrphanedConversationKeys` branch 6 (forger death) was documented as no-op symmetry at P10; a v1.5 "forger death auto-surfaces" rule would land here.
+
+**Files of note:**
+- `src/game/rules/siblingRivals.ts` — promotion + action loop + reconciliation pure rules
+- `src/game/rules/inheritedSecrets.ts` — accumulation + surfacing + blood-feud resolution wiring
+- `src/runtime/events/siblingRival.ts:80` + `src/runtime/events/inheritedSecret.ts` — bus partition + diff publishers
+- `src/persist/migrations/v11-to-v12.ts` — pure shape-transformation migration (zero RNG draws)
+- `src/persist/schema.ts:HousePreV12Pre11Schema` + `liftLegacyHousesFromV12Pre11` + `stripP11FieldsForLegacyEmit`
+- `src/game/rules/aging.ts:branches 9 + 10` — sibling-rival actor cleanup + rival die-out auto-resolve
+- `src/runtime/yearPass.ts:runYearPassPure` — closure-capture pre-succession snapshot pattern
+- `src/game/store.ts:reconcileSibling` — pre-tick player-elected action (10-publisher set)
+
+**Verification matrix exercised: 19/20 ✅** (item #14 30-run replay-stability covered indirectly by existing `replay-harness.test.ts` + `rng.replay.test.ts`; #12 satisfaction→duel pathway not exercised because integration spans store wrapper + duel resolution).

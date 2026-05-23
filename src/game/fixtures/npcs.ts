@@ -132,5 +132,10 @@ export function buildIndependentHouse(): House {
     // the neutral Crown affiliation; no patroness on this faction).
     hostility: 0,
     factionId: "faction-crown" as FactionId,
+    // P11: empty ledgers on Independent (sibling-rivals + inherited-secrets +
+    // blood-feuds only attach to the player house at v1).
+    siblingRivals: [],
+    inheritedSecrets: [],
+    bloodFeuds: [],
   };
 }

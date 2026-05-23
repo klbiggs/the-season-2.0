@@ -17,26 +17,43 @@
 // `tick` is read-only across the composition — none of the three sub-steps
 // mutate state.tick. The synthetic succession test depends on this.
 
+import type { CharacterId, HouseId } from "../game/rng";
 import { applyAgingStep } from "../game/rules/aging";
 import { applyConceptionStep } from "../game/rules/conception";
 import { applyMaturationStep } from "../game/rules/maturation";
+import { buildSiblingRivalPromotionStep } from "../game/rules/siblingRivals";
 import { applySuccessionStep } from "../game/rules/succession";
 import type { GameState } from "../game/store";
 
 type YearPassStep = (state: GameState) => GameState;
 
-// P7 inserts applyMaturationStep at slot 2 (between aging + succession).
-// aging-before-maturation: aging increments age; maturation reads exact-18
-// boundary. maturation-before-succession: succession's findAdultChildren now
-// returns adult children (via parent edges); a child crossing 18 same year
-// as their parent's death should be promotable.
-const STEPS: readonly YearPassStep[] = [
-  applyAgingStep,
-  applyMaturationStep,
-  applySuccessionStep,
-  applyConceptionStep,
-] as const;
+// P11: STEPS grows 4→5. applySiblingRivalPromotionStep inserts at slot 4
+// (between succession and conception). The step is built per-call via a
+// closure factory that captures the pre-succession head ids, so the promotion
+// body can identify "who was the dead head" after succession overwrites
+// house.headOfHouseCharacterId.
+//
+// Order constraints:
+//   - aging-before-maturation: aging increments age; maturation reads exact-18 boundary.
+//   - maturation-before-succession: children crossing 18 in the same year as
+//     parent's death become promotable.
+//   - succession-before-promotion (NEW at P11): promotion needs the new heir id
+//     (post-succession house.headOfHouseCharacterId).
+//   - promotion-before-conception (NEW at P11): no actual ordering dependency,
+//     but slot 4 keeps STEPS append-only per CLAUDE.md.
 
 export function runYearPassPure(state: GameState): GameState {
+  // P11: capture per-house head ids BEFORE STEPS run. The promotion step
+  // closes over this snapshot to identify dead-head vs new-heir.
+  const preSuccessionHeads: ReadonlyMap<HouseId, CharacterId> = new Map(
+    [...state.houses].map(([id, h]) => [id, h.headOfHouseCharacterId]),
+  );
+  const STEPS: readonly YearPassStep[] = [
+    applyAgingStep,
+    applyMaturationStep,
+    applySuccessionStep,
+    buildSiblingRivalPromotionStep(preSuccessionHeads),
+    applyConceptionStep,
+  ];
   return STEPS.reduce<GameState>((acc, step) => step(acc), state);
 }

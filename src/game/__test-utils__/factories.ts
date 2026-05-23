@@ -115,6 +115,10 @@ export function makeHouse(overrides: Partial<House> = {}): House {
     // P8 defaults — crown faction + zero hostility.
     hostility: 0,
     factionId: "faction-crown" as FactionId,
+    // P11 defaults — empty ledgers.
+    siblingRivals: [],
+    inheritedSecrets: [],
+    bloodFeuds: [],
     ...overrides,
   };
 }

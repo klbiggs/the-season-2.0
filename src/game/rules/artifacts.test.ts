@@ -532,10 +532,7 @@ describe("P10 artifact rules", () => {
       dead.set(familyMemberId, { ...fm, alive: false, diedAtTick: state.tick });
       const stateAfterDeath: GameState = { ...stateWithFamily, characters: dead };
       // Run the orphan-prune.
-      const pruned = pruneOrphanedConversationKeys(
-        stateAfterDeath,
-        new Set([familyMemberId]),
-      );
+      const pruned = pruneOrphanedConversationKeys(stateAfterDeath, new Set([familyMemberId]));
       // Artifact instance persists, ownerCharacterId flips to head.
       const post = expectDefined(pruned.artifactInstances.get(snuffboxId), "snuffbox post-prune");
       expect(post.ownerCharacterId).toBe(head.id);

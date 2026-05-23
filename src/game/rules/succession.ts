@@ -15,8 +15,9 @@ import { ADULTHOOD_AGE_IN_YEARS, SUCCESSION_REPUTATION_PENALTY } from "../consta
 import type { Character, GameState, House, MarriageRecord } from "../entities";
 import { classifyArchetype } from "../fixtures/archetypes";
 import { RIVAL_HOUSE_IDS_SET } from "../fixtures/rivals";
-import type { CharacterId } from "../rng";
+import { type CharacterId, PLAYER_HOUSE_ID } from "../rng";
 import { getMarriageOrThrow } from "../util/lookups";
+import { accumulateInheritedSecretsAtSuccession } from "./inheritedSecrets";
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -142,7 +143,15 @@ function processDeadHead(state: GameState, house: House, dead: Character): GameS
     characters.set(id, post);
   }
 
-  return { ...state, marriages, houses, characters };
+  // P11: accumulate inherited secrets from verified+weaponized whispers about
+  // the player house. Runs ONLY on the PROMOTED branch (heirless succession
+  // returns earlier — no future generations to inherit from) AND ONLY when the
+  // player house succeeds (PLAYER_HOUSE_ID gate inside the helper).
+  let next: GameState = { ...state, marriages, houses, characters };
+  if (house.id === PLAYER_HOUSE_ID) {
+    next = accumulateInheritedSecretsAtSuccession(next, dead.id, heir.id);
+  }
+  return next;
 }
 
 // `MarriageRecord` re-export keeps the import list self-documenting for callers.

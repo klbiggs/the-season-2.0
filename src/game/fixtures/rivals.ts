@@ -235,6 +235,10 @@ export function buildRivalHouse(seed: RivalHouseSeed): House {
     exiled: false,
     hostility: seed.startingHostility,
     factionId: seed.factionId,
+    // P11: rival houses don't carry P11 ledgers (only player house mints these at v1).
+    siblingRivals: [],
+    inheritedSecrets: [],
+    bloodFeuds: [],
   };
 }
 

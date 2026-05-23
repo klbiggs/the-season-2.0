@@ -19,6 +19,7 @@ import {
   SCHEME_FAILURE_REASONS,
   SCHEME_KINDS,
   SCHEME_STATUSES,
+  SIBLING_RIVAL_HOSTILITY_MAX,
   STAFF_ASSIGNMENTS,
   WEAPONIZATION_BRANCHES,
   WHISPER_STATUSES,
@@ -30,6 +31,7 @@ import { MoodSchema } from "./fixtures/moods";
 import { RoleSchema } from "./fixtures/roles";
 import {
   ArtifactInstanceIdSchema,
+  BloodFeudIdSchema,
   CharacterIdSchema,
   CourierPayloadIdSchema,
   DuelIdSchema,
@@ -38,10 +40,12 @@ import {
   ForgeryIdSchema,
   GrievanceIdSchema,
   HouseIdSchema,
+  InheritedSecretIdSchema,
   MarriageIdSchema,
   PatronessIdSchema,
   RngStateSchema,
   SchemeIdSchema,
+  SiblingRivalActorIdSchema,
   StaffIdSchema,
   ThiefAttemptIdSchema,
   TraitIdSchema,
@@ -75,6 +79,51 @@ export const GrievanceSchema = z.object({
   resolved: z.boolean(), // P8 ships duel resolution that flips this
 });
 export type Grievance = z.infer<typeof GrievanceSchema>;
+
+// P11: SiblingRivalState — per-promoted-sibling autonomous actor state. Stored
+// on House.siblingRivals array (only the player house owns sibling-rivals at v1
+// per spec §3 line 217 "internal antagonist within the dynasty").
+export const SiblingRivalStateSchema = z.object({
+  id: SiblingRivalActorIdSchema,
+  characterId: CharacterIdSchema,
+  hostility: z.number().int().min(0).max(SIBLING_RIVAL_HOSTILITY_MAX),
+  lastActionTick: z.number().int().nonnegative(),
+  reconciled: z.boolean(),
+  promotedAtTick: z.number().int().nonnegative(),
+});
+export type SiblingRivalState = z.infer<typeof SiblingRivalStateSchema>;
+
+// P11: InheritedSecret — multi-generation ledger entry on the player house.
+// Accumulated at succession from verified+weaponized whispers about the player
+// house. Surfaced per-tick via INHERITED_SECRET_SURFACING_PROBABILITY_BASIS_POINTS
+// roll. surfacedAgainstHouseId is a ONE-WAY LATCH.
+export const InheritedSecretSchema = z.object({
+  id: InheritedSecretIdSchema,
+  sourceWhisperId: WhisperIdSchema,
+  description: z.string(),
+  originatingGenerationCount: z.number().int().nonnegative(),
+  originatingTick: z.number().int().nonnegative(),
+  surfacedAgainstHouseId: HouseIdSchema.nullable(),
+  surfacedAtTick: z.number().int().nonnegative().nullable(),
+});
+export type InheritedSecret = z.infer<typeof InheritedSecretSchema>;
+
+// P11: BloodFeud — active feud minted on inherited-secret surfacing. Each
+// surfacing creates ONE BloodFeud + ONE Grievance with source="BloodFeud" on
+// the player house (linked via triggeringGrievanceId FK). Resolves via duel
+// resolution (covers satisfaction-demanded duel-mint path) OR generational decay
+// at BLOOD_FEUD_DECAY_TICKS_MAX ticks after incurredAtTick.
+export const BloodFeudSchema = z.object({
+  id: BloodFeudIdSchema,
+  offendingHouseId: HouseIdSchema,
+  triggeringSecretId: InheritedSecretIdSchema,
+  triggeringGrievanceId: GrievanceIdSchema,
+  incurredAtTick: z.number().int().nonnegative(),
+  resolved: z.boolean(),
+  resolvedAtTick: z.number().int().nonnegative().nullable(),
+  resolutionKind: z.enum(["DuelWin", "DuelLoss", "GenerationalDecay"]).nullable(),
+});
+export type BloodFeud = z.infer<typeof BloodFeudSchema>;
 
 export const HouseSchema = z.object({
   id: HouseIdSchema,
@@ -110,6 +159,14 @@ export const HouseSchema = z.object({
   // rebuild while preserving forward-compatibility.
   hostility: z.number().int().min(0).max(100).default(0),
   factionId: FactionIdSchema.default("faction-crown" as import("./rng").FactionId),
+  // P11 additions: three new per-house array fields. Player house owns all three;
+  // non-player houses default to empty (sibling-rivals only promote within the
+  // player dynasty; inherited-secrets ledger + blood-feuds attach to the player
+  // house per spec §4 line 541). All three use `.default([])` so legacy V1-V11
+  // saves missing these fields parse cleanly (P8 backward-compat shortcut).
+  siblingRivals: z.array(SiblingRivalStateSchema).default([]),
+  inheritedSecrets: z.array(InheritedSecretSchema).default([]),
+  bloodFeuds: z.array(BloodFeudSchema).default([]),
 });
 export type House = z.infer<typeof HouseSchema>;
 

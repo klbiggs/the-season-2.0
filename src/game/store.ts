@@ -316,6 +316,17 @@ export type StoreActions = {
   thwartTheft: (
     thiefAttemptId: ThiefAttemptId,
   ) => { ok: true; outcome: "Thwarted" | "Stolen" } | { ok: false; reason: ThwartRejection };
+  // P11: reconcile a sibling-rival. Pre-tick action (advances the tick on
+  // ok:true paths — Success + Failure). Costs `SIBLING_RIVAL_RECONCILIATION_WEALTH_COST`
+  // wealth + `_REPUTATION_COST` reputation regardless of outcome. Roll for
+  // success scales inversely with hostility. Failure bumps hostility by
+  // `SIBLING_RIVAL_HOSTILITY_PER_FAILED_RECONCILIATION` (clamped). Success
+  // flips `reconciled: true` AND `hostility: 0`.
+  reconcileSibling: (
+    siblingCharacterId: CharacterId,
+  ) =>
+    | { ok: true }
+    | { ok: false; reason: import("./rules/siblingRivals").ReconciliationRejection };
 };
 
 export type DemandSatisfactionRejection =
@@ -361,14 +372,20 @@ import {
   publishMarriageTransitions,
   publishTemptationLatchTransitions,
 } from "../runtime/events/family";
+import {
+  publishBloodFeudTransitions,
+  publishInheritedSecretTransitions,
+} from "../runtime/events/inheritedSecret";
 import { locationBus } from "../runtime/events/location";
 import { publishSchemeTransitions, schemeBus } from "../runtime/events/scheme";
+import { publishSiblingRivalTransitions, siblingRivalBus } from "../runtime/events/siblingRival";
 import { publishWhisperTransitions, whisperBus } from "../runtime/events/whispers";
 // Re-import here at the bottom of the file (cycle-avoidance pattern) — the
 // runtime layer imports rules layer, which is OK after store.ts symbols
 // have been declared above.
 import { advanceTickPure } from "../runtime/tickOrchestrator";
 import { runYearPassPure } from "../runtime/yearPass";
+import { applyReconciliationAttempt } from "./rules/siblingRivals";
 
 // Apply a full GameState swap to the immer draft. Used by every store
 // action that produces a new GameState via pure rules + orchestrator.
@@ -481,6 +498,11 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // + TheftResolved). runYearPass skips this — year-pass STEPS doesn't
         // include the artifact phases.
         publishArtifactTransitions(before, after);
+        // P11: 3 new publishers — sibling-rival (action phase + auto-reconciliation),
+        // inherited-secret (surfacing), and blood-feud (open/resolved).
+        publishSiblingRivalTransitions(before, after);
+        publishInheritedSecretTransitions(before, after);
+        publishBloodFeudTransitions(before, after);
       },
       runYearPass: () => {
         const exileGate = get();
@@ -523,6 +545,11 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishTemptationLatchTransitions(before, after);
         publishChildMaturationTransitions(before, after);
         publishArchetypeReclassificationsFromSuccession(before, after);
+        // P11: year-pass is the accumulation site (succession step) AND the
+        // promotion site (NEW STEPS slot 4). All three new publishers ride here.
+        publishSiblingRivalTransitions(before, after);
+        publishInheritedSecretTransitions(before, after);
+        publishBloodFeudTransitions(before, after);
       },
       replaceState: (next: GameState) =>
         set((state) => {
@@ -576,6 +603,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
         publishArtifactTransitions(stateBefore, afterTick);
+        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        publishSiblingRivalTransitions(stateBefore, afterTick);
+        publishInheritedSecretTransitions(stateBefore, afterTick);
+        publishBloodFeudTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       requestAudience: () => {
@@ -638,6 +669,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishTemptationLatchTransitions(stateBefore, afterTick);
         publishElopementTransitions(stateBefore, afterTick);
         publishArtifactTransitions(stateBefore, afterTick);
+        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        publishSiblingRivalTransitions(stateBefore, afterTick);
+        publishInheritedSecretTransitions(stateBefore, afterTick);
+        publishBloodFeudTransitions(stateBefore, afterTick);
         return { outcome };
       },
       escapeBankruptcy: () => {
@@ -682,6 +717,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
         publishArtifactTransitions(stateBefore, afterTick);
+        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        publishSiblingRivalTransitions(stateBefore, afterTick);
+        publishInheritedSecretTransitions(stateBefore, afterTick);
+        publishBloodFeudTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       refreshWardrobe: () => {
@@ -726,6 +765,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
         publishArtifactTransitions(stateBefore, afterTick);
+        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        publishSiblingRivalTransitions(stateBefore, afterTick);
+        publishInheritedSecretTransitions(stateBefore, afterTick);
+        publishBloodFeudTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       // ── P4 ballroom actions ───────────────────────────────────────────
@@ -1359,6 +1402,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishWhisperTransitions(stateBefore, tickAdvanced);
         publishElopementTransitions(stateBefore, tickAdvanced);
         publishArtifactTransitions(stateBefore, tickAdvanced);
+        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        publishSiblingRivalTransitions(stateBefore, tickAdvanced);
+        publishInheritedSecretTransitions(stateBefore, tickAdvanced);
+        publishBloodFeudTransitions(stateBefore, tickAdvanced);
         return outcome;
       },
       assignTutor: (childCharacterId: CharacterId, tutorCharacterId: CharacterId) => {
@@ -1675,6 +1722,41 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           outcome: result.outcome,
         });
         return { ok: true, outcome: result.outcome };
+      },
+      reconcileSibling: (siblingCharacterId: CharacterId) => {
+        const before = get();
+        const { nextState, outcome } = applyReconciliationAttempt(before, siblingCharacterId);
+        if (!outcome.ok) {
+          return { ok: false, reason: outcome.reason };
+        }
+        const after = advanceTickPure(nextState);
+        set((state) => {
+          overwriteFromGameState(state, after);
+        });
+        // 10-publisher set ride.
+        publishCharacterDeaths(before, after);
+        publishSchemeTransitions(before, after);
+        publishWhisperTransitions(before, after);
+        publishMarriageTransitions(before, after);
+        publishTemptationLatchTransitions(before, after);
+        publishElopementTransitions(before, after);
+        publishArtifactTransitions(before, after);
+        const reconciledKeys =
+          outcome.kind === "Success"
+            ? new Set([`reconciled:${siblingCharacterId}`])
+            : new Set<string>();
+        publishSiblingRivalTransitions(before, after, reconciledKeys);
+        publishInheritedSecretTransitions(before, after);
+        publishBloodFeudTransitions(before, after);
+        if (outcome.kind === "Success") {
+          siblingRivalBus.publish({
+            kind: "SiblingRivalReconciled",
+            tick: after.tick,
+            characterId: siblingCharacterId,
+            via: "Player",
+          });
+        }
+        return { ok: true };
       },
     })),
   );

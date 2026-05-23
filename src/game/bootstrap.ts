@@ -130,6 +130,12 @@ export function seedStartingFamily(
     // only on rival entries — predicate reads House.hostility for rivals).
     hostility: 0,
     factionId: "faction-crown" as FactionId,
+    // P11: empty ledgers at fresh state. Sibling-rivals only mint on succession
+    // (year-pass STEPS slot 4). Inherited secrets accumulate from succession.
+    // Blood feuds open via inherited-secret surfacing rolls.
+    siblingRivals: [],
+    inheritedSecrets: [],
+    bloodFeuds: [],
   };
 
   // P4: Independent house + 5 NPCs. Built from constants — no RNG draws.

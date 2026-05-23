@@ -33,6 +33,7 @@ import {
 } from "../rng";
 import { clamp } from "../util/clamp";
 import { pruneOrphanedConversationKeys } from "./aging";
+import { resolveBloodFeudByGrievance } from "./inheritedSecrets";
 
 export type ResolveDuelOptions = {
   forceParryEveryExchange?: boolean;
@@ -183,6 +184,16 @@ export function resolveDuel(
         workingState = { ...workingState, houses: newHouses };
       }
     }
+    // P11: mirror the grievance flip onto any BloodFeud linked via triggeringGrievanceId.
+    // resolutionKind derives from the duel outcome (challenger-perspective; player house
+    // is the holder for BloodFeud grievances per the surfacing-phase write).
+    const bloodFeudResolutionKind: "DuelWin" | "DuelLoss" =
+      outcome === "ChallengerVictory" ? "DuelWin" : "DuelLoss";
+    workingState = resolveBloodFeudByGrievance(
+      workingState,
+      duel.grievanceId,
+      bloodFeudResolutionKind,
+    );
   }
 
   // Write the resolved duel entity back to state.duels.

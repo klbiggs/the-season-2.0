@@ -22,11 +22,13 @@ import { applyForgerySurfacingPhase, applyThiefNoticePhase } from "../game/rules
 import { applyCourierAndStaffPhase } from "../game/rules/courier";
 import { applyEconomyPhase } from "../game/rules/economy";
 import { applyHappinessPhase } from "../game/rules/happiness";
+import { applyInheritedSecretSurfacingPhase } from "../game/rules/inheritedSecrets";
 import { applyLocationEffectsPhase } from "../game/rules/locationEffects";
 import { applyMoodDriftPhase } from "../game/rules/moods";
 import { applyPatronessErosionPhase } from "../game/rules/patronesses";
 import { applyRivalActionPhase } from "../game/rules/rivals";
 import { applySchemeResolutionPhase } from "../game/rules/schemes";
+import { applySiblingRivalActionPhase } from "../game/rules/siblingRivals";
 import type { GameState } from "../game/store";
 
 function identityPhase(state: GameState): GameState {
@@ -41,9 +43,9 @@ function advanceTickPhase(state: GameState): GameState {
 // this type for the runOrchestratorWithPhases injection seam.
 export type TickPhase = (state: GameState) => GameState;
 
-// P10: PHASES grows 10→12. applyForgerySurfacingPhase + applyThiefNoticePhase
-// insert at slots 10 + 11 (BEFORE rivals). applyRivalActionPhase shifts to
-// slot 12 — ALWAYS LAST per CLAUDE.md non-negotiable.
+// P11: PHASES grows 12→14. applySiblingRivalActionPhase +
+// applyInheritedSecretSurfacingPhase insert at slots 12 + 13 (BEFORE rivals).
+// applyRivalActionPhase shifts to slot 14 — ALWAYS LAST per CLAUDE.md non-negotiable.
 const PHASES: readonly TickPhase[] = [
   advanceTickPhase, // 1. time advance
   applyEconomyPhase, // 2. economy
@@ -56,7 +58,9 @@ const PHASES: readonly TickPhase[] = [
   applyPatronessErosionPhase, // 9. patroness erosion (NEW at P8)
   applyForgerySurfacingPhase, // 10. forgery surfacing roll (NEW at P10)
   applyThiefNoticePhase, // 11. thief notice + auto-resolve (NEW at P10)
-  applyRivalActionPhase, // 12. rival-house action roll (NEW at P8 — ALWAYS last)
+  applySiblingRivalActionPhase, // 12. sibling-rival action roll (NEW at P11)
+  applyInheritedSecretSurfacingPhase, // 13. inherited-secret surfacing + blood-feud decay (NEW at P11)
+  applyRivalActionPhase, // 14. rival-house action roll (NEW at P8 — ALWAYS last)
 ] as const;
 
 export function advanceTickPure(state: GameState): GameState {

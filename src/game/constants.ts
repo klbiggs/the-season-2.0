@@ -302,7 +302,9 @@ export type SchemeStatus = (typeof SCHEME_STATUSES)[number];
 export const SCHEME_FAILURE_REASONS = ["TargetDied", "Discovered", "EraFlipped"] as const;
 export type SchemeFailureReasonKind = (typeof SCHEME_FAILURE_REASONS)[number];
 
-export const GRIEVANCE_SOURCES = ["Sabotage", "FauxPas"] as const;
+// P11 widens GRIEVANCE_SOURCES with "BloodFeud" — the casus belli minted alongside
+// each BloodFeud entity at inherited-secret surfacing (plans/phases/11-sibling-rivals-secrets.md).
+export const GRIEVANCE_SOURCES = ["Sabotage", "FauxPas", "BloodFeud"] as const;
 export type GrievanceSource = (typeof GRIEVANCE_SOURCES)[number];
 
 // Spec §3 "Scheme Costs, Durations & Requirements" — pinned per the spec
@@ -690,4 +692,125 @@ if (PRE_BALL_COMPOSURE_PENALTY_PER_OUT_OF_SEASON_ARTIFACT < 0) {
   throw new Error(
     "PRE_BALL_COMPOSURE_PENALTY_PER_OUT_OF_SEASON_ARTIFACT < 0: bonus instead of penalty",
   );
+}
+
+// ============================================================================
+// P11 — Sibling Rivals & Inherited Secrets / Blood Feuds
+// plans/phases/11-sibling-rivals-secrets.md
+// ============================================================================
+
+// --- Sibling-Rival promotion + action loop (spec §3 lines 480-485) ---
+
+/** Initial hostility baseline at promotion (proxy for spec §3 line 480 "affection-delta"
+ *  formula; the original formula is non-derivable because affectionMap is house-keyed,
+ *  not character-keyed). Trait modifiers below produce the per-sibling differentiation. */
+export const SIBLING_RIVAL_PROMOTION_BASELINE_HOSTILITY = 50;
+
+/** Per-trait hostility modifiers applied at promotion. Clamped to [1, MAX] after summation. */
+export const SIBLING_RIVAL_TRAIT_HOSTILITY_JADED = 15;
+export const SIBLING_RIVAL_TRAIT_HOSTILITY_AMBITIOUS = 15;
+export const SIBLING_RIVAL_TRAIT_HOSTILITY_CUNNING = 10;
+export const SIBLING_RIVAL_TRAIT_HOSTILITY_PIOUS = -10;
+
+/** Per-action hostility decay (spec §3 line 483 "−2 per action"). */
+export const SIBLING_RIVAL_HOSTILITY_PER_ACTION = -2;
+
+/** Failed-reconciliation hostility delta (spec §3 line 483 "+5 on failed reconciliation"). */
+export const SIBLING_RIVAL_HOSTILITY_PER_FAILED_RECONCILIATION = 5;
+
+/** Action cooldown (spec §3 line 481): rivals act only when currentTick − lastActionTick ≥ this. */
+export const SIBLING_RIVAL_ACTION_COOLDOWN_TICKS = 5;
+
+/** Reconciliation costs (spec §3 line 485 "−50 wealth, −10 reputation per attempt"). */
+export const SIBLING_RIVAL_RECONCILIATION_WEALTH_COST = 50;
+export const SIBLING_RIVAL_RECONCILIATION_REPUTATION_COST = 10;
+
+/** Reconciliation success-probability slope endpoints (spec §3 line 485 "inverse hostility").
+ *  P(success) = AT_0 + (hostility / 100) × (AT_100 − AT_0). 0.9 at hostility 0 down to 0.1 at 100. */
+export const SIBLING_RIVAL_RECONCILIATION_SUCCESS_AT_HOSTILITY_0 = 0.9;
+export const SIBLING_RIVAL_RECONCILIATION_SUCCESS_AT_HOSTILITY_100 = 0.1;
+
+/** Hostility cap (spec §3 line 483 "clamped [0, 100]"). */
+export const SIBLING_RIVAL_HOSTILITY_MAX = 100;
+export const SIBLING_RIVAL_HOSTILITY_MIN = 0;
+
+/** Action-pool weights (spec §3 line 482, ordered heaviest → lightest).
+ *  Sum = 100; "no action" branch never fires (every cooldown-eligible tick rolls an action). */
+export const SIBLING_RIVAL_ACTION_WEIGHTS = {
+  GamblingDebt: 40,
+  LeakSecret: 30,
+  PettySabotage: 20,
+  AutoSabotageScheme: 10,
+} as const;
+export type SiblingRivalActionKind = keyof typeof SIBLING_RIVAL_ACTION_WEIGHTS;
+
+/** GamblingDebt action effect: wealth drain per fire. */
+export const SIBLING_RIVAL_GAMBLING_DEBT_WEALTH_DRAIN = 15;
+
+/** PettySabotage action effect: reputation drain per fire. */
+export const SIBLING_RIVAL_PETTY_SABOTAGE_REPUTATION_DRAIN = 2;
+
+// --- Inherited-Secrets ledger (spec §3 lines 498-503; §8 line 685) ---
+
+/** Ledger bound per §8 line 685. Twelve spans ~3 generations of typical play. */
+export const MAX_INHERITED_SECRETS = 12;
+
+/** Per-tick surfacing probability per active (unsurfaced) inherited-secret (spec §3 line 501).
+ *  Basis points format (P10 precedent): 50 / 10000 = 0.5%. */
+export const INHERITED_SECRET_SURFACING_PROBABILITY_BASIS_POINTS = 50;
+
+/** Hostility threshold for "hostile rival" picker eligibility (spec §3 line 501; §7 line 655). */
+export const BLOOD_FEUD_RIVAL_HOSTILITY_THRESHOLD = 40;
+
+/** Affection penalty per rival-associate at feud surfacing (spec §3 line 502 "large affection delta").
+ *  Magnitude is multiplied by associate count and applied to the single (rivalHouseId, playerHead)
+ *  affectionMap key, since affection is house-keyed (not per-character). */
+export const BLOOD_FEUD_AFFECTION_PENALTY_PER_ASSOCIATE = 20;
+
+/** Generational-decay resolution: feud auto-resolves N ticks after surfacing if not duel-resolved earlier. */
+export const BLOOD_FEUD_DECAY_TICKS_MAX = 50;
+
+// --- Module-load assertions ---
+
+if (Object.values(SIBLING_RIVAL_ACTION_WEIGHTS).some((w) => w <= 0)) {
+  throw new Error("SIBLING_RIVAL_ACTION_WEIGHTS: every weight must be positive");
+}
+{
+  const sumWeights = Object.values(SIBLING_RIVAL_ACTION_WEIGHTS).reduce((a, b) => a + b, 0);
+  if (sumWeights !== 100) {
+    throw new Error(
+      `SIBLING_RIVAL_ACTION_WEIGHTS sum ${sumWeights} !== 100: scaled-weight picker assumes total = 100`,
+    );
+  }
+}
+if (
+  SIBLING_RIVAL_PROMOTION_BASELINE_HOSTILITY <= 0 ||
+  SIBLING_RIVAL_PROMOTION_BASELINE_HOSTILITY > SIBLING_RIVAL_HOSTILITY_MAX
+) {
+  throw new Error(
+    "SIBLING_RIVAL_PROMOTION_BASELINE_HOSTILITY out of (0, MAX]: promotion baseline must be a positive hostility",
+  );
+}
+if (SIBLING_RIVAL_ACTION_COOLDOWN_TICKS <= 0) {
+  throw new Error("SIBLING_RIVAL_ACTION_COOLDOWN_TICKS must be positive");
+}
+if (MAX_INHERITED_SECRETS <= 0) {
+  throw new Error("MAX_INHERITED_SECRETS must be positive");
+}
+if (
+  INHERITED_SECRET_SURFACING_PROBABILITY_BASIS_POINTS <= 0 ||
+  INHERITED_SECRET_SURFACING_PROBABILITY_BASIS_POINTS >= 10000
+) {
+  throw new Error(
+    "INHERITED_SECRET_SURFACING_PROBABILITY_BASIS_POINTS out of (0, 10000): surfacing roll would be impossible or guaranteed",
+  );
+}
+if (BLOOD_FEUD_RIVAL_HOSTILITY_THRESHOLD < 0 || BLOOD_FEUD_RIVAL_HOSTILITY_THRESHOLD > 100) {
+  throw new Error("BLOOD_FEUD_RIVAL_HOSTILITY_THRESHOLD out of [0, 100]");
+}
+if (BLOOD_FEUD_AFFECTION_PENALTY_PER_ASSOCIATE <= 0) {
+  throw new Error("BLOOD_FEUD_AFFECTION_PENALTY_PER_ASSOCIATE must be positive");
+}
+if (BLOOD_FEUD_DECAY_TICKS_MAX <= 0) {
+  throw new Error("BLOOD_FEUD_DECAY_TICKS_MAX must be positive");
 }

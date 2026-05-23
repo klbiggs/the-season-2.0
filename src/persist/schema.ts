@@ -49,6 +49,7 @@ import {
   DuelIdSchema,
   FactionPairKeySchema,
   ForgeryIdSchema,
+  type HouseId,
   HouseIdSchema,
   INDEPENDENT_HOUSE_ID,
   MarriageIdSchema,
@@ -65,12 +66,11 @@ import {
 import { PLAYER_HOUSE_ID } from "../game/rng";
 import { DEFAULT_CAMPAIGN_NAME } from "../game/store";
 
-// Live save-format version. P10 bumps to 11 with 3 new top-level Maps
-// (artifactInstances, forgeries, thiefAttempts) + 1 new Character field
-// (equippedArtifactIds: z.array(...).default([])) + 1 new SchemeKind
-// (TreasonFraming). Legacy toSaveV1..V10 retain their literal `version: N`
-// writes; only toSaveV11 references SAVE_VERSION_CURRENT.
-export const SAVE_VERSION_CURRENT = 11 as const;
+// Live save-format version. P11 bumps to 12 with 3 new House ledger fields
+// (siblingRivals, inheritedSecrets, bloodFeuds) + GRIEVANCE_SOURCES widening
+// ("BloodFeud"). Legacy toSaveV1..V11 retain their literal `version: N` writes;
+// only toSaveV12 references SAVE_VERSION_CURRENT.
+export const SAVE_VERSION_CURRENT = 12 as const;
 
 // ── HousePreV4 (legacy on-disk House shape for V1/V2/V3 saves) ────────────
 // Omits the 5 P3-added fields (currentLocation, etc.) AND the P5 grievances
@@ -104,6 +104,10 @@ function defaultHouseV4Fields(h: HousePreV4): House {
     // hostility 0 + crown faction (player + Independent share this affiliation).
     hostility: 0,
     factionId: "faction-crown" as import("../game/rng").FactionId,
+    // P11: empty ledgers on legacy lift.
+    siblingRivals: [],
+    inheritedSecrets: [],
+    bloodFeuds: [],
   };
 }
 
@@ -123,7 +127,14 @@ function liftLegacyHouses(
 // extends the omit to also drop the new `exiled` field so legacy V4/V5
 // saves (which never carried exiled) still parse cleanly. Used by
 // SaveV4Schema + SaveV5Schema.
-const HousePreV6Schema = HouseSchema.omit({ grievances: true, exiled: true });
+const HousePreV6Schema = HouseSchema.omit({
+  grievances: true,
+  exiled: true,
+  // P11: also omit the three new ledger fields (V4/V5 saves predate them).
+  siblingRivals: true,
+  inheritedSecrets: true,
+  bloodFeuds: true,
+});
 type HousePreV6 = z.infer<typeof HousePreV6Schema>;
 
 function defaultHouseV6Fields(h: HousePreV6): House {
@@ -133,6 +144,10 @@ function defaultHouseV6Fields(h: HousePreV6): House {
     exiled: false,
     hostility: 0,
     factionId: "faction-crown" as import("../game/rng").FactionId,
+    // P11: empty ledgers on legacy lift.
+    siblingRivals: [],
+    inheritedSecrets: [],
+    bloodFeuds: [],
   };
 }
 
@@ -150,7 +165,13 @@ function liftLegacyHousesFromV6Pre(
 // V6 houses contain the 5 P3 fields + grievances but predate exiled.
 // HousePreV7 = HouseSchema.omit({ exiled: true }). Used by SaveV6Schema
 // (which becomes legacy at P6+). NOT exported — private to lift/migrate.
-const HousePreV7Schema = HouseSchema.omit({ exiled: true });
+const HousePreV7Schema = HouseSchema.omit({
+  exiled: true,
+  // P11: also omit the three new ledger fields (V6 saves predate them).
+  siblingRivals: true,
+  inheritedSecrets: true,
+  bloodFeuds: true,
+});
 type HousePreV7 = z.infer<typeof HousePreV7Schema>;
 
 function defaultHouseV7Fields(h: HousePreV7): House {
@@ -159,6 +180,10 @@ function defaultHouseV7Fields(h: HousePreV7): House {
     exiled: false,
     hostility: 0,
     factionId: "faction-crown" as import("../game/rng").FactionId,
+    // P11: empty ledgers on legacy lift.
+    siblingRivals: [],
+    inheritedSecrets: [],
+    bloodFeuds: [],
   };
 }
 
@@ -230,9 +255,67 @@ function stripExiledForLegacyEmit(
   return entries
     .filter(([id]) => !RIVAL_HOUSE_IDS_SET.has(id as import("../game/rng").HouseId))
     .map(([id, h]) => {
-      const { exiled: _e, ...rest } = h;
+      // P11 extension: also drop siblingRivals/inheritedSecrets/bloodFeuds —
+      // HousePreV7 (V6 target) predates all three.
+      const { exiled: _e, siblingRivals: _sr, inheritedSecrets: _is, bloodFeuds: _bf, ...rest } = h;
       return [id, rest as HousePreV7];
     });
+}
+
+// ── HousePreV12Pre11 (P11): legacy on-disk House shape for V7-V11 saves ───
+// V7-V11 saves predate the three P11 ledger fields (siblingRivals,
+// inheritedSecrets, bloodFeuds). HousePreV12Pre11 = HouseSchema.omit(those 3).
+// Used by SaveV7Schema..SaveV11Schema's `houses` tuple (post-P11; before P11
+// each referenced live HouseSchema directly — which now silently includes the
+// new fields after the live-schema widening).
+const HousePreV12Pre11Schema = HouseSchema.omit({
+  siblingRivals: true,
+  inheritedSecrets: true,
+  bloodFeuds: true,
+});
+type HousePreV12Pre11 = z.infer<typeof HousePreV12Pre11Schema>;
+
+// Defense-in-depth strip helper. Applied at every toSaveV7..V11 emitter so
+// the legacy-emit byte-identity holds when post-P11 GameState contains the
+// new ledger fields.
+function stripP11FieldsForLegacyEmit(
+  entries: ReadonlyArray<readonly [string, House]>,
+): Array<[string, HousePreV12Pre11]> {
+  return entries.map(([id, h]) => {
+    const { siblingRivals: _sr, inheritedSecrets: _is, bloodFeuds: _bf, ...rest } = h;
+    return [id, rest as HousePreV12Pre11];
+  });
+}
+
+// P11 helper: deserialize a HousePreV12Pre11 tuple array (legacy V7-V11 houses)
+// AND backfill the 3 P11 ledger fields with empty arrays. Used by all V7-V11
+// fromSaveV{N}Bare functions to lift legacy houses into post-P11 GameState shape.
+function liftLegacyHousesFromV12Pre11(
+  serialized: ReadonlyArray<readonly [string, HousePreV12Pre11]>,
+): GameState["houses"] {
+  const out: GameState["houses"] = new Map();
+  for (const [id, h] of serialized) {
+    out.set(id as HouseId, {
+      ...h,
+      siblingRivals: [],
+      inheritedSecrets: [],
+      bloodFeuds: [],
+    });
+  }
+  return out;
+}
+
+// P11 strip helper: legacy V5-V11 emit must filter out BloodFeud-sourced
+// grievances (the "BloodFeud" GrievanceSource value is V12+; legacy schemas'
+// z.enum(GRIEVANCE_SOURCES) parses against the post-P11 widened enum so the
+// emit-side filter is defense-in-depth + byte-identity).
+function stripBloodFeudGrievancesForLegacyEmit(
+  entries: ReadonlyArray<readonly [string, House]>,
+): Array<[string, House]> {
+  return entries.map(([id, h]) => [
+    id,
+    { ...h, grievances: h.grievances.filter((g) => g.source !== "BloodFeud") },
+  ]);
 }
 
 // ── CharacterPreV5 (P4): legacy on-disk Character shape for V2/V3/V4 saves
@@ -1008,7 +1091,7 @@ export const SaveV7Schema = z.object({
   version: z.literal(7),
   tick: z.number().int().nonnegative(),
   rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
-  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HousePreV12Pre11Schema])),
   characters: z.array(z.tuple([CharacterIdSchema, CharacterPreV8Schema])),
   marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
   campaignName: z.string(),
@@ -1047,8 +1130,11 @@ export function toSaveV7(state: GameState): SaveV7 {
   // P8: V7 predates rival houses + characters. Filter both out of the
   // legacy emit so the V9 seeder can re-add them with canonical fixture
   // identity (factionId, gender) on lift.
-  const housesLegacy = serializeRegistry(state.houses).filter(
-    ([id]) => !RIVAL_HOUSE_IDS_SET.has(id),
+  // P11: also strip BloodFeud-sourced grievances + the 3 P11 ledger fields.
+  const housesLegacy = stripP11FieldsForLegacyEmit(
+    stripBloodFeudGrievancesForLegacyEmit(
+      serializeRegistry(state.houses).filter(([id]) => !RIVAL_HOUSE_IDS_SET.has(id)),
+    ),
   );
   const charsLegacy = stripV8CharacterFieldsForLegacyEmit(
     serializeRegistry(state.characters).filter(([id]) => !RIVAL_CHARACTER_IDS_SET.has(id)),
@@ -1078,7 +1164,7 @@ export function fromSaveV7Bare(save: SaveV7): GameState {
   return {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
-    houses: deserializeRegistry(save.houses) as GameState["houses"],
+    houses: liftLegacyHousesFromV12Pre11(save.houses),
     characters: liftLegacyCharactersFromV8Pre(save.characters),
     marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
     campaignName: save.campaignName,
@@ -1130,7 +1216,7 @@ export const SaveV8Schema = z.object({
   version: z.literal(8),
   tick: z.number().int().nonnegative(),
   rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
-  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HousePreV12Pre11Schema])),
   characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
   marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
   campaignName: z.string(),
@@ -1150,8 +1236,11 @@ export type SaveV8 = z.infer<typeof SaveV8Schema>;
 export function toSaveV8(state: GameState): SaveV8 {
   // P8: SaveV8 is no longer current (V9 is). Emit literal version: 8.
   // V8 predates rivals — filter rival houses/chars/rng out of the legacy emit.
-  const housesLegacy = serializeRegistry(state.houses).filter(
-    ([id]) => !RIVAL_HOUSE_IDS_SET.has(id),
+  // P11: also strip BloodFeud-sourced grievances + the 3 P11 ledger fields.
+  const housesLegacy = stripP11FieldsForLegacyEmit(
+    stripBloodFeudGrievancesForLegacyEmit(
+      serializeRegistry(state.houses).filter(([id]) => !RIVAL_HOUSE_IDS_SET.has(id)),
+    ),
   );
   const charsLegacy = stripEquippedArtifactsForLegacyEmit(
     serializeRegistry(state.characters).filter(([id]) => !RIVAL_CHARACTER_IDS_SET.has(id)),
@@ -1197,7 +1286,7 @@ export function fromSaveV8Bare(save: SaveV8): GameState {
   > = {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
-    houses: deserializeRegistry(save.houses) as GameState["houses"],
+    houses: liftLegacyHousesFromV12Pre11(save.houses),
     characters: deserializeRegistry(save.characters) as GameState["characters"],
     marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
     campaignName: save.campaignName,
@@ -1268,7 +1357,7 @@ export const SaveV9Schema = z.object({
   version: z.literal(9),
   tick: z.number().int().nonnegative(),
   rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
-  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HousePreV12Pre11Schema])),
   characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
   marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
   campaignName: z.string(),
@@ -1295,7 +1384,10 @@ export function toSaveV9(state: GameState): SaveV9 {
     version: 9,
     tick: state.tick,
     rng: serializeRegistry(state.rng),
-    houses: serializeRegistry(state.houses),
+    // P11: strip the 3 P11 ledger fields + BloodFeud grievances from legacy emit.
+    houses: stripP11FieldsForLegacyEmit(
+      stripBloodFeudGrievancesForLegacyEmit(serializeRegistry(state.houses)),
+    ),
     characters: stripEquippedArtifactsForLegacyEmit(serializeRegistry(state.characters)),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
@@ -1324,7 +1416,7 @@ export function fromSaveV9Bare(
   return {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
-    houses: deserializeRegistry(save.houses) as GameState["houses"],
+    houses: liftLegacyHousesFromV12Pre11(save.houses),
     characters: deserializeRegistry(save.characters) as GameState["characters"],
     marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
     campaignName: save.campaignName,
@@ -1375,7 +1467,7 @@ export const SaveV10Schema = z.object({
   version: z.literal(10),
   tick: z.number().int().nonnegative(),
   rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
-  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HousePreV12Pre11Schema])),
   characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
   marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
   campaignName: z.string(),
@@ -1401,11 +1493,14 @@ export type SaveV10 = z.infer<typeof SaveV10Schema>;
 export function toSaveV10(state: GameState): SaveV10 {
   return SaveV10Schema.parse({
     // P10: V10 demoted to legacy; literal 10 (NOT SAVE_VERSION_CURRENT which
-    // is now 11). Only toSaveV11 references SAVE_VERSION_CURRENT.
+    // is now 12 post-P11). Only the live toSaveV{N} references SAVE_VERSION_CURRENT.
     version: 10,
     tick: state.tick,
     rng: serializeRegistry(state.rng),
-    houses: serializeRegistry(state.houses),
+    // P11: strip the 3 P11 ledger fields + BloodFeud grievances from legacy emit.
+    houses: stripP11FieldsForLegacyEmit(
+      stripBloodFeudGrievancesForLegacyEmit(serializeRegistry(state.houses)),
+    ),
     characters: stripEquippedArtifactsForLegacyEmit(serializeRegistry(state.characters)),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
@@ -1437,7 +1532,7 @@ export function fromSaveV10Bare(save: SaveV10): GameState {
   return {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
-    houses: deserializeRegistry(save.houses) as GameState["houses"],
+    houses: liftLegacyHousesFromV12Pre11(save.houses),
     characters: deserializeRegistry(save.characters) as GameState["characters"],
     marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
     campaignName: save.campaignName,
@@ -1489,7 +1584,7 @@ export const SaveV11Schema = z.object({
   version: z.literal(11),
   tick: z.number().int().nonnegative(),
   rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
-  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HousePreV12Pre11Schema])),
   characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
   marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
   campaignName: z.string(),
@@ -1517,6 +1612,121 @@ export type SaveV11 = z.infer<typeof SaveV11Schema>;
 
 export function toSaveV11(state: GameState): SaveV11 {
   return SaveV11Schema.parse({
+    // P11: V11 demoted to legacy; literal 11 (NOT SAVE_VERSION_CURRENT which
+    // is now 12). Only toSaveV12 references SAVE_VERSION_CURRENT.
+    version: 11,
+    tick: state.tick,
+    rng: serializeRegistry(state.rng),
+    // P11: strip the 3 P11 ledger fields + BloodFeud grievances from legacy emit.
+    houses: stripP11FieldsForLegacyEmit(
+      stripBloodFeudGrievancesForLegacyEmit(serializeRegistry(state.houses)),
+    ),
+    characters: serializeRegistry(state.characters),
+    marriages: serializeRegistry(state.marriages),
+    campaignName: state.campaignName,
+    era: state.era,
+    conversationHistory: serializeRegistry(state.conversationHistory),
+    affectionMap: serializeRegistry(state.affectionMap),
+    schemes: serializeRegistry(state.schemes),
+    whispers: serializeRegistry(state.whispers),
+    couriers: serializeRegistry(state.couriers),
+    staff: serializeRegistry(state.staff),
+    proposalsLog: serializeRegistry(state.proposalsLog),
+    tutorAssignmentsLog: serializeRegistry(state.tutorAssignmentsLog),
+    pendingTutorTraitChoices: serializeRegistry(state.pendingTutorTraitChoices),
+    patronesses: serializeRegistry(state.patronesses),
+    rivalActors: serializeRegistry(state.rivalActors),
+    factionTensions: serializeRegistry(state.factionTensions),
+    duels: serializeRegistry(state.duels),
+    elopement: state.elopement,
+    artifactInstances: serializeRegistry(state.artifactInstances),
+    forgeries: serializeRegistry(state.forgeries),
+    thiefAttempts: serializeRegistry(state.thiefAttempts),
+  });
+}
+
+// Bare deserialization: legacy V11 saves predate the 3 P11 House ledger fields.
+// liftLegacyHousesFromV12Pre11 backfills empty arrays for every house on lift.
+export function fromSaveV11Bare(save: SaveV11): GameState {
+  return {
+    tick: save.tick,
+    rng: deserializeRegistry(save.rng) as GameState["rng"],
+    houses: liftLegacyHousesFromV12Pre11(save.houses),
+    characters: deserializeRegistry(save.characters) as GameState["characters"],
+    marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
+    campaignName: save.campaignName,
+    era: save.era,
+    conversationHistory: deserializeRegistry(
+      save.conversationHistory,
+    ) as GameState["conversationHistory"],
+    affectionMap: deserializeRegistry(save.affectionMap) as GameState["affectionMap"],
+    schemes: deserializeRegistry(save.schemes) as GameState["schemes"],
+    whispers: deserializeRegistry(save.whispers) as GameState["whispers"],
+    couriers: deserializeRegistry(save.couriers) as GameState["couriers"],
+    staff: deserializeRegistry(save.staff) as GameState["staff"],
+    proposalsLog: deserializeRegistry(save.proposalsLog) as GameState["proposalsLog"],
+    tutorAssignmentsLog: deserializeRegistry(
+      save.tutorAssignmentsLog,
+    ) as GameState["tutorAssignmentsLog"],
+    pendingTutorTraitChoices: deserializeRegistry(
+      save.pendingTutorTraitChoices,
+    ) as GameState["pendingTutorTraitChoices"],
+    patronesses: deserializeRegistry(save.patronesses) as GameState["patronesses"],
+    rivalActors: deserializeRegistry(save.rivalActors) as GameState["rivalActors"],
+    factionTensions: deserializeRegistry(save.factionTensions) as GameState["factionTensions"],
+    duels: deserializeRegistry(save.duels) as GameState["duels"],
+    elopement: save.elopement,
+    artifactInstances: deserializeRegistry(
+      save.artifactInstances,
+    ) as GameState["artifactInstances"],
+    forgeries: deserializeRegistry(save.forgeries) as GameState["forgeries"],
+    thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
+  };
+}
+
+// Public wrapper. P11 has no bootstrap seeding (3 new House fields default empty),
+// so the wrapper just delegates to Bare. Symmetric with v10-to-v11's bootstrapArtifacts.
+export function fromSaveV11(save: SaveV11): GameState {
+  return fromSaveV11Bare(save);
+}
+
+// ── SaveV12 (P11 live format) ─────────────────────────────────────────────
+// Adds 3 new House ledger array fields (siblingRivals, inheritedSecrets, bloodFeuds)
+// + GRIEVANCE_SOURCES widening ("BloodFeud"). All three House fields use `.default([])`
+// per the P8/P9/P10 backward-compat precedent — no Pre-shape rebuild needed at parse,
+// but the strip cascade ensures legacy V7-V11 emit stays byte-identical.
+
+export const SaveV12Schema = z.object({
+  version: z.literal(12),
+  tick: z.number().int().nonnegative(),
+  rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])), // LIVE HouseSchema with P11 ledger fields
+  characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
+  marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
+  campaignName: z.string(),
+  era: z.enum(["Earlier", "Later"]),
+  conversationHistory: z.array(z.tuple([ConversationPairKeySchema, z.array(ExchangeSchema)])),
+  affectionMap: z.array(z.tuple([ConversationPairKeySchema, z.number().int().min(0).max(100)])),
+  schemes: z.array(z.tuple([SchemeIdSchema, SchemeSchema])),
+  whispers: z.array(z.tuple([WhisperIdSchema, WhisperSchema])),
+  couriers: z.array(z.tuple([CourierPayloadIdSchema, CourierPayloadSchema])),
+  staff: z.array(z.tuple([StaffIdSchema, StaffMemberSchema])),
+  proposalsLog: z.array(z.tuple([CharacterIdSchema, ProposalLogEntrySchema])),
+  tutorAssignmentsLog: z.array(z.tuple([CharacterIdSchema, TutorAssignmentLogEntrySchema])),
+  pendingTutorTraitChoices: z.array(z.tuple([CharacterIdSchema, PendingTutorTraitChoiceSchema])),
+  patronesses: z.array(z.tuple([PatronessIdSchema, PatronessRecordSchema])),
+  rivalActors: z.array(z.tuple([HouseIdSchema, RivalActorStateSchema])),
+  factionTensions: z.array(z.tuple([FactionPairKeySchema, z.number().int().min(0).max(100)])),
+  duels: z.array(z.tuple([DuelIdSchema, DuelSchema])),
+  elopement: ElopementSprintStateSchema.nullable(),
+  artifactInstances: z.array(z.tuple([ArtifactInstanceIdSchema, ArtifactInstanceSchema])),
+  forgeries: z.array(z.tuple([ForgeryIdSchema, ForgeryRecordSchema])),
+  thiefAttempts: z.array(z.tuple([ThiefAttemptIdSchema, ThiefAttemptSchema])),
+});
+export type SaveV12 = z.infer<typeof SaveV12Schema>;
+
+export function toSaveV12(state: GameState): SaveV12 {
+  return SaveV12Schema.parse({
     version: SAVE_VERSION_CURRENT,
     tick: state.tick,
     rng: serializeRegistry(state.rng),
@@ -1545,10 +1755,8 @@ export function toSaveV11(state: GameState): SaveV11 {
   });
 }
 
-// V11 IS the live format — pure deserialization, no Bare/wrap split (the
-// split exists only for legacy-demoted formats so the migration runner can
-// reuse the Bare half without re-seeding starting inventory).
-export function fromSaveV11(save: SaveV11): GameState {
+// V12 is the live format — no Bare/wrap split (no P12+ migration target yet).
+export function fromSaveV12(save: SaveV12): GameState {
   return {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],

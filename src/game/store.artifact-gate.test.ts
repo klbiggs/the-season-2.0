@@ -9,10 +9,10 @@
 
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
+import type { ElopementSprintState } from "./entities";
 import type { ArtifactInstanceId, CharacterId, SchemeId, ThiefAttemptId } from "./rng";
 import { PLAYER_HOUSE_ID } from "./rng";
 import { createStore } from "./store";
-import type { ElopementSprintState } from "./entities";
 
 const SYNTH_SPRINT: ElopementSprintState = {
   schemeId: "synth-scheme" as SchemeId,

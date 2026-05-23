@@ -54,6 +54,17 @@ export type StartSchemeInput = {
   // as in P5. ALL existing 10 call sites omit this field and preserve P5
   // behavior; only applyRivalActionPhase passes true.
   skipWealthDeduction?: boolean;
+  // P11: optional flag for sibling-rival AutoSabotageScheme to bypass the
+  // SelfTarget rejection (intra-house Sabotage IS the action's purpose).
+  // Default false → SelfTarget rejection still fires for player-elected paths
+  // attempting to sabotage own-house characters. Only set true by the
+  // sibling-rival action dispatcher.
+  skipSelfTargetGate?: boolean;
+  // P11: optional override for selectAggressor's archetype-gated pick. When
+  // set, the explicit aggressor is used as-is (no archetype validation, no
+  // walk). Sibling-rival paths pass their own characterId; player-elected
+  // paths leave undefined and selectAggressor runs normally.
+  explicitAggressorCharacterId?: CharacterId;
 };
 
 export type StartSchemeRejection =
@@ -269,7 +280,9 @@ export function tryStartScheme(
     if (!target.alive) {
       return { ok: false, reason: { kind: "TargetIsDead", targetId: targetCharacterId } };
     }
-    if (target.houseId === ownerHouseId) {
+    // P11: skipSelfTargetGate bypasses the SelfTarget rejection — sibling-rival
+    // AutoSabotageScheme is intra-house by design (actor in PLAYER house targets player head).
+    if (target.houseId === ownerHouseId && input.skipSelfTargetGate !== true) {
       return { ok: false, reason: { kind: "SelfTarget", targetId: targetCharacterId } };
     }
   }
@@ -278,7 +291,10 @@ export function tryStartScheme(
   // mutations land in the SAME returned state via shallow Map clones per
   // CLAUDE.md pure-rule structural-sharing contract.
   const durationTicks = SCHEME_TUNING[kind].durationTicks;
-  const aggressorCharacterId = selectAggressor(state, ownerHouseId, kind);
+  // P11: explicitAggressorCharacterId overrides selectAggressor's archetype-gated
+  // pick (sibling-rival passes its own characterId; player-elected paths leave undefined).
+  const aggressorCharacterId =
+    input.explicitAggressorCharacterId ?? selectAggressor(state, ownerHouseId, kind);
 
   // P9 Q2 gate — per-aggressor Seduction concurrency check.
   // Inserted post-selectAggressor (so aggressorCharacterId is in scope) and

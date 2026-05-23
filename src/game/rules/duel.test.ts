@@ -111,6 +111,9 @@ describe("resolveDuel — Stalemate skips grievance flip", () => {
       exiled: false,
       hostility: 0,
       factionId: "faction-crown" as import("../rng").FactionId,
+      siblingRivals: [],
+      inheritedSecrets: [],
+      bloodFeuds: [],
     });
     const stateWithHouse = { ...state, houses: newHouses };
     const { state: postState, finalDuel } = resolveDuel(stateWithHouse, duelId, rng, {

@@ -267,6 +267,72 @@ export function pruneOrphanedConversationKeys(
     newThiefAttempts.set(attempt.id, { ...attempt, thwarted: true, resolvedAtTick: state.tick });
   }
 
+  // ── P11 BRANCH 9: sibling-rival actor cleanup on dead sibling-character ──
+  // When a promoted sibling-rival dies, remove their entry from the player
+  // house's siblingRivals array. Lazy-clone the (already-cloned-or-not) houses
+  // accumulator; composes with branch 5 via `newHouses ??= ...` precedent.
+  {
+    const playerHouseView = (newHouses ?? state.houses).get(PLAYER_HOUSE_ID);
+    if (playerHouseView !== undefined && playerHouseView.siblingRivals.length > 0) {
+      const survivors = playerHouseView.siblingRivals.filter(
+        (sr) => !newlyDeadCharIds.has(sr.characterId),
+      );
+      if (survivors.length !== playerHouseView.siblingRivals.length) {
+        if (newHouses === null) newHouses = new Map(state.houses);
+        newHouses.set(PLAYER_HOUSE_ID, { ...playerHouseView, siblingRivals: survivors });
+      }
+    }
+  }
+
+  // ── P11 BRANCH 10: blood-feud auto-resolve on rival house die-out ──
+  // When ALL associated-characters of a rival house die (cumulative deaths),
+  // auto-resolve every Active blood-feud against that house with
+  // resolutionKind: "GenerationalDecay". The rival no longer has associates
+  // for the affection-penalty to bite, so the feud has nothing left to actuate.
+  // Reads associatedCharacterIds from the POST-BRANCH-4 state (newRivalActors).
+  {
+    const rivalsView = newRivalActors ?? state.rivalActors;
+    const playerHouseView = (newHouses ?? state.houses).get(PLAYER_HOUSE_ID);
+    if (playerHouseView !== undefined) {
+      for (const deadId of newlyDeadCharIds) {
+        const deadChar = state.characters.get(deadId);
+        if (deadChar === undefined) continue;
+        if (!RIVAL_HOUSE_IDS_SET.has(deadChar.houseId)) continue;
+        const rivalActor = rivalsView.get(deadChar.houseId);
+        if (rivalActor === undefined) continue;
+        // Filter alive associates against state.characters (deaths flipped pre-helper).
+        const aliveAssociates = rivalActor.associatedCharacterIds.filter((cid) => {
+          const c = state.characters.get(cid);
+          return c?.alive === true;
+        });
+        if (aliveAssociates.length !== 0) continue;
+        // Rival house dies-out. Flip every active feud against this rival to Resolved.
+        const currentPlayerHouse =
+          newHouses !== null
+            ? (newHouses.get(PLAYER_HOUSE_ID) ?? playerHouseView)
+            : playerHouseView;
+        const hasAnyOpenFeud = currentPlayerHouse.bloodFeuds.some(
+          (bf) => bf.offendingHouseId === deadChar.houseId && !bf.resolved,
+        );
+        if (!hasAnyOpenFeud) continue;
+        if (newHouses === null) newHouses = new Map(state.houses);
+        newHouses.set(PLAYER_HOUSE_ID, {
+          ...currentPlayerHouse,
+          bloodFeuds: currentPlayerHouse.bloodFeuds.map((bf) =>
+            bf.offendingHouseId === deadChar.houseId && !bf.resolved
+              ? {
+                  ...bf,
+                  resolved: true,
+                  resolvedAtTick: state.tick,
+                  resolutionKind: "GenerationalDecay" as const,
+                }
+              : bf,
+          ),
+        });
+      }
+    }
+  }
+
   return {
     ...state,
     conversationHistory: histFiltered,

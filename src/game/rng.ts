@@ -42,6 +42,14 @@ export type FactionPairKey = string & { readonly __brand: "FactionPairKey" };
 export type ArtifactInstanceId = string & { readonly __brand: "ArtifactInstanceId" };
 export type ForgeryId = string & { readonly __brand: "ForgeryId" };
 export type ThiefAttemptId = string & { readonly __brand: "ThiefAttemptId" };
+// P11: brands for the three new sibling-rival / inherited-secret / blood-feud
+// entities. SiblingRivalActorId is unique-by-construction (one actor per
+// promoted sibling Character). InheritedSecretId is index-counted per
+// (houseId, generation). BloodFeudId is unique per (secret, rival, surfacingTick)
+// to disambiguate re-surfacing of the same secret-rival pair across generations.
+export type SiblingRivalActorId = string & { readonly __brand: "SiblingRivalActorId" };
+export type InheritedSecretId = string & { readonly __brand: "InheritedSecretId" };
+export type BloodFeudId = string & { readonly __brand: "BloodFeudId" };
 
 // P3 (B1 fix): PLAYER_HOUSE_ID lives here, not in rng.seeds.ts, so that
 // src/game/rules/** can import it. rules → game-other is disallowed per
@@ -90,6 +98,12 @@ export const FactionPairKeySchema = z.string().transform((s) => s as FactionPair
 export const ArtifactInstanceIdSchema = z.string().transform((s) => s as ArtifactInstanceId);
 export const ForgeryIdSchema = z.string().transform((s) => s as ForgeryId);
 export const ThiefAttemptIdSchema = z.string().transform((s) => s as ThiefAttemptId);
+// P11: brand schemas for SiblingRivalActorId / InheritedSecretId / BloodFeudId.
+// These IDs are stored on House arrays (siblingRivals/inheritedSecrets/bloodFeuds),
+// NOT top-level Maps. Same `.transform` pattern; round-trip stability is byte-exact.
+export const SiblingRivalActorIdSchema = z.string().transform((s) => s as SiblingRivalActorId);
+export const InheritedSecretIdSchema = z.string().transform((s) => s as InheritedSecretId);
+export const BloodFeudIdSchema = z.string().transform((s) => s as BloodFeudId);
 
 export const RngStateSchema = z.object({
   seed: z.string(),

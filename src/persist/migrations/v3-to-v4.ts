@@ -39,6 +39,10 @@ export function migrate_v3_to_v4(save: SaveV3): SaveV4 {
         // player + Independent (no rivals at this migration step).
         hostility: 0,
         factionId: "faction-crown" as FactionId,
+        // P11: empty ledgers on legacy lift.
+        siblingRivals: [],
+        inheritedSecrets: [],
+        bloodFeuds: [],
       },
     ]),
     characters: save.characters,
