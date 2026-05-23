@@ -282,8 +282,8 @@ Every §3 capability is owned by exactly one phase:
 | Global Events | P13 |
 | Ledger View | P14 |
 | Save & Load | P0 scaffold; P2 migrations; all phases own their schema additions |
-| Wardrobe, Artifacts & Heirlooms | P10 |
-| Forgery & Theft | P10 |
+| Wardrobe, Artifacts & Heirlooms | P10 rules + P14 ledger tab |
+| Forgery & Theft | P10 rules + P14 ledger tab |
 | Treason Framing | P10 |
 | Hyde Park Daytime Promenade | P12 |
 | Staff Espionage (Downstairs Network) | P6 |
