@@ -10,11 +10,32 @@
 //
 // Draw budget: ZERO. Every default is a literal constant.
 
-import { type SaveV5, type SaveV6, fromSaveV5, toSaveV6 } from "../schema";
+// P10: switched from `fromSaveV5` (public wrap) to `fromSaveV5Bare` + inline
+// seeders for the same reason as migrate_v4_to_v5 (avoid bootstrap
+// contamination during the chain — see v4-to-v5.ts header).
+import {
+  type SaveV5,
+  type SaveV6,
+  fromSaveV5Bare,
+  seedRivalsAndPatronessesIntoLegacyState,
+  seedSchemesAndGrievancesIntoLegacyState,
+  seedWhispersCouriersStaffIntoLegacyState,
+  toSaveV6,
+} from "../schema";
+
+function extractPlayerSeed(save: SaveV5): string {
+  const entry = save.rng.find(([id]) => id === "player");
+  if (entry === undefined) throw new Error("migrate_v5_to_v6: save.rng has no player entry");
+  return entry[1].seed;
+}
 
 export function migrate_v5_to_v6(save: SaveV5): SaveV6 {
-  // fromSaveV5 already composes Bare + seedSchemesAndGrievances; no further
-  // seeding needed. The result is a fully-formed V6 GameState ready to
-  // reserialize.
-  return toSaveV6(fromSaveV5(save));
+  const playerSeed = extractPlayerSeed(save);
+  const lifted = seedRivalsAndPatronessesIntoLegacyState(
+    seedWhispersCouriersStaffIntoLegacyState(
+      seedSchemesAndGrievancesIntoLegacyState(fromSaveV5Bare(save)),
+    ),
+    playerSeed,
+  );
+  return toSaveV6({ ...lifted, elopement: null });
 }

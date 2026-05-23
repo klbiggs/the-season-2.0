@@ -13,15 +13,17 @@
 import { ELOPEMENT_LOSS_SCANDAL_DELTA } from "../constants";
 import { parsePairKey } from "../conversation/types";
 import type {
+  ArtifactInstance,
   Character,
   ElopementSprintState,
   GameState,
   House,
   RivalActorState,
+  ThiefAttempt,
 } from "../entities";
 import { RIVAL_HOUSE_IDS_SET } from "../fixtures/rivals";
 import { PLAYER_HOUSE_ID } from "../rng";
-import type { CharacterId, HouseId } from "../rng";
+import type { ArtifactInstanceId, CharacterId, HouseId, ThiefAttemptId } from "../rng";
 import { clamp } from "../util/clamp";
 
 // === VERBATIM MIGRATION of the heir-promotion safety block from
@@ -189,6 +191,82 @@ export function pruneOrphanedConversationKeys(
     }
   }
 
+  // ── P10 BRANCH 6: forger death — no-op walk (documented for symmetry) ──
+  // Forgeries PERSIST past forger death (mirrors the P6 "Weaponized whispers
+  // persist past subject death" precedent — "you can't unprint the news";
+  // once forged the artifact stays forged). NO mutation. The branch is
+  // documented for future-proofing: a v1.5 "forger death surfaces the
+  // forgery" rule would land here.
+
+  // ── P10 BRANCH 7: equipped-artifact-owner death ──
+  // Walk dead characters' equippedArtifactIds (after the branch-1/2 mutation
+  // pass for the character record itself). For each instance: REMOVE from the
+  // dead character's equippedArtifactIds AND flip ownerCharacterId to a
+  // deterministic fallback (house head if alive, else lex-first living
+  // family member, else stranded at dead.id for future P15 dynasty-collapse
+  // logic). The instance persists in state.artifactInstances (never delete).
+  let newArtifactInstances: Map<ArtifactInstanceId, ArtifactInstance> | null = null;
+  // (chars already cloned at branch 1/2 if needed; reuse newChars accumulator).
+  for (const deadId of newlyDeadCharIds) {
+    const deadChar = (charactersChanged ? newChars : state.characters).get(deadId);
+    if (!deadChar) continue;
+    if (deadChar.equippedArtifactIds.length === 0) {
+      // Still check if the dead character OWNS any artifacts (not equipped).
+      // Walk artifactInstances; if any has ownerCharacterId === deadId, flip
+      // the owner per the fallback chain.
+      for (const inst of state.artifactInstances.values()) {
+        if (inst.ownerCharacterId !== deadId) continue;
+        const newOwner = pickArtifactInheritor(
+          state,
+          deadChar,
+          charactersChanged ? newChars : state.characters,
+        );
+        if (newOwner === deadId) continue; // stranded
+        if (newArtifactInstances === null) {
+          newArtifactInstances = new Map(state.artifactInstances);
+        }
+        newArtifactInstances.set(inst.id, { ...inst, ownerCharacterId: newOwner });
+      }
+      continue;
+    }
+    // Compute the new owner for inherited artifacts (and reset dead's equipped).
+    const newOwner = pickArtifactInheritor(
+      state,
+      deadChar,
+      charactersChanged ? newChars : state.characters,
+    );
+    if (!charactersChanged) {
+      newChars = new Map(state.characters);
+      charactersChanged = true;
+    }
+    const currentDead = newChars.get(deadId);
+    if (currentDead) {
+      newChars.set(deadId, { ...currentDead, equippedArtifactIds: [] });
+    }
+    // Walk all instances owned by deadChar (equipped + unequipped) and update.
+    for (const inst of state.artifactInstances.values()) {
+      if (inst.ownerCharacterId !== deadId) continue;
+      if (newOwner === deadId) continue; // stranded — no change
+      if (newArtifactInstances === null) {
+        newArtifactInstances = new Map(state.artifactInstances);
+      }
+      newArtifactInstances.set(inst.id, { ...inst, ownerCharacterId: newOwner });
+    }
+  }
+
+  // ── P10 BRANCH 8: in-flight thief attempts vs dead owner ──
+  // When a dead character was the owner of an in-flight ThiefAttempt,
+  // auto-thwart it (target permanently unavailable — no one to steal from).
+  let newThiefAttempts: Map<ThiefAttemptId, ThiefAttempt> | null = null;
+  for (const attempt of state.thiefAttempts.values()) {
+    if (attempt.thwarted !== null) continue;
+    if (!newlyDeadCharIds.has(attempt.ownerCharacterId)) continue;
+    if (newThiefAttempts === null) {
+      newThiefAttempts = new Map(state.thiefAttempts);
+    }
+    newThiefAttempts.set(attempt.id, { ...attempt, thwarted: true, resolvedAtTick: state.tick });
+  }
+
   return {
     ...state,
     conversationHistory: histFiltered,
@@ -199,7 +277,34 @@ export function pruneOrphanedConversationKeys(
     ...(newRivalActors !== null ? { rivalActors: newRivalActors } : {}),
     ...(newHouses !== null ? { houses: newHouses } : {}),
     ...(newElopement !== undefined ? { elopement: newElopement } : {}),
+    ...(newArtifactInstances !== null ? { artifactInstances: newArtifactInstances } : {}),
+    ...(newThiefAttempts !== null ? { thiefAttempts: newThiefAttempts } : {}),
   };
+}
+
+// P10 Branch 7 helper. Returns:
+//   1. house head if alive
+//   2. else lex-first living family member of the same house (excluding dead)
+//   3. else dead.id (stranded — documented terminal case)
+function pickArtifactInheritor(
+  state: GameState,
+  deadChar: { id: CharacterId; houseId: HouseId },
+  liveChars: ReadonlyMap<CharacterId, { id: CharacterId; alive: boolean; houseId: HouseId }>,
+): CharacterId {
+  const house = state.houses.get(deadChar.houseId);
+  if (house) {
+    const head = liveChars.get(house.headOfHouseCharacterId);
+    if (head?.alive && head.id !== deadChar.id) return head.id;
+  }
+  const candidates: CharacterId[] = [];
+  for (const ch of liveChars.values()) {
+    if (ch.houseId !== deadChar.houseId) continue;
+    if (!ch.alive) continue;
+    if (ch.id === deadChar.id) continue;
+    candidates.push(ch.id);
+  }
+  candidates.sort((a, b) => a.localeCompare(b));
+  return candidates[0] ?? deadChar.id;
 }
 
 export function applyAgingStep(state: GameState): GameState {

@@ -29,11 +29,13 @@ import { LocationIdSchema } from "./fixtures/locations";
 import { MoodSchema } from "./fixtures/moods";
 import { RoleSchema } from "./fixtures/roles";
 import {
+  ArtifactInstanceIdSchema,
   CharacterIdSchema,
   CourierPayloadIdSchema,
   DuelIdSchema,
   FactionIdSchema,
   FactionPairKeySchema,
+  ForgeryIdSchema,
   GrievanceIdSchema,
   HouseIdSchema,
   MarriageIdSchema,
@@ -41,6 +43,7 @@ import {
   RngStateSchema,
   SchemeIdSchema,
   StaffIdSchema,
+  ThiefAttemptIdSchema,
   TraitIdSchema,
   WhisperIdSchema,
 } from "./rng";
@@ -156,6 +159,13 @@ export const CharacterSchema = z.object({
   // Bootstrap path derives via hashCharIdToGender(id) — single source of truth
   // with the legacy-lift path so v1→v8 chain hash parity holds.
   gender: z.enum(["Female", "Male"]),
+  // P10 addition. Per-character equipment list. Order is hash-relevant (the
+  // array is preserved as-is on serialization; mid-equip rearrangement
+  // advances the hash). Equip is a strict subset of own: every entry must
+  // resolve to a state.artifactInstances entry whose ownerCharacterId === this
+  // character.id. Default `[]` via Zod backfill so legacy V1-V10 characters
+  // parse cleanly without a Pre-shape rebuild (P8 precedent).
+  equippedArtifactIds: z.array(ArtifactInstanceIdSchema).default([]),
 });
 export type Character = z.infer<typeof CharacterSchema>;
 
@@ -368,6 +378,49 @@ export const ElopementSprintStateSchema = z.object({
 });
 export type ElopementSprintState = z.infer<typeof ElopementSprintStateSchema>;
 
+// P10 entities — per-instance artifact, forgery record, thief attempt. All
+// three live as top-level GameState Maps; definitions for ArtifactInstance
+// reference ARTIFACT_REGISTRY (fixture, NOT in state) via definitionId.
+
+// Per-instance artifact entity. The instance carries the wardrobe-decay
+// clock (per-instance, NOT per-house) so a refresh resets every equipped
+// instance and an unequipped instance's clock stays frozen.
+export const ArtifactInstanceSchema = z.object({
+  id: ArtifactInstanceIdSchema,
+  definitionId: z.string(), // FK into ARTIFACT_REGISTRY
+  ownerHouseId: HouseIdSchema,
+  ownerCharacterId: CharacterIdSchema,
+  lastRefreshTick: z.number().int().nonnegative(),
+  forgedFlag: z.boolean(), // true ⇔ a ForgeryRecord references this instance
+});
+export type ArtifactInstance = z.infer<typeof ArtifactInstanceSchema>;
+
+// Per spec §4 line 554. ONE-WAY LATCH on `surfaced` (false → true). Dual
+// entry-point: surfacing roll (`applyForgerySurfacingPhase`) AND Treason
+// Framing consumption (`applySchemeResolutionPhase`).
+export const ForgeryRecordSchema = z.object({
+  id: ForgeryIdSchema,
+  forgedArtifactInstanceId: ArtifactInstanceIdSchema,
+  forgerCharacterId: CharacterIdSchema, // spec §3 line 180 — recorded at commission
+  forgedAtTick: z.number().int().nonnegative(),
+  surfaced: z.boolean(),
+  surfacedAtTick: z.number().int().nullable(),
+});
+export type ForgeryRecord = z.infer<typeof ForgeryRecordSchema>;
+
+// Per spec §4 line 555. Carries in-flight AND historical entries; status
+// is encoded by `thwarted: boolean | null` (null = in-flight, awaiting
+// thwart decision; true|false = resolved).
+export const ThiefAttemptSchema = z.object({
+  id: ThiefAttemptIdSchema,
+  targetedArtifactInstanceId: ArtifactInstanceIdSchema,
+  ownerCharacterId: CharacterIdSchema, // owner at notice-time
+  noticedAtTick: z.number().int().nonnegative(),
+  thwarted: z.boolean().nullable(),
+  resolvedAtTick: z.number().int().nullable(),
+});
+export type ThiefAttempt = z.infer<typeof ThiefAttemptSchema>;
+
 // GameState lives here (not in store.ts) so the rule layer can import it.
 // store.ts re-exports GameState/GameStateSchema for P0-era callers.
 //
@@ -434,5 +487,12 @@ export const GameStateSchema = z.object({
   // unreachable; the singleton matches the spec's overlay-route framing.
   // Hash-relevant when non-null (mid-sprint save/load reproduces tile state).
   elopement: ElopementSprintStateSchema.nullable(),
+  // P10 additions — three new top-level Maps. All hit the quint-sync surfaces
+  // (CLAUDE.md non-negotiable: schema/hashableState/selectGameState/
+  // overwriteFromGameState + createInitialState). Player-only ownership at v1
+  // (rivals don't equip artifacts; see "Rival participation gate" in plan).
+  artifactInstances: z.map(ArtifactInstanceIdSchema, ArtifactInstanceSchema),
+  forgeries: z.map(ForgeryIdSchema, ForgeryRecordSchema),
+  thiefAttempts: z.map(ThiefAttemptIdSchema, ThiefAttemptSchema),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

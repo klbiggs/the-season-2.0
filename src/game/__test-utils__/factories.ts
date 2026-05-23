@@ -4,8 +4,25 @@
 // test files (which are in boundaries/ignore), so the import-site escapes
 // the boundary check.
 
-import type { Character, GameState, House, MarriageRecord } from "../entities";
-import type { CharacterId, FactionId, HouseId, MarriageId, RngState } from "../rng";
+import type {
+  ArtifactInstance,
+  Character,
+  ForgeryRecord,
+  GameState,
+  House,
+  MarriageRecord,
+  ThiefAttempt,
+} from "../entities";
+import type {
+  ArtifactInstanceId,
+  CharacterId,
+  FactionId,
+  ForgeryId,
+  HouseId,
+  MarriageId,
+  RngState,
+  ThiefAttemptId,
+} from "../rng";
 import { PLAYER_HOUSE_ID } from "../rng.seeds";
 
 export function makeGameState(overrides: Partial<GameState> = {}): GameState {
@@ -34,6 +51,10 @@ export function makeGameState(overrides: Partial<GameState> = {}): GameState {
     duels: new Map(),
     // P9 default
     elopement: null,
+    // P10 defaults
+    artifactInstances: new Map<ArtifactInstanceId, ArtifactInstance>(),
+    forgeries: new Map<ForgeryId, ForgeryRecord>(),
+    thiefAttempts: new Map<ThiefAttemptId, ThiefAttempt>(),
     ...overrides,
   };
 }
@@ -65,6 +86,8 @@ export function makeCharacter(overrides: Partial<Character> = {}): Character {
     dullSpouseExposureStartTick: null,
     parentCharacterIds: null,
     gender: "Female",
+    // P10 default
+    equippedArtifactIds: [],
     ...overrides,
   };
 }

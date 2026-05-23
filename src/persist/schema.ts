@@ -1,11 +1,14 @@
 import { z } from "zod";
+import { bootstrapPlayerArtifactsForMigration } from "../game/bootstrap";
 import { ConversationPairKeySchema, ExchangeSchema } from "../game/conversation/types";
 import {
+  ArtifactInstanceSchema,
   type Character,
   CharacterSchema,
   CourierPayloadSchema,
   DuelSchema,
   ElopementSprintStateSchema,
+  ForgeryRecordSchema,
   type GameState,
   type Grievance,
   type House,
@@ -17,6 +20,7 @@ import {
   RivalActorStateSchema,
   SchemeSchema,
   StaffMemberSchema,
+  ThiefAttemptSchema,
   TutorAssignmentLogEntrySchema,
   WhisperSchema,
 } from "../game/entities";
@@ -39,10 +43,12 @@ import {
 } from "../game/fixtures/rivals";
 import { buildBaselineStaffMap } from "../game/fixtures/staff";
 import {
+  ArtifactInstanceIdSchema,
   CharacterIdSchema,
   CourierPayloadIdSchema,
   DuelIdSchema,
   FactionPairKeySchema,
+  ForgeryIdSchema,
   HouseIdSchema,
   INDEPENDENT_HOUSE_ID,
   MarriageIdSchema,
@@ -50,6 +56,7 @@ import {
   RngStateSchema,
   SchemeIdSchema,
   StaffIdSchema,
+  ThiefAttemptIdSchema,
   WhisperIdSchema,
   createRngState,
   deserializeRegistry,
@@ -58,13 +65,12 @@ import {
 import { PLAYER_HOUSE_ID } from "../game/rng";
 import { DEFAULT_CAMPAIGN_NAME } from "../game/store";
 
-// Live save-format version. P9 bumps to 10 with 1 new top-level field
-// (elopement: ElopementSprintState | null) + 1 new MarriageRecord field
-// (viaElopement: z.boolean().default(false)). Legacy toSaveV1..V9 retain
-// their literal `version: N` writes; only toSaveV10 references
-// SAVE_VERSION_CURRENT. MarriageRecord.viaElopement uses Zod `.default()` so
-// legacy V1..V9 saves missing the field parse cleanly.
-export const SAVE_VERSION_CURRENT = 10 as const;
+// Live save-format version. P10 bumps to 11 with 3 new top-level Maps
+// (artifactInstances, forgeries, thiefAttempts) + 1 new Character field
+// (equippedArtifactIds: z.array(...).default([])) + 1 new SchemeKind
+// (TreasonFraming). Legacy toSaveV1..V10 retain their literal `version: N`
+// writes; only toSaveV11 references SAVE_VERSION_CURRENT.
+export const SAVE_VERSION_CURRENT = 11 as const;
 
 // ── HousePreV4 (legacy on-disk House shape for V1/V2/V3 saves) ────────────
 // Omits the 5 P3-added fields (currentLocation, etc.) AND the P5 grievances
@@ -244,6 +250,11 @@ const CharacterPreV5Schema = CharacterSchema.omit({
   dullSpouseExposureStartTick: true,
   parentCharacterIds: true,
   gender: true,
+  // P10 addition — V2/V3/V4 saves predate equippedArtifactIds. Required omit
+  // to prevent the field from passing through legacy save round-trips
+  // (otherwise toSaveV{N}.parse leaves equippedArtifactIds on emit and the
+  // round-trip contaminates downstream migration chains).
+  equippedArtifactIds: true,
 });
 type CharacterPreV5 = z.infer<typeof CharacterPreV5Schema>;
 
@@ -257,6 +268,8 @@ const CharacterPreV8Schema = CharacterSchema.omit({
   dullSpouseExposureStartTick: true,
   parentCharacterIds: true,
   gender: true,
+  // P10 addition — V5/V6/V7 saves predate equippedArtifactIds.
+  equippedArtifactIds: true,
 });
 type CharacterPreV8 = z.infer<typeof CharacterPreV8Schema>;
 
@@ -283,17 +296,46 @@ function defaultV8CharacterFields(
   };
 }
 
+// P10: strip equippedArtifactIds from character tuples at legacy emit.
+// Used by toSaveV8/V9/V10 — these formats use the LIVE CharacterSchema (post-P7
+// widening) so equippedArtifactIds would otherwise pass through unfiltered.
+// V2/V3/V4 use CharacterPreV5Schema and V5/V6/V7 use CharacterPreV8Schema —
+// those schemas have `.omit({ equippedArtifactIds: true })` so Zod's parse
+// strips at emit naturally; no helper needed for those.
+//
+// CRITICAL contamination guard: without this strip, a chain that emits V8
+// (or higher legacy) would round-trip the field; on subsequent lift, the
+// player head's equippedArtifactIds would have stale ids without matching
+// artifactInstances entries, breaking the bootstrap idempotence check.
+function stripEquippedArtifactsForLegacyEmit<T extends { equippedArtifactIds: unknown }>(
+  characters: ReadonlyArray<readonly [string, T]>,
+): Array<[string, Omit<T, "equippedArtifactIds">]> {
+  return characters.map(([id, c]) => {
+    const { equippedArtifactIds: _e, ...rest } = c;
+    return [id, rest] as [string, Omit<T, "equippedArtifactIds">];
+  });
+}
+
 function defaultCharacterV5Fields(c: CharacterPreV5): Character {
   return {
     ...c,
     composure: 100,
     maxComposure: 100,
     ...defaultV8CharacterFields(c.id),
+    // P10: legacy V2/V3/V4 saves predate equippedArtifactIds. Default to [];
+    // the load-path's bootstrapPlayerArtifactsForMigration then seeds the
+    // player head's starting inventory symmetric with createInitialState.
+    equippedArtifactIds: [],
   };
 }
 
 function defaultCharacterV8Fields(c: CharacterPreV8): Character {
-  return { ...c, ...defaultV8CharacterFields(c.id) };
+  return {
+    ...c,
+    ...defaultV8CharacterFields(c.id),
+    // P10: legacy V5/V6/V7 saves predate equippedArtifactIds. Default to [].
+    equippedArtifactIds: [],
+  };
 }
 
 function liftLegacyCharactersFromV8Pre(
@@ -327,7 +369,7 @@ function liftLegacyCharacters(
 // serialized post-draw form). Must match exactly what createRngState's
 // argument was at fresh-state construction so Independent's derived RNG is
 // byte-identical across fresh-state and migration paths.
-function seedIndependentIntoLegacyState(state: GameState, playerSeed: string): GameState {
+export function seedIndependentIntoLegacyState(state: GameState, playerSeed: string): GameState {
   if (state.houses.has(INDEPENDENT_HOUSE_ID)) return state;
 
   const houses = new Map(state.houses);
@@ -360,7 +402,7 @@ function seedIndependentIntoLegacyState(state: GameState, playerSeed: string): G
 // Idempotence: a house with `grievances: []` already present is left as-is
 // (the helper sets only when the field is undefined or missing). State with
 // non-empty grievances arrays preserves those entries unchanged.
-function seedSchemesAndGrievancesIntoLegacyState(state: GameState): GameState {
+export function seedSchemesAndGrievancesIntoLegacyState(state: GameState): GameState {
   // In practice every Bare core returns a GameState that already contains
   // `schemes: new Map()` from its own default AND houses with `grievances: []`
   // from liftLegacyHouses* helpers. This wrapper is defense-in-depth for
@@ -499,6 +541,9 @@ function fromSaveV1Bare(save: SaveV1): GameState {
     duels: new Map(),
     // P9: elopement field defaults to null on every legacy lift.
     elopement: null,
+    artifactInstances: new Map(),
+    forgeries: new Map(),
+    thiefAttempts: new Map(),
   };
 }
 
@@ -518,7 +563,8 @@ export function fromSaveV1(save: SaveV1): GameState {
   );
   // P9: elopement field defaults to null on every legacy lift (no active
   // sprint can exist in a pre-P9 save format).
-  return { ...result, elopement: null };
+  // P10: bootstrap player artifact inventory symmetric with createInitialState.
+  return bootstrapPlayerArtifactsForMigration({ ...result, elopement: null });
 }
 
 // ── SaveV2 (P1 on-disk format — legacy at P3+) ────────────────────────────
@@ -584,6 +630,9 @@ function fromSaveV2Bare(save: SaveV2): GameState {
     duels: new Map(),
     // P9: elopement field defaults to null on every legacy lift.
     elopement: null,
+    artifactInstances: new Map(),
+    forgeries: new Map(),
+    thiefAttempts: new Map(),
   };
 }
 
@@ -597,7 +646,8 @@ export function fromSaveV2(save: SaveV2): GameState {
     ),
     playerSeed,
   );
-  return { ...result, elopement: null };
+  // P10: bootstrap player artifact inventory symmetric with createInitialState.
+  return bootstrapPlayerArtifactsForMigration({ ...result, elopement: null });
 }
 
 // ── SaveV3 (P2 on-disk format — legacy at P3+) ────────────────────────────
@@ -660,6 +710,9 @@ function fromSaveV3Bare(save: SaveV3): GameState {
     duels: new Map(),
     // P9: elopement field defaults to null on every legacy lift.
     elopement: null,
+    artifactInstances: new Map(),
+    forgeries: new Map(),
+    thiefAttempts: new Map(),
   };
 }
 
@@ -673,7 +726,8 @@ export function fromSaveV3(save: SaveV3): GameState {
     ),
     playerSeed,
   );
-  return { ...result, elopement: null };
+  // P10: bootstrap player artifact inventory symmetric with createInitialState.
+  return bootstrapPlayerArtifactsForMigration({ ...result, elopement: null });
 }
 
 // ── SaveV4 (P3 on-disk format — legacy at P4+) ────────────────────────────
@@ -742,6 +796,9 @@ export function fromSaveV4Bare(save: SaveV4): GameState {
     duels: new Map(),
     // P9: elopement field defaults to null on every legacy lift.
     elopement: null,
+    artifactInstances: new Map(),
+    forgeries: new Map(),
+    thiefAttempts: new Map(),
   };
 }
 
@@ -755,7 +812,8 @@ export function fromSaveV4(save: SaveV4): GameState {
     ),
     playerSeed,
   );
-  return { ...result, elopement: null };
+  // P10: bootstrap player artifact inventory symmetric with createInitialState.
+  return bootstrapPlayerArtifactsForMigration({ ...result, elopement: null });
 }
 
 // ── SaveV5 (P4 on-disk format — legacy at P5+) ────────────────────────────
@@ -827,18 +885,23 @@ export function fromSaveV5Bare(save: SaveV5): GameState {
     duels: new Map(),
     // P9: elopement field defaults to null on every legacy lift.
     elopement: null,
+    artifactInstances: new Map(),
+    forgeries: new Map(),
+    thiefAttempts: new Map(),
   };
 }
 
 export function fromSaveV5(save: SaveV5): GameState {
   // V5 saves already contain Independent by schema; no seedIndependent call.
   const playerSeed = extractPlayerSeed(save.rng);
-  return seedRivalsAndPatronessesIntoLegacyState(
+  const result = seedRivalsAndPatronessesIntoLegacyState(
     seedWhispersCouriersStaffIntoLegacyState(
       seedSchemesAndGrievancesIntoLegacyState(fromSaveV5Bare(save)),
     ),
     playerSeed,
   );
+  // P10: bootstrap player artifact inventory symmetric with createInitialState.
+  return bootstrapPlayerArtifactsForMigration(result);
 }
 
 // ── SaveV6 (P5 on-disk format — legacy at P6+) ────────────────────────────
@@ -916,6 +979,9 @@ export function fromSaveV6Bare(save: SaveV6): GameState {
     duels: new Map(),
     // P9: elopement field defaults to null on every legacy lift.
     elopement: null,
+    artifactInstances: new Map(),
+    forgeries: new Map(),
+    thiefAttempts: new Map(),
   };
 }
 
@@ -924,9 +990,12 @@ export function fromSaveV6(save: SaveV6): GameState {
   // staff and empty whispers/couriers so the resulting GameState matches a
   // fresh-state hash post-P6.
   const playerSeed = extractPlayerSeed(save.rng);
-  return seedRivalsAndPatronessesIntoLegacyState(
-    seedWhispersCouriersStaffIntoLegacyState(fromSaveV6Bare(save)),
-    playerSeed,
+  // P10: bootstrap player artifact inventory symmetric with createInitialState.
+  return bootstrapPlayerArtifactsForMigration(
+    seedRivalsAndPatronessesIntoLegacyState(
+      seedWhispersCouriersStaffIntoLegacyState(fromSaveV6Bare(save)),
+      playerSeed,
+    ),
   );
 }
 
@@ -1034,6 +1103,9 @@ export function fromSaveV7Bare(save: SaveV7): GameState {
     duels: new Map(),
     // P9: elopement field defaults to null on every legacy lift.
     elopement: null,
+    artifactInstances: new Map(),
+    forgeries: new Map(),
+    thiefAttempts: new Map(),
   };
 }
 
@@ -1041,7 +1113,10 @@ export function fromSaveV7(save: SaveV7): GameState {
   // V7 saves predate the 3 new top-level Maps; seeded as empty by the Bare core.
   // V7 already contains Independent NPCs + schemes + grievances + whispers/
   // couriers/staff by schema. P8 adds the V9 seeder for rivals + patronesses.
-  return seedRivalsAndPatronessesIntoLegacyState(fromSaveV7Bare(save), extractPlayerSeed(save.rng));
+  // P10: bootstrap player artifact inventory symmetric with createInitialState.
+  return bootstrapPlayerArtifactsForMigration(
+    seedRivalsAndPatronessesIntoLegacyState(fromSaveV7Bare(save), extractPlayerSeed(save.rng)),
+  );
 }
 
 // ── SaveV8 (P7, live save format) ─────────────────────────────────────────
@@ -1078,8 +1153,8 @@ export function toSaveV8(state: GameState): SaveV8 {
   const housesLegacy = serializeRegistry(state.houses).filter(
     ([id]) => !RIVAL_HOUSE_IDS_SET.has(id),
   );
-  const charsLegacy = serializeRegistry(state.characters).filter(
-    ([id]) => !RIVAL_CHARACTER_IDS_SET.has(id),
+  const charsLegacy = stripEquippedArtifactsForLegacyEmit(
+    serializeRegistry(state.characters).filter(([id]) => !RIVAL_CHARACTER_IDS_SET.has(id)),
   );
   const rngLegacy = serializeRegistry(state.rng).filter(([id]) => !RIVAL_HOUSE_IDS_SET.has(id));
   return SaveV8Schema.parse({
@@ -1111,7 +1186,14 @@ export function fromSaveV8Bare(save: SaveV8): GameState {
   // grievances within carry the .default(null) backfill for defendantCharacterId.
   const partial: Omit<
     GameState,
-    "patronesses" | "rivalActors" | "factionTensions" | "duels" | "elopement"
+    | "patronesses"
+    | "rivalActors"
+    | "factionTensions"
+    | "duels"
+    | "elopement"
+    | "artifactInstances"
+    | "forgeries"
+    | "thiefAttempts"
   > = {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
@@ -1145,14 +1227,34 @@ export function fromSaveV8Bare(save: SaveV8): GameState {
     factionTensions: new Map(),
     duels: new Map(),
     elopement: null,
+    artifactInstances: new Map(),
+    forgeries: new Map(),
+    thiefAttempts: new Map(),
   } as GameState;
 }
 
 export function fromSaveV8(save: SaveV8): GameState {
   // V8 is no longer live at P8+. Wrap the Bare core with the V9 seeder so
   // direct-lift consumers (tests + future direct-load paths) produce V9-shape
-  // GameStates with rivals/patronesses/factionTensions/duels seeded.
-  return seedRivalsAndPatronessesIntoLegacyState(fromSaveV8Bare(save), extractPlayerSeed(save.rng));
+  // GameStates with rivals/patronesses/factionTensions/duels seeded. The P9
+  // elopement field + P10 three Maps default empty.
+  const playerSeed = extractPlayerSeed(save.rng);
+  const bare = fromSaveV8Bare(save);
+  const withP9AndP10: GameState = {
+    ...bare,
+    patronesses: new Map(),
+    rivalActors: new Map(),
+    factionTensions: new Map(),
+    duels: new Map(),
+    elopement: null,
+    artifactInstances: new Map(),
+    forgeries: new Map(),
+    thiefAttempts: new Map(),
+  };
+  // P10: bootstrap player artifact inventory symmetric with createInitialState.
+  return bootstrapPlayerArtifactsForMigration(
+    seedRivalsAndPatronessesIntoLegacyState(withP9AndP10, playerSeed),
+  );
 }
 
 // ── SaveV9 (P8 live format) ───────────────────────────────────────────────
@@ -1194,7 +1296,7 @@ export function toSaveV9(state: GameState): SaveV9 {
     tick: state.tick,
     rng: serializeRegistry(state.rng),
     houses: serializeRegistry(state.houses),
-    characters: serializeRegistry(state.characters),
+    characters: stripEquippedArtifactsForLegacyEmit(serializeRegistry(state.characters)),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -1216,7 +1318,9 @@ export function toSaveV9(state: GameState): SaveV9 {
 
 // P9 split: Bare core does pure deserialization; public wrapper appends
 // `elopement: null` (V9 saves predate the field).
-export function fromSaveV9Bare(save: SaveV9): Omit<GameState, "elopement"> {
+export function fromSaveV9Bare(
+  save: SaveV9,
+): Omit<GameState, "elopement" | "artifactInstances" | "forgeries" | "thiefAttempts"> {
   return {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
@@ -1248,9 +1352,17 @@ export function fromSaveV9Bare(save: SaveV9): Omit<GameState, "elopement"> {
 }
 
 export function fromSaveV9(save: SaveV9): GameState {
-  // V9 was the live format pre-P9; V10 is live at P9+. Wrap the Bare core
-  // with `elopement: null` (V9 saves predate the field).
-  return { ...fromSaveV9Bare(save), elopement: null };
+  // V9 was the live format pre-P9; V10 is live at P9; V11 is live at P10+.
+  // Wrap the Bare core with `elopement: null` (V9 saves predate the field)
+  // and the three P10 Maps empty (V9 saves predate them too). P10 then
+  // bootstraps player starting inventory symmetric with createInitialState.
+  return bootstrapPlayerArtifactsForMigration({
+    ...fromSaveV9Bare(save),
+    elopement: null,
+    artifactInstances: new Map(),
+    forgeries: new Map(),
+    thiefAttempts: new Map(),
+  });
 }
 
 // ── SaveV10 (P9 live format) ──────────────────────────────────────────────
@@ -1288,11 +1400,13 @@ export type SaveV10 = z.infer<typeof SaveV10Schema>;
 
 export function toSaveV10(state: GameState): SaveV10 {
   return SaveV10Schema.parse({
-    version: SAVE_VERSION_CURRENT,
+    // P10: V10 demoted to legacy; literal 10 (NOT SAVE_VERSION_CURRENT which
+    // is now 11). Only toSaveV11 references SAVE_VERSION_CURRENT.
+    version: 10,
     tick: state.tick,
     rng: serializeRegistry(state.rng),
     houses: serializeRegistry(state.houses),
-    characters: serializeRegistry(state.characters),
+    characters: stripEquippedArtifactsForLegacyEmit(serializeRegistry(state.characters)),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -1314,8 +1428,12 @@ export function toSaveV10(state: GameState): SaveV10 {
   });
 }
 
-export function fromSaveV10(save: SaveV10): GameState {
-  // V10 is the live format — pure deserialization with no seed helpers.
+// P10 split: Bare core does pure deserialization (no inventory seeding);
+// public wrapper composes bootstrapPlayerArtifactsForMigration for parity
+// with createInitialState. V10 was the live format pre-P10; V11 is live at
+// P10+. Bare is used by migrate_v10_to_v11 so the migration runner's own
+// bootstrap call is the SINGLE seeding site.
+export function fromSaveV10Bare(save: SaveV10): GameState {
   return {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
@@ -1345,6 +1463,125 @@ export function fromSaveV10(save: SaveV10): GameState {
     duels: deserializeRegistry(save.duels) as GameState["duels"],
     // P9: nullable singleton — direct passthrough.
     elopement: save.elopement,
+    // P10: new top-level Maps default empty in Bare; the public wrap composes
+    // bootstrapPlayerArtifactsForMigration to seed starting inventory.
+    artifactInstances: new Map(),
+    forgeries: new Map(),
+    thiefAttempts: new Map(),
+  };
+}
+
+export function fromSaveV10(save: SaveV10): GameState {
+  // V10 demoted from live → legacy at P10. Wrap the Bare core with
+  // bootstrapPlayerArtifactsForMigration so the load-path produces
+  // post-P10 GameStates with starting inventory seeded.
+  return bootstrapPlayerArtifactsForMigration(fromSaveV10Bare(save));
+}
+
+// ── SaveV11 (P10 live format) ─────────────────────────────────────────────
+// Adds 3 new top-level Maps (artifactInstances, forgeries, thiefAttempts) +
+// 1 new Character field (equippedArtifactIds: z.array(...).default([])) +
+// the 7th SchemeKind (TreasonFraming). The Character widening uses
+// `.default([])` per the P8 House.hostility/factionId + P9
+// MarriageRecord.viaElopement precedent — no Pre-shape rebuild required.
+
+export const SaveV11Schema = z.object({
+  version: z.literal(11),
+  tick: z.number().int().nonnegative(),
+  rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
+  characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
+  marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
+  campaignName: z.string(),
+  era: z.enum(["Earlier", "Later"]),
+  conversationHistory: z.array(z.tuple([ConversationPairKeySchema, z.array(ExchangeSchema)])),
+  affectionMap: z.array(z.tuple([ConversationPairKeySchema, z.number().int().min(0).max(100)])),
+  schemes: z.array(z.tuple([SchemeIdSchema, SchemeSchema])),
+  whispers: z.array(z.tuple([WhisperIdSchema, WhisperSchema])),
+  couriers: z.array(z.tuple([CourierPayloadIdSchema, CourierPayloadSchema])),
+  staff: z.array(z.tuple([StaffIdSchema, StaffMemberSchema])),
+  proposalsLog: z.array(z.tuple([CharacterIdSchema, ProposalLogEntrySchema])),
+  tutorAssignmentsLog: z.array(z.tuple([CharacterIdSchema, TutorAssignmentLogEntrySchema])),
+  pendingTutorTraitChoices: z.array(z.tuple([CharacterIdSchema, PendingTutorTraitChoiceSchema])),
+  patronesses: z.array(z.tuple([PatronessIdSchema, PatronessRecordSchema])),
+  rivalActors: z.array(z.tuple([HouseIdSchema, RivalActorStateSchema])),
+  factionTensions: z.array(z.tuple([FactionPairKeySchema, z.number().int().min(0).max(100)])),
+  duels: z.array(z.tuple([DuelIdSchema, DuelSchema])),
+  elopement: ElopementSprintStateSchema.nullable(),
+  // P10 additions:
+  artifactInstances: z.array(z.tuple([ArtifactInstanceIdSchema, ArtifactInstanceSchema])),
+  forgeries: z.array(z.tuple([ForgeryIdSchema, ForgeryRecordSchema])),
+  thiefAttempts: z.array(z.tuple([ThiefAttemptIdSchema, ThiefAttemptSchema])),
+});
+export type SaveV11 = z.infer<typeof SaveV11Schema>;
+
+export function toSaveV11(state: GameState): SaveV11 {
+  return SaveV11Schema.parse({
+    version: SAVE_VERSION_CURRENT,
+    tick: state.tick,
+    rng: serializeRegistry(state.rng),
+    houses: serializeRegistry(state.houses),
+    characters: serializeRegistry(state.characters),
+    marriages: serializeRegistry(state.marriages),
+    campaignName: state.campaignName,
+    era: state.era,
+    conversationHistory: serializeRegistry(state.conversationHistory),
+    affectionMap: serializeRegistry(state.affectionMap),
+    schemes: serializeRegistry(state.schemes),
+    whispers: serializeRegistry(state.whispers),
+    couriers: serializeRegistry(state.couriers),
+    staff: serializeRegistry(state.staff),
+    proposalsLog: serializeRegistry(state.proposalsLog),
+    tutorAssignmentsLog: serializeRegistry(state.tutorAssignmentsLog),
+    pendingTutorTraitChoices: serializeRegistry(state.pendingTutorTraitChoices),
+    patronesses: serializeRegistry(state.patronesses),
+    rivalActors: serializeRegistry(state.rivalActors),
+    factionTensions: serializeRegistry(state.factionTensions),
+    duels: serializeRegistry(state.duels),
+    elopement: state.elopement,
+    artifactInstances: serializeRegistry(state.artifactInstances),
+    forgeries: serializeRegistry(state.forgeries),
+    thiefAttempts: serializeRegistry(state.thiefAttempts),
+  });
+}
+
+// V11 IS the live format — pure deserialization, no Bare/wrap split (the
+// split exists only for legacy-demoted formats so the migration runner can
+// reuse the Bare half without re-seeding starting inventory).
+export function fromSaveV11(save: SaveV11): GameState {
+  return {
+    tick: save.tick,
+    rng: deserializeRegistry(save.rng) as GameState["rng"],
+    houses: deserializeRegistry(save.houses) as GameState["houses"],
+    characters: deserializeRegistry(save.characters) as GameState["characters"],
+    marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
+    campaignName: save.campaignName,
+    era: save.era,
+    conversationHistory: deserializeRegistry(
+      save.conversationHistory,
+    ) as GameState["conversationHistory"],
+    affectionMap: deserializeRegistry(save.affectionMap) as GameState["affectionMap"],
+    schemes: deserializeRegistry(save.schemes) as GameState["schemes"],
+    whispers: deserializeRegistry(save.whispers) as GameState["whispers"],
+    couriers: deserializeRegistry(save.couriers) as GameState["couriers"],
+    staff: deserializeRegistry(save.staff) as GameState["staff"],
+    proposalsLog: deserializeRegistry(save.proposalsLog) as GameState["proposalsLog"],
+    tutorAssignmentsLog: deserializeRegistry(
+      save.tutorAssignmentsLog,
+    ) as GameState["tutorAssignmentsLog"],
+    pendingTutorTraitChoices: deserializeRegistry(
+      save.pendingTutorTraitChoices,
+    ) as GameState["pendingTutorTraitChoices"],
+    patronesses: deserializeRegistry(save.patronesses) as GameState["patronesses"],
+    rivalActors: deserializeRegistry(save.rivalActors) as GameState["rivalActors"],
+    factionTensions: deserializeRegistry(save.factionTensions) as GameState["factionTensions"],
+    duels: deserializeRegistry(save.duels) as GameState["duels"],
+    elopement: save.elopement,
+    artifactInstances: deserializeRegistry(
+      save.artifactInstances,
+    ) as GameState["artifactInstances"],
+    forgeries: deserializeRegistry(save.forgeries) as GameState["forgeries"],
+    thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
   };
 }
 

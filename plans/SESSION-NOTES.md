@@ -592,3 +592,49 @@ All 11 deferred §Verification items from the initial P7 closeout are now shippe
 **Final tally:** 589 tests / 64 test files (up from 573/61 post-implementation; +16 new tests across 3 new test files — duel.test.ts, patronesses.test.ts, v1-to-v9-chain.test.ts). Typecheck clean. Lint 1 pre-existing error (v3-to-v4.test.ts, unrelated to P8 — net reduction from 4 → 1).
 
 **Gate parity with prior phases:** ✅ all 3 gates clean (typecheck + tests; 1 lint warning is pre-existing) ✅ 11/16 verification items exercised, 5 deferred (statistical convergence tests + UI ledger wiring belong in dedicated passes). P8 promoted from — → ✅ done in MASTER.md §6.
+
+
+## P10 — closed 2026-05-22
+
+**Decisions made:**
+- Treason Framing reuses existing `Scheme.targetCharacterId` (rival head's CharacterId) instead of widening `SchemeSchema` with a new `targetHouseId` field. Rival house derived via `state.characters.get(targetCharacterId).houseId` at resolution time. Matches the Assassination dispatch pattern; no save-format implications beyond the `TreasonFraming` enum entry.
+- `SCHEME_PREREQUISITES.TreasonFraming = ["BohemianRake"]` only (NOT the Assassination `["BohemianRake","CountryExile"]` pair). Spec §3 line 180 makes BohemianRake the sole forging archetype; allowing CountryExile to start TreasonFraming without being able to forge would deadlock CountryExile-only player houses.
+- Bootstrap split: `bootstrapPlayerArtifactsForInit(characters, houses, tick)` mutates the in-flight characters Map (for `createInitialState`); `bootstrapPlayerArtifactsForMigration(state)` is pure state-in/state-out (for fromSaveV{N} wraps + migrate_v10_to_v11). Single shared private `computeStartingArtifactInstances` core. No `seed` parameter on the migration variant — deterministic via PLAYER_STARTING_ARTIFACTS + lex-sorted ids.
+- `migrate_v4_to_v5` and `migrate_v5_to_v6` switched from public `fromSaveV{N}` wraps to Bare halves + inline seeders. Critical to avoid bootstrap contamination during the migration chain — without this, the player head accrues equippedArtifactIds across chain hops while artifactInstances stays empty, breaking the V10 load path's idempotence guard.
+- Two `extractPlayerSeed` module-private duplicates exist by design — `src/persist/schema.ts:447` takes `rng: ReadonlyArray<...>` (used by fromSaveV{N} wraps); `src/persist/migrations/v8-to-v9.ts:35` + `v10-to-v11.ts` take `save: SaveV{N}` (used by migration bodies). The two signatures match their call contexts; no shared export.
+- `CharacterPreV5Schema.omit({...})` AND `CharacterPreV8Schema.omit({...})` extended to omit `equippedArtifactIds: true`. SaveV{8,9,10} emitters use `stripEquippedArtifactsForLegacyEmit` helper (live CharacterSchema cascade). Without this dual strip, the field would round-trip through legacy saves and break the bootstrap idempotence guard.
+- `acceptBankruptcyWarning` claim about wardrobe-refresh during bankruptcy was fabricated by the converged plan — verified live that `canRefreshWardrobe` is NOT wealth-gated. §7 edge case satisfied because the rule layer always permits at Capital; UI warning is a P14 ledger concern.
+- 7/7/6 publisher set (NOT 7/7/7) because runYearPass STEPS contains no artifact phases — `publishArtifactTransitions` would emit zero events from runYearPass, so wiring it there would be dead code. CLAUDE.md pin updated.
+- `state.elopement` quad-sync extended to quint-sync at P9 (createInitialState as the 5th surface). P10 maintains this discipline for the three new top-level Maps.
+- Forgery surfacing cascade: locked Vain NPCs DO participate (per spec §3 line 434 — reactive cascade, no carve-out). CLAUDE.md "Locked characters skip BOTH the roll AND the draw" applies to mood drift only, not the surfacing cascade.
+
+**Open questions hit:**
+- §10 Q7 (Treason Framing in v1?) → **Resolved: Yes — ships with P10.** The apex outcome of the forgery loop; deferral would leave the loop economically inert.
+- §10 Q10 (Wardrobe decay global vs per-family?) → **Resolved: Global tick (WARDROBE_REFRESH_INTERVAL_TICKS=40).** Per-family is a v1.5 candidate paired with P16 procedural generation.
+- §10 Q11 (Forged artifacts detectable by Observant NPCs?) → **Resolved: Hidden until per-tick surfacing roll.** Single mechanism keeps cascade semantics coherent.
+
+**Deferred / next-up (P10-followup or P11 setup):**
+- **11 of 16 verification scenarios unexercised or partial** — see §Verification list in `plans/phases/10-artifacts.md`. Critical gaps: cascade transactionality (item 2), Treason Framing E2E (item 4), theft against unequipped artifact (item 5), thwart wealth-handling (item 6), max-one-per-family equip rejection (item 7), persona snapshot effective traits (item 8), v10→v11 idempotence test (item 11), modal-state gate matrix for 4 new wrappers × 2 gates = 8 sites (item 14), Branch 7 orphan-prune (item 15), full multi-tick replay determinism through artifact lifecycle (item 16). 5 of the 11 are simple Vitest additions; the rest require non-trivial test fixtures.
+- `tryStartScheme` TreasonFraming validation: currently the resolver throws `MissingUnsurfacedForgery` at runtime if the player's only forgery surfaces between scheme-start and scheme-completion. The plan called for a `tryStartScheme` precondition check returning typed `MissingUnsurfacedForgery` rejection. Logic works for v1 paths (5-tick scheme cooldown vs sub-percent surfacing probability makes the race very rare) but tightening the start-time gate is straightforward.
+- `MissingTarget` and `TargetNotFound` typed-rejection variants for `tryStartScheme` were specified in the converged plan but the existing throw-to-typed-rejection migration was NOT applied (the resolver still throws for TreasonFraming targets that are missing post-completion). Existing P5 code uses `throw new Error("...has no target")` pattern; converging on typed rejection touches 10+ existing call sites.
+- `selectGameState` line cite drift in plan body: `:1531` (live) vs `:~1569` (plan). Refreshed at one site in body but other anchors in the accumulated tail still use stale lines. Cosmetic; doesn't affect functionality.
+- Optional P10 follow-up: pin RNG draw-budget through artifact phases as a CLAUDE.md non-negotiable. Currently both phases consume from `state.rng[PLAYER_HOUSE_ID]`; documented in artifacts.ts inline comments but not in CLAUDE.md.
+- Some legacy lint warnings (`noNonNullAssertion` in `locationEffects.test.ts`, `v3-to-v4.test.ts`) inherited from main; not introduced by P10 but the codebase carries them.
+
+**Files of note:**
+- src/game/fixtures/artifacts.ts (NEW) — ARTIFACT_REGISTRY (7 canonical entries) + PLAYER_STARTING_ARTIFACTS + 3 deterministic-id factories + module-load family-uniqueness assertion.
+- src/game/rules/artifacts.ts (NEW) — applyEquipArtifactPure/Unequip/CommissionForgery + applyForgerySurfacingPhase + applyThiefNoticePhase + applyThwartTheftPure + applyPreBallComposurePenaltyPure + 3 read-side projections (getEffectiveReputation/Traits/effectiveScandalContribution + selectTargetedArtifactInstance).
+- src/persist/migrations/v10-to-v11.ts (NEW) — migrate function with symmetric bootstrapPlayerArtifactsForMigration seeding.
+- src/runtime/events/artifacts.ts (NEW) — artifactBus + ArtifactEvent union (ForgeryCreated/ForgerySurfaced/ThiefNoticeFired/TheftResolved) + publishArtifactTransitions diff helper.
+- src/game/rules/artifacts.test.ts (NEW, 15 tests) — P10 critical-path verification.
+- src/game/bootstrap.ts:181-298 — bootstrapPlayerArtifactsForInit + bootstrapPlayerArtifactsForMigration + computeStartingArtifactInstances.
+- src/persist/schema.ts — SaveV11Schema + toSaveV11 + fromSaveV11 + fromSaveV10Bare extraction + stripEquippedArtifactsForLegacyEmit + CharacterPreV5/PreV8 omit extensions.
+- src/persist/migrations/v4-to-v5.ts + v5-to-v6.ts — switched to Bare halves (avoid bootstrap contamination).
+- src/runtime/tickOrchestrator.ts:47-60 — PHASES grew 10→12, rivals terminal at slot 12.
+- src/game/store.ts — 4 new free-action wrappers (equipArtifact/unequipArtifact/commissionForgery/thwartTheft) + enterBallroom composure penalty + persona-snapshot effective-traits + 5-surface quad-sync extension + publishArtifactTransitions wired to 6 tick-advancing wrappers.
+- src/game/rules/aging.ts:200-280 — pruneOrphanedConversationKeys branches 6/7/8 (forger-persists/equipped-owner inheritance with deterministic fallback/in-flight thief auto-thwart on owner death).
+- CLAUDE.md:86 — 6/6/6 publisher trio pin replaced with 7/7/6 publisher set.
+
+**Final tally:** 646 tests / 71 test files (up from 631/70 pre-P10; +15 new artifact tests). Typecheck clean. Lint: 8 warnings remain (pre-existing on main; not introduced by P10; verified via `git stash` + lint comparison). 40 files touched, ~2800 LOC delivered, 5 new files created.
+
+**Gate parity with prior phases:** ✅ test ✅ lint ✅ typecheck. ⚠ Verification coverage: 2/16 exercised + 6/16 partial + 8/16 not exercised. Per /close-phase strict rule, P10 marked 🚧 in progress (NOT ✅ done). Implementation complete; verification follow-ups tracked above. Promotion to ✅ done requires the deferred Vitest scenarios.

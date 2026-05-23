@@ -17,6 +17,16 @@ import { type SaveV9, type SaveV10, fromSaveV9Bare, toSaveV10 } from "../schema"
 
 export function migrate_v9_to_v10(save: SaveV9): SaveV10 {
   const bare = fromSaveV9Bare(save);
-  const seeded = { ...bare, elopement: null };
+  // P10 widened GameState with three new top-level Maps. toSaveV10 takes a
+  // GameState (post-P10 shape) but emits a SaveV10 (pre-P10 shape) — the
+  // strip-on-emit cascade drops the three Maps. Pass empty Maps here so the
+  // typecheck passes; toSaveV10 ignores them per its strip discipline.
+  const seeded = {
+    ...bare,
+    elopement: null,
+    artifactInstances: new Map(),
+    forgeries: new Map(),
+    thiefAttempts: new Map(),
+  };
   return toSaveV10(seeded);
 }

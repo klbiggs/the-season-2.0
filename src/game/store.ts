@@ -1,6 +1,7 @@
 import { enableMapSet } from "immer";
 import { type StoreApi, type UseBoundStore, create } from "zustand";
 import { immer } from "zustand/middleware/immer";
+import { artifactBus, publishArtifactTransitions } from "../runtime/events/artifacts";
 import {
   ACCIDENTAL_SLIP_DRIP_PER_CONVERSATION,
   CONVERSATION_HISTORY_LIMIT_PER_PAIR,
@@ -40,11 +41,13 @@ import { FACTION_PAIRS } from "./fixtures/factions";
 import type { LocationId } from "./fixtures/locations";
 import { PATRONESSES_FIXTURE } from "./fixtures/patronesses";
 import {
+  type ArtifactInstanceId,
   type BallSessionId,
   type CharacterId,
   type CourierPayloadId,
   type DuelId,
   type FactionPairKey,
+  type ForgeryId,
   type GrievanceId,
   type HouseId,
   INDEPENDENT_HOUSE_ID,
@@ -54,10 +57,25 @@ import {
   type RngState,
   type SchemeId,
   type StaffId,
+  type ThiefAttemptId,
   type TraitId,
   type WhisperId,
   createRngState,
 } from "./rng";
+import {
+  applyCommissionForgeryPure,
+  applyEquipArtifactPure,
+  applyPreBallComposurePenaltyPure,
+  applyThwartTheftPure,
+  applyUnequipArtifactPure,
+  getEffectiveTraits,
+} from "./rules/artifacts";
+import type {
+  CommissionRejection,
+  EquipRejection,
+  ThwartRejection,
+  UnequipRejection,
+} from "./rules/artifacts";
 import { applyBankruptcyEscape, canEscapeBankruptcy } from "./rules/bankruptcyEscape";
 import type { EscapeRejection } from "./rules/bankruptcyEscape";
 import { resolveCombat } from "./rules/combat";
@@ -113,7 +131,7 @@ enableMapSet();
 // so the dependency direction is persist → game, not the inverse.
 // (Import path is direct; not cyclic because bootstrap.ts only imports from
 // rng.ts + fixtures + constants.)
-import { seedStartingFamily } from "./bootstrap";
+import { bootstrapPlayerArtifactsForInit, seedStartingFamily } from "./bootstrap";
 
 export function createInitialState(
   seed: string,
@@ -149,6 +167,10 @@ export function createInitialState(
   for (const ra of seeded.rivalActors) rivalActors.set(ra.houseId, ra);
   const factionTensions = new Map<FactionPairKey, number>();
   for (const pair of FACTION_PAIRS) factionTensions.set(pair, 0);
+  // P10: seed player starting artifact inventory. Mutates the `characters`
+  // Map in-place (sets playerHead.equippedArtifactIds); returns the
+  // artifactInstances Map for the literal below.
+  const artifactInstances = bootstrapPlayerArtifactsForInit(characters, houses, 0);
   return {
     tick: 0,
     rng,
@@ -183,6 +205,12 @@ export function createInitialState(
     // P9: no active sprint on fresh state. Mounted as a side-effect of
     // applySchemeResolutionPhase when a Seduction discovery roll lands true.
     elopement: null,
+    // P10: starting artifact inventory (3 instances, 2 equipped on the player
+    // head). Forgeries and thiefAttempts start empty — these grow at runtime
+    // via commissionForgery / applyThiefNoticePhase.
+    artifactInstances,
+    forgeries: new Map(),
+    thiefAttempts: new Map(),
   };
 }
 
@@ -270,6 +298,24 @@ export type StoreActions = {
   elopementPush: () => { ok: true } | { ok: false; reason: ElopementActionRejection };
   elopementFreshHorses: () => { ok: true } | { ok: false; reason: ElopementFreshHorsesRejection };
   elopementSurrender: () => { ok: true } | { ok: false; reason: ElopementActionRejection };
+  // P10 artifact actions. All FREE ACTIONS — no tick advance. Modal-state
+  // gates (PlayerExiled + ElopementInProgress) included in every rejection
+  // union per CLAUDE.md "Modal-state rule-layer gate principle."
+  equipArtifact: (
+    characterId: CharacterId,
+    artifactInstanceId: ArtifactInstanceId,
+  ) => { ok: true } | { ok: false; reason: EquipRejection };
+  unequipArtifact: (
+    characterId: CharacterId,
+    artifactInstanceId: ArtifactInstanceId,
+  ) => { ok: true } | { ok: false; reason: UnequipRejection };
+  commissionForgery: (
+    forgerCharacterId: CharacterId,
+    definitionId: string,
+  ) => { ok: true; forgeryId: ForgeryId } | { ok: false; reason: CommissionRejection };
+  thwartTheft: (
+    thiefAttemptId: ThiefAttemptId,
+  ) => { ok: true; outcome: "Thwarted" | "Stolen" } | { ok: false; reason: ThwartRejection };
 };
 
 export type DemandSatisfactionRejection =
@@ -375,6 +421,12 @@ function overwriteFromGameState(draft: GameState, next: GameState): void {
   // P9 addition — the 5th surface of the quint-sync. Without this line, every
   // tick-advancing action silently CLEARS state.elopement.
   draft.elopement = next.elopement;
+  // P10 additions — three new top-level Maps. Same "OFTEN-FORGOTTEN fourth
+  // surface" trap; without these, every tick-advancing action silently clears
+  // the artifact/forgery/thief-attempt registries.
+  draft.artifactInstances = next.artifactInstances;
+  draft.forgeries = next.forgeries;
+  draft.thiefAttempts = next.thiefAttempts;
 }
 
 export function createStore({ seed }: { seed: string }): SeasonStore {
@@ -425,6 +477,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // helper (year-pass STEPS doesn't include scheme resolution + Q4
         // gate blocks runYearPass when sprint already active).
         publishElopementTransitions(before, after);
+        // P10: artifact-transition diff helper (ForgerySurfaced + ThiefNoticeFired
+        // + TheftResolved). runYearPass skips this — year-pass STEPS doesn't
+        // include the artifact phases.
+        publishArtifactTransitions(before, after);
       },
       runYearPass: () => {
         const exileGate = get();
@@ -519,6 +575,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // P9: applySchemeResolutionPhase can mount state.elopement on a
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
+        publishArtifactTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       requestAudience: () => {
@@ -580,6 +637,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishMarriageTransitions(stateBefore, afterTick);
         publishTemptationLatchTransitions(stateBefore, afterTick);
         publishElopementTransitions(stateBefore, afterTick);
+        publishArtifactTransitions(stateBefore, afterTick);
         return { outcome };
       },
       escapeBankruptcy: () => {
@@ -623,6 +681,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // P9: applySchemeResolutionPhase can mount state.elopement on a
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
+        publishArtifactTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       refreshWardrobe: () => {
@@ -666,6 +725,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // P9: applySchemeResolutionPhase can mount state.elopement on a
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
+        publishArtifactTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       // ── P4 ballroom actions ───────────────────────────────────────────
@@ -687,7 +747,16 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             } as const,
           };
         }
-        const sessionId = conversationOrchestrator.beginSession(stateBefore.tick);
+        // P10: apply pre-ball composure penalty for out-of-season equipped
+        // artifacts BEFORE beginSession. Snapshot semantics: deduction
+        // persists; mid-ball equip/unequip does NOT re-trigger.
+        const stateAfterPenalty = applyPreBallComposurePenaltyPure(stateBefore);
+        if (stateAfterPenalty !== stateBefore) {
+          set((draft) => {
+            overwriteFromGameState(draft, stateAfterPenalty);
+          });
+        }
+        const sessionId = conversationOrchestrator.beginSession(get().tick);
         conversationBus.publish({
           kind: "BallroomEntered",
           tick: stateBefore.tick,
@@ -764,7 +833,16 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           history,
           otherCharactersInScene,
           characterStateSnapshot: {
-            target,
+            // P10: shallow-clone target so the effective-traits projection
+            // does NOT mutate state.characters. Also defensive-clone the
+            // equippedArtifactIds array for future-phase reads. The persona
+            // prompt at server/prompts/persona.ts reads `target.traits` —
+            // the effective union (persistent + equipped grants) ships here.
+            target: {
+              ...target,
+              traits: getEffectiveTraits(stateBefore, target.id),
+              equippedArtifactIds: [...target.equippedArtifactIds],
+            },
             otherCharactersInScene,
             targetMarriage,
             spouse,
@@ -1280,6 +1358,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishCharacterDeaths(stateBefore, tickAdvanced);
         publishWhisperTransitions(stateBefore, tickAdvanced);
         publishElopementTransitions(stateBefore, tickAdvanced);
+        publishArtifactTransitions(stateBefore, tickAdvanced);
         return outcome;
       },
       assignTutor: (childCharacterId: CharacterId, tutorCharacterId: CharacterId) => {
@@ -1520,6 +1599,83 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishElopementTransitions(before, after);
         return { ok: true };
       },
+      // P10 artifact actions — all FREE ACTIONS. Modal-state gates first;
+      // then pure-rule dispatch; then overwriteFromGameState.
+      equipArtifact: (characterId, artifactInstanceId) => {
+        const stateBefore = get();
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (stateBefore.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        const result = applyEquipArtifactPure(stateBefore, characterId, artifactInstanceId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((state) => {
+          overwriteFromGameState(state, result.state);
+        });
+        return { ok: true };
+      },
+      unequipArtifact: (characterId, artifactInstanceId) => {
+        const stateBefore = get();
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (stateBefore.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        const result = applyUnequipArtifactPure(stateBefore, characterId, artifactInstanceId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((state) => {
+          overwriteFromGameState(state, result.state);
+        });
+        return { ok: true };
+      },
+      commissionForgery: (forgerCharacterId, definitionId) => {
+        const stateBefore = get();
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (stateBefore.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        const result = applyCommissionForgeryPure(stateBefore, forgerCharacterId, definitionId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((state) => {
+          overwriteFromGameState(state, result.state);
+        });
+        // Direct-publish ForgeryCreated — the diff helper doesn't cover free-
+        // action mints (only tick-phase transitions).
+        artifactBus.publish({
+          kind: "ForgeryCreated",
+          tick: stateBefore.tick,
+          forgeryId: result.forgeryId,
+          forgerCharacterId,
+        });
+        return { ok: true, forgeryId: result.forgeryId };
+      },
+      thwartTheft: (thiefAttemptId) => {
+        const stateBefore = get();
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (stateBefore.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        const result = applyThwartTheftPure(stateBefore, thiefAttemptId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((state) => {
+          overwriteFromGameState(state, result.state);
+        });
+        // Direct-publish TheftResolved — outcome surfaces to UI immediately.
+        artifactBus.publish({
+          kind: "TheftResolved",
+          tick: stateBefore.tick,
+          thiefAttemptId,
+          outcome: result.outcome,
+        });
+        return { ok: true, outcome: result.outcome };
+      },
     })),
   );
 }
@@ -1567,5 +1723,9 @@ export function selectGameState(state: StoreState): GameState {
     duels: state.duels,
     // P9 addition — quint-sync 3rd surface.
     elopement: state.elopement,
+    // P10 additions — three new top-level Maps. Quad-sync 3rd surface.
+    artifactInstances: state.artifactInstances,
+    forgeries: state.forgeries,
+    thiefAttempts: state.thiefAttempts,
   };
 }

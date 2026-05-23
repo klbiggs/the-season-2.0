@@ -65,6 +65,7 @@ describe("migrate_v4_to_v5 byte-identity vs fresh state", () => {
         dullSpouseExposureStartTick: _ds,
         parentCharacterIds: _p,
         gender: _g,
+        equippedArtifactIds: _ea,
         ...freshCharStripped
       } = freshChar;
       expect(migrated?.[1]).toEqual(freshCharStripped);

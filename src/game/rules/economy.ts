@@ -5,6 +5,8 @@
 import { ECONOMY_DELTAS } from "../constants";
 import type { GameState, House } from "../entities";
 import { RIVAL_HOUSE_IDS_SET } from "../fixtures/rivals";
+import { PLAYER_HOUSE_ID } from "../rng";
+import { effectiveScandalContributionFromArtifacts } from "./artifacts";
 
 export type BankruptcyTier = "Solvent" | "Hemorrhaging" | "Embarrassed" | "Ruined";
 
@@ -44,11 +46,20 @@ export function applyEconomyPhase(state: GameState): GameState {
     // `tier` is a BankruptcyTier, but noUncheckedIndexedAccess widens to
     // `| undefined` regardless.
     const delta = ECONOMY_DELTAS[tier] as { wealth: number; reputation: number; scandal: number };
+    // P10: artifact-scandal additive — sum of scandalRiskWhileEquipped across
+    // player-house equipped artifacts. Computed once per player branch (gated
+    // by houseId === PLAYER_HOUSE_ID below); composes additively with the
+    // economy-tier scandal delta under a single clamp at write. Silent by
+    // design at v1: P14 ledger selector surfaces this contribution.
+    let artifactScandalDelta = 0;
+    if (houseId === PLAYER_HOUSE_ID) {
+      artifactScandalDelta = effectiveScandalContributionFromArtifacts(state);
+    }
     houses.set(houseId, {
       ...house,
       wealth: house.wealth + delta.wealth,
       reputation: clamp(house.reputation + delta.reputation, 0, 100),
-      scandal: clamp(house.scandal + delta.scandal, 0, 100),
+      scandal: clamp(house.scandal + delta.scandal + artifactScandalDelta, 0, 100),
     });
   }
   return { ...state, houses };

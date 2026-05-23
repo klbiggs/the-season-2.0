@@ -209,6 +209,7 @@ export function buildRivalCharacter(
     dullSpouseExposureStartTick: null,
     parentCharacterIds: null,
     gender: seed.gender,
+    equippedArtifactIds: [],
   };
 }
 

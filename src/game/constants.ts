@@ -284,16 +284,15 @@ export const SCHEME_KINDS = [
   "Chaperone",
   "Smuggling",
   "Assassination",
+  "TreasonFraming",
 ] as const;
 export type SchemeKind = (typeof SCHEME_KINDS)[number];
 
-// Module-load assertion: guards against P10's Treason Framing addition (or
-// any future 7th kind) landing without a save-version bump. Symmetric
-// assertion exists for SCHEME_FAILURE_REASONS additions per the save-
-// version-bump checklist.
-if (SCHEME_KINDS.length !== 6) {
+// Module-load assertion: P10 shipped the Treason Framing addition with
+// save-version bump v10→v11. Future 8th kind requires another bump + migration.
+if (SCHEME_KINDS.length !== 7) {
   throw new Error(
-    `SCHEME_KINDS length changed (${SCHEME_KINDS.length} !== 6) without save-version bump — bump SAVE_VERSION_CURRENT and add migration`,
+    `SCHEME_KINDS length changed (${SCHEME_KINDS.length} !== 7) without save-version bump — bump SAVE_VERSION_CURRENT and add migration`,
   );
 }
 
@@ -318,6 +317,7 @@ export const SCHEME_TUNING: Readonly<
   Chaperone: { wealthCost: 5, durationTicks: 1 },
   Smuggling: { wealthCost: 20, durationTicks: 4 },
   Assassination: { wealthCost: 50, durationTicks: 6 },
+  TreasonFraming: { wealthCost: 40, durationTicks: 5 },
 };
 
 // Spec §3 schemes table: completion effect deltas (per-scheme constants;
@@ -346,6 +346,11 @@ export const SCHEME_PREREQUISITES: Readonly<Record<SchemeKind, readonly Archetyp
   Chaperone: ["Spymaster"],
   Smuggling: [],
   Assassination: ["BohemianRake", "CountryExile"],
+  // BohemianRake only — narrower than Assassination's pair because Treason Framing
+  // consumes an unsurfaced forgery, and only BohemianRake can commission one (spec §3 line 180).
+  // Allowing CountryExile to start TreasonFraming without being able to forge would deadlock
+  // CountryExile-only player houses.
+  TreasonFraming: ["BohemianRake"],
 };
 
 // Spec §3 line 357: Smuggling requires the Earlier (wartime) era at start.
@@ -357,6 +362,7 @@ export const SCHEME_ERA_REQUIREMENTS: Readonly<Record<SchemeKind, "Earlier" | "L
   Chaperone: null,
   Smuggling: "Earlier",
   Assassination: null,
+  TreasonFraming: null,
 };
 
 // Spec §3 "Era Progression": fixed tick threshold. Designer-tunable per-build
@@ -475,7 +481,9 @@ export const STAFF_BRIBED_BY_RIVAL_CADENCE_TICKS = 6;
 // re-creation on deploy.
 // P7 bump v2 → v3: buildPersonaPrompt extends baseLines with Marriage status
 // + Happiness state paragraphs.
-export const PERSONA_CACHE_VERSION = "v3" as const;
+// v4 at P10 — characterStateSnapshot.target.traits now ships the effective-traits
+// union (persistent + equipped-artifact grants via getEffectiveTraits).
+export const PERSONA_CACHE_VERSION = "v4" as const;
 
 // ── P7: Family, Marriage & Succession ────────────────────────────────────
 
@@ -634,5 +642,52 @@ if (ELOPEMENT_PLAYER_START_TILE >= ELOPEMENT_TRACK_LENGTH) {
 if (ELOPEMENT_FATHER_START_TILE >= ELOPEMENT_PLAYER_START_TILE) {
   throw new Error(
     "ELOPEMENT_FATHER_START_TILE >= ELOPEMENT_PLAYER_START_TILE: father would start ahead of or alongside the player",
+  );
+}
+
+// ── P10: Artifacts, Wardrobe, Forgery & Theft ────────────────────────────
+
+// Wardrobe decay (§10 Q10 resolution: global tick). Out-of-season ⇔
+// tick - lastRefreshTick > WARDROBE_REFRESH_INTERVAL_TICKS. ≈ 2 in-game years.
+export const WARDROBE_REFRESH_INTERVAL_TICKS = 40;
+export const PRE_BALL_COMPOSURE_PENALTY_PER_OUT_OF_SEASON_ARTIFACT = 5;
+
+// Forgery surfacing (§3 line 433 "sub-percent"). Stored as basis points
+// × 10000 for engine-stable integer comparison (P6 staff-bribery precedent).
+export const FORGERY_SURFACING_PROBABILITY_BASIS_POINTS = 30; // 0.30% per tick per unsurfaced forgery
+export const FORGERY_SURFACING_VAIN_MOOD_LOCK_DURATION_TICKS = 15;
+export const FORGERY_SURFACING_VAIN_AFFECTION_DELTA = -10;
+
+// Thief notice (§3 line 439).
+export const THIEF_NOTICE_REPUTATION_THRESHOLD = 70;
+export const VALUABLE_ARTIFACT_THRESHOLD = 6;
+export const THIEF_NOTICE_PROBABILITY_BASIS_POINTS = 100; // 1% per tick when both gates pass
+
+// Thwart (§3 line 441).
+export const THWART_WEALTH_COST = 15;
+export const THWART_SUCCESS_PROBABILITY_BASIS_POINTS = 8500; // 85%
+
+// Treason Framing (§3 line 188).
+export const TREASON_FRAMING_RIVAL_REPUTATION_DELTA = -25;
+export const TREASON_FRAMING_RIVAL_HOSTILITY_DELTA = 20;
+
+if (VALUABLE_ARTIFACT_THRESHOLD < 1) {
+  throw new Error(
+    "VALUABLE_ARTIFACT_THRESHOLD < 1: every artifact would qualify as valuable, thief notice gate trivial",
+  );
+}
+if (FORGERY_SURFACING_PROBABILITY_BASIS_POINTS >= 10000) {
+  throw new Error(
+    "FORGERY_SURFACING_PROBABILITY_BASIS_POINTS >= 10000: every forgery would surface in one tick",
+  );
+}
+if (FORGERY_SURFACING_PROBABILITY_BASIS_POINTS <= 0) {
+  throw new Error(
+    "FORGERY_SURFACING_PROBABILITY_BASIS_POINTS <= 0: surfacing impossible, forgery loop inert",
+  );
+}
+if (PRE_BALL_COMPOSURE_PENALTY_PER_OUT_OF_SEASON_ARTIFACT < 0) {
+  throw new Error(
+    "PRE_BALL_COMPOSURE_PENALTY_PER_OUT_OF_SEASON_ARTIFACT < 0: bonus instead of penalty",
   );
 }

@@ -60,6 +60,7 @@ describe("hashableState", () => {
     // protects against insertion-order drift in hashableState's projection literal.
     expect(Object.keys(projected).sort()).toEqual([
       "affectionMap",
+      "artifactInstances",
       "campaignName",
       "characters",
       "conversationHistory",
@@ -68,6 +69,7 @@ describe("hashableState", () => {
       "elopement",
       "era",
       "factionTensions",
+      "forgeries",
       "houses",
       "marriages",
       "patronesses",
@@ -77,6 +79,7 @@ describe("hashableState", () => {
       "rng",
       "schemes",
       "staff",
+      "thiefAttempts",
       "tick",
       "tutorAssignmentsLog",
       "whispers",
@@ -128,6 +131,9 @@ describe("hashState — Map reorder invariance", () => {
         factionTensions: new Map(),
         duels: new Map(),
         elopement: null,
+        artifactInstances: new Map(),
+        forgeries: new Map(),
+        thiefAttempts: new Map(),
       }),
     ).toBe(
       hashState({
@@ -153,6 +159,9 @@ describe("hashState — Map reorder invariance", () => {
         factionTensions: new Map(),
         duels: new Map(),
         elopement: null,
+        artifactInstances: new Map(),
+        forgeries: new Map(),
+        thiefAttempts: new Map(),
       }),
     );
   });

@@ -46,5 +46,25 @@ export function applyWardrobeRefresh(state: GameState, houseId: HouseId): GameSt
     wealth: house.wealth - WARDROBE_REFRESH_WEALTH_COST,
     wardrobeLastRefreshTick: state.tick,
   });
-  return { ...state, houses };
+  // P10: ALSO reset per-instance lastRefreshTick on every equipped artifact
+  // owned by characters of this house. The load-bearing read-site at
+  // enterBallroom (applyPreBallComposurePenaltyPure) reads the per-instance
+  // tick; the legacy house-level field is preserved for v1.5 fallback.
+  let artifactsChanged = false;
+  let newArtifacts = state.artifactInstances;
+  for (const ch of state.characters.values()) {
+    if (ch.houseId !== houseId || !ch.alive) continue;
+    for (const instId of ch.equippedArtifactIds) {
+      const inst = state.artifactInstances.get(instId);
+      if (!inst) continue;
+      if (!artifactsChanged) {
+        newArtifacts = new Map(state.artifactInstances);
+        artifactsChanged = true;
+      }
+      newArtifacts.set(instId, { ...inst, lastRefreshTick: state.tick });
+    }
+  }
+  const result: GameState = { ...state, houses };
+  if (artifactsChanged) result.artifactInstances = newArtifacts;
+  return result;
 }

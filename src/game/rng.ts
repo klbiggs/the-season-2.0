@@ -36,6 +36,12 @@ export type PatronessId = string & { readonly __brand: "PatronessId" };
 export type FactionId = string & { readonly __brand: "FactionId" };
 export type DuelId = string & { readonly __brand: "DuelId" };
 export type FactionPairKey = string & { readonly __brand: "FactionPairKey" };
+// P10: brands for the three new artifact-loop entities. Each lives as a
+// top-level Map<Id, Entity> in GameState; ids derive deterministically via
+// state-walk counters per the P6 deterministic-id pattern.
+export type ArtifactInstanceId = string & { readonly __brand: "ArtifactInstanceId" };
+export type ForgeryId = string & { readonly __brand: "ForgeryId" };
+export type ThiefAttemptId = string & { readonly __brand: "ThiefAttemptId" };
 
 // P3 (B1 fix): PLAYER_HOUSE_ID lives here, not in rng.seeds.ts, so that
 // src/game/rules/** can import it. rules → game-other is disallowed per
@@ -78,6 +84,12 @@ export const PatronessIdSchema = z.string().transform((s) => s as PatronessId);
 export const FactionIdSchema = z.string().transform((s) => s as FactionId);
 export const DuelIdSchema = z.string().transform((s) => s as DuelId);
 export const FactionPairKeySchema = z.string().transform((s) => s as FactionPairKey);
+// P10: brand schemas for ArtifactInstanceId / ForgeryId / ThiefAttemptId.
+// Same `.transform` pattern; state.artifactInstances / state.forgeries /
+// state.thiefAttempts use z.map(K, V) keyed on these brands.
+export const ArtifactInstanceIdSchema = z.string().transform((s) => s as ArtifactInstanceId);
+export const ForgeryIdSchema = z.string().transform((s) => s as ForgeryId);
+export const ThiefAttemptIdSchema = z.string().transform((s) => s as ThiefAttemptId);
 
 export const RngStateSchema = z.object({
   seed: z.string(),

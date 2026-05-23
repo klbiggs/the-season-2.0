@@ -18,7 +18,19 @@
 // (player head's deathAge only), unchanged from P3.
 
 import { HAPPINESS_INITIAL, LIFESPAN_RANGE } from "./constants";
-import type { Character, House, RivalActorState, StaffMember } from "./entities";
+import type {
+  ArtifactInstance,
+  Character,
+  GameState,
+  House,
+  RivalActorState,
+  StaffMember,
+} from "./entities";
+import {
+  ARTIFACT_REGISTRY,
+  PLAYER_STARTING_ARTIFACTS,
+  makeArtifactInstanceId,
+} from "./fixtures/artifacts";
 import { hashCharIdToGender } from "./fixtures/hashCharIdToGender";
 import { STARTING_HEAD_CHARACTER_ID, STARTING_HEAD_NAME } from "./fixtures/names";
 import { BASELINE_NPCS, buildBaselineNpcCharacter, buildIndependentHouse } from "./fixtures/npcs";
@@ -30,7 +42,14 @@ import {
   buildRivalRngState,
 } from "./fixtures/rivals";
 import { BASELINE_STAFF, buildBaselineStaffMember } from "./fixtures/staff";
-import { type FactionId, type HouseId, type RngState, drawInt } from "./rng";
+import {
+  type ArtifactInstanceId,
+  type CharacterId,
+  type FactionId,
+  type HouseId,
+  type RngState,
+  drawInt,
+} from "./rng";
 import { PLAYER_HOUSE_ID } from "./rng";
 
 export function seedStartingFamily(
@@ -80,6 +99,9 @@ export function seedStartingFamily(
     dullSpouseExposureStartTick: null,
     parentCharacterIds: null,
     gender: hashCharIdToGender(STARTING_HEAD_CHARACTER_ID),
+    // P10: empty by default; bootstrapPlayerArtifactsForInit mutates this
+    // in-place when called from createInitialState.
+    equippedArtifactIds: [],
   };
 
   const playerHouse: House = {
@@ -145,5 +167,124 @@ export function seedStartingFamily(
     staff,
     rivalActors,
     rivalRngEntries,
+  };
+}
+
+// ─── P10: Artifact bootstrap helpers ─────────────────────────────────────
+//
+// Two exported variants sharing a private core. The split is necessary because
+// createInitialState builds GameState as a single literal — it needs a helper
+// that mutates the in-flight `characters` Map AND returns the seeded
+// artifactInstances Map (so the literal can reference it). The migration path
+// threads GameState; it needs a state-in/state-out helper.
+
+// Internal helper — computes the 3 ArtifactInstance literals with deterministic
+// ids. Walks the existing artifactInstances map for per-definitionId index
+// counting (always returns 0 from an empty Map; the walker is robust to future
+// extensions where this helper might run on top of existing state).
+function computeStartingArtifactInstances(
+  existing: ReadonlyMap<ArtifactInstanceId, ArtifactInstance>,
+  headCharId: CharacterId,
+  playerHouseId: HouseId,
+  _tick: number,
+): ArtifactInstance[] {
+  const synthState: { artifactInstances: Map<ArtifactInstanceId, ArtifactInstance> } = {
+    artifactInstances: new Map(existing),
+  };
+  const result: ArtifactInstance[] = [];
+  for (const starter of PLAYER_STARTING_ARTIFACTS) {
+    const def = ARTIFACT_REGISTRY.get(starter.definitionId);
+    if (!def) {
+      throw new Error(
+        `bootstrapPlayerArtifacts: definition ${starter.definitionId} missing from ARTIFACT_REGISTRY`,
+      );
+    }
+    const id = makeArtifactInstanceId(synthState as unknown as GameState, def.id);
+    const inst: ArtifactInstance = {
+      id,
+      definitionId: def.id,
+      ownerHouseId: playerHouseId,
+      ownerCharacterId: headCharId,
+      lastRefreshTick: starter.lastRefreshTick,
+      forgedFlag: false,
+    };
+    synthState.artifactInstances.set(id, inst);
+    result.push(inst);
+  }
+  return result;
+}
+
+// Used by createInitialState (store.ts). Mutates the local `characters` Map
+// IN PLACE (appends to the player head's equippedArtifactIds). Returns the
+// seeded artifactInstances Map for the createInitialState return literal.
+export function bootstrapPlayerArtifactsForInit(
+  characters: Map<CharacterId, Character>,
+  houses: ReadonlyMap<HouseId, House>,
+  tick: number,
+): Map<ArtifactInstanceId, ArtifactInstance> {
+  const player = houses.get(PLAYER_HOUSE_ID);
+  if (!player) {
+    throw new Error("bootstrapPlayerArtifactsForInit: player house not in `houses` map");
+  }
+  const headChar = characters.get(player.headOfHouseCharacterId);
+  if (!headChar) {
+    throw new Error(
+      "bootstrapPlayerArtifactsForInit: player head character not in `characters` map",
+    );
+  }
+  const artifactInstances = new Map<ArtifactInstanceId, ArtifactInstance>();
+  const instances = computeStartingArtifactInstances(
+    artifactInstances,
+    headChar.id,
+    player.id,
+    tick,
+  );
+  const equippedIds: ArtifactInstanceId[] = [];
+  for (let i = 0; i < instances.length; i++) {
+    const inst = instances[i];
+    const starter = PLAYER_STARTING_ARTIFACTS[i];
+    if (inst === undefined || starter === undefined) continue;
+    artifactInstances.set(inst.id, inst);
+    if (starter.equippedFromStart) equippedIds.push(inst.id);
+  }
+  characters.set(headChar.id, { ...headChar, equippedArtifactIds: equippedIds });
+  return artifactInstances;
+}
+
+// Used by migrate_v10_to_v11 and the fromSaveV1..V10 outer wraps. Pure
+// state-in/state-out. IDEMPOTENT — if the player head already has any
+// equippedArtifactIds OR state.artifactInstances is non-empty, returns
+// state unchanged (the migration-runner double-call path is safe).
+// No `seed` parameter — starting inventory is deterministic via
+// PLAYER_STARTING_ARTIFACTS + lex-sorted ids.
+export function bootstrapPlayerArtifactsForMigration(state: GameState): GameState {
+  if (state.artifactInstances.size > 0) return state;
+  const player = state.houses.get(PLAYER_HOUSE_ID);
+  if (!player) return state;
+  const headChar = state.characters.get(player.headOfHouseCharacterId);
+  if (!headChar) return state;
+  if (headChar.equippedArtifactIds.length > 0) return state;
+
+  const instances = computeStartingArtifactInstances(
+    state.artifactInstances,
+    headChar.id,
+    player.id,
+    state.tick,
+  );
+  const newArtifactInstances = new Map(state.artifactInstances);
+  const equippedIds: ArtifactInstanceId[] = [];
+  for (let i = 0; i < instances.length; i++) {
+    const inst = instances[i];
+    const starter = PLAYER_STARTING_ARTIFACTS[i];
+    if (inst === undefined || starter === undefined) continue;
+    newArtifactInstances.set(inst.id, inst);
+    if (starter.equippedFromStart) equippedIds.push(inst.id);
+  }
+  const newCharacters = new Map(state.characters);
+  newCharacters.set(headChar.id, { ...headChar, equippedArtifactIds: equippedIds });
+  return {
+    ...state,
+    artifactInstances: newArtifactInstances,
+    characters: newCharacters,
   };
 }

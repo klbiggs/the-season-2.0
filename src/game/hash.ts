@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import type { ConversationPairKey, Exchange } from "./conversation/types";
 import type {
+  ArtifactInstance,
   Character,
   CourierPayload,
   Duel,
   ElopementSprintState,
+  ForgeryRecord,
   GameState,
   House,
   MarriageRecord,
@@ -14,20 +16,24 @@ import type {
   RivalActorState,
   Scheme,
   StaffMember,
+  ThiefAttempt,
   TutorAssignmentLogEntry,
   Whisper,
 } from "./entities";
 import type {
+  ArtifactInstanceId,
   CharacterId,
   CourierPayloadId,
   DuelId,
   FactionPairKey,
+  ForgeryId,
   HouseId,
   MarriageId,
   PatronessId,
   RngState,
   SchemeId,
   StaffId,
+  ThiefAttemptId,
   WhisperId,
 } from "./rng";
 import { serializeRegistry } from "./rng";
@@ -72,6 +78,12 @@ export function hashableState(state: GameState): {
   // freshHorsesUsedCount, startedAtTick) participates in the hash so mid-sprint
   // saves round-trip exactly. When null, hashes as null literal.
   elopement: ElopementSprintState | null;
+  // P10: three new top-level Maps. All hash-relevant (equip/unequip,
+  // commission, surface, theft notice each advance the hash). Character
+  // equippedArtifactIds projects automatically via serializeRegistry(state.characters).
+  artifactInstances: Array<[ArtifactInstanceId, ArtifactInstance]>;
+  forgeries: Array<[ForgeryId, ForgeryRecord]>;
+  thiefAttempts: Array<[ThiefAttemptId, ThiefAttempt]>;
 } {
   return {
     tick: state.tick,
@@ -106,6 +118,10 @@ export function hashableState(state: GameState): {
     // canonicalJSON sorts object keys deterministically so the embedded
     // ElopementSprintState shape hashes consistently.
     elopement: state.elopement,
+    // P10: three new top-level Maps. Lex-sorted via serializeRegistry.
+    artifactInstances: serializeRegistry(state.artifactInstances),
+    forgeries: serializeRegistry(state.forgeries),
+    thiefAttempts: serializeRegistry(state.thiefAttempts),
   };
 }
 

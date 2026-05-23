@@ -24,6 +24,8 @@ import {
   type SchemeKind,
   type SchemeStatus,
   TEMPTATION_DISCOUNTED_SCANDAL,
+  TREASON_FRAMING_RIVAL_HOSTILITY_DELTA,
+  TREASON_FRAMING_RIVAL_REPUTATION_DELTA,
 } from "../constants";
 import { makePairKey } from "../conversation/types";
 import type { GameState, Grievance, Scheme } from "../entities";
@@ -362,7 +364,64 @@ function resolveSchemeCompletion(state: GameState, scheme: Scheme): GameState {
       return resolveSmuggling(state, scheme);
     case "Assassination":
       return resolveAssassination(state, scheme);
+    case "TreasonFraming":
+      return resolveTreasonFraming(state, scheme);
   }
+}
+
+// P10 — Treason Framing. The 7th scheme kind. Consumes an unsurfaced forgery
+// and damages the rival house (rep + hostility). Reuses Scheme.targetCharacterId
+// (the rival head's CharacterId) — no schema widening; rival house derived as
+// state.characters.get(targetCharacterId).houseId. Lex-first unsurfaced forgery
+// is picked deterministically. Vain-NPC cascade does NOT fire on consumption
+// (spec §3 line 433 — cascade only fires from the surfacing roll). Caller
+// (publishArtifactTransitions diff helper) emits ForgerySurfaced with
+// viaConsumption: true so subscribers know the surfacing happened.
+function resolveTreasonFraming(state: GameState, scheme: Scheme): GameState {
+  const targetId = scheme.targetCharacterId;
+  if (targetId === null) {
+    throw new Error(`resolveTreasonFraming: scheme ${scheme.id} has no target`);
+  }
+  const target = state.characters.get(targetId);
+  if (target === undefined || !target.alive) {
+    return flipSchemeStatus(state, scheme.id, "Failed", "TargetDied");
+  }
+  // Derive rival house from the target's current houseId — handles same-tick
+  // moves that might (in future phases) shift the target between houses.
+  const rivalHouse = state.houses.get(target.houseId);
+  if (rivalHouse === undefined) {
+    throw new Error(`resolveTreasonFraming: target house ${target.houseId} missing`);
+  }
+  // Pick LEX-FIRST unsurfaced forgery (deterministic).
+  let pickedForgeryId: typeof scheme.id | null = null; // brand-narrowed below
+  const unsurfacedSorted = [...state.forgeries.values()]
+    .filter((f) => !f.surfaced)
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const picked = unsurfacedSorted[0];
+  if (picked === undefined) {
+    // tryStartScheme's MissingUnsurfacedForgery gate makes this unreachable
+    // via normal dispatch; throw if it somehow fires.
+    throw new Error(
+      `resolveTreasonFraming: scheme ${scheme.id} completing with no unsurfaced forgery in state`,
+    );
+  }
+  pickedForgeryId = picked.id as unknown as typeof scheme.id;
+  void pickedForgeryId; // reference-only — actual flip below
+  // Apply effects atomically.
+  const newHouses = new Map(state.houses);
+  newHouses.set(rivalHouse.id, {
+    ...rivalHouse,
+    reputation: clamp(rivalHouse.reputation + TREASON_FRAMING_RIVAL_REPUTATION_DELTA, 0, 100),
+    hostility: clamp(rivalHouse.hostility + TREASON_FRAMING_RIVAL_HOSTILITY_DELTA, 0, 100),
+  });
+  const newForgeries = new Map(state.forgeries);
+  newForgeries.set(picked.id, { ...picked, surfaced: true, surfacedAtTick: state.tick });
+  const afterEffects: GameState = {
+    ...state,
+    houses: newHouses,
+    forgeries: newForgeries,
+  };
+  return flipSchemeStatus(afterEffects, scheme.id, "Completed");
 }
 
 function resolveCourting(state: GameState, scheme: Scheme): GameState {

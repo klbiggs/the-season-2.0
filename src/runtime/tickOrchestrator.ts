@@ -18,6 +18,7 @@
 // `runYearPass` lives in ./yearPass.ts as a separate composer (not part of
 // the tick phase chain). Year-pass and tick-advance are distinct triggers.
 
+import { applyForgerySurfacingPhase, applyThiefNoticePhase } from "../game/rules/artifacts";
 import { applyCourierAndStaffPhase } from "../game/rules/courier";
 import { applyEconomyPhase } from "../game/rules/economy";
 import { applyHappinessPhase } from "../game/rules/happiness";
@@ -40,10 +41,9 @@ function advanceTickPhase(state: GameState): GameState {
 // this type for the runOrchestratorWithPhases injection seam.
 export type TickPhase = (state: GameState) => GameState;
 
-// P8: PHASES grows 9→10. applyPatronessErosionPhase inserts at slot 9
-// (between happiness drift and rival action — no PRNG draw, uses tick %
-// size round-robin). applyRivalActionPhase REPLACES the slot-9 P1 identity
-// stub (now slot 10, ALWAYS last per CLAUDE.md "Rivals always run last").
+// P10: PHASES grows 10→12. applyForgerySurfacingPhase + applyThiefNoticePhase
+// insert at slots 10 + 11 (BEFORE rivals). applyRivalActionPhase shifts to
+// slot 12 — ALWAYS LAST per CLAUDE.md non-negotiable.
 const PHASES: readonly TickPhase[] = [
   advanceTickPhase, // 1. time advance
   applyEconomyPhase, // 2. economy
@@ -54,7 +54,9 @@ const PHASES: readonly TickPhase[] = [
   applyMoodDriftPhase, // 7. mood drift
   applyHappinessPhase, // 8. happiness drift (NEW at P7)
   applyPatronessErosionPhase, // 9. patroness erosion (NEW at P8)
-  applyRivalActionPhase, // 10. rival-house action roll (NEW at P8 — ALWAYS last)
+  applyForgerySurfacingPhase, // 10. forgery surfacing roll (NEW at P10)
+  applyThiefNoticePhase, // 11. thief notice + auto-resolve (NEW at P10)
+  applyRivalActionPhase, // 12. rival-house action roll (NEW at P8 — ALWAYS last)
 ] as const;
 
 export function advanceTickPure(state: GameState): GameState {

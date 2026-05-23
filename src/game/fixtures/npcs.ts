@@ -104,6 +104,7 @@ export function buildBaselineNpcCharacter(seed: BaselineNpcSeed): Character {
     dullSpouseExposureStartTick: null,
     parentCharacterIds: null,
     gender: hashCharIdToGender(seed.id),
+    equippedArtifactIds: [],
   };
 }
 

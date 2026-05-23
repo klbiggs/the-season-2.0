@@ -179,6 +179,8 @@ export function applyConceptionStep(state: GameState): GameState {
       dullSpouseExposureStartTick: null,
       parentCharacterIds: [parents[0], parents[1]],
       gender,
+      // P10: newborns start with no equipped artifacts.
+      equippedArtifactIds: [],
     };
     if (!touched) {
       characters = new Map(state.characters);

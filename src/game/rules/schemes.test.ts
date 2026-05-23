@@ -76,6 +76,9 @@ function synthStateWith(overrides: Partial<GameState> = {}): GameState {
     factionTensions: new Map(),
     duels: new Map(),
     elopement: null,
+    artifactInstances: new Map(),
+    forgeries: new Map(),
+    thiefAttempts: new Map(),
     ...overrides,
   };
 }
@@ -469,6 +472,9 @@ describe("two-pass resolver — Chaperone preempts Seduction", () => {
       factionTensions: new Map(),
       duels: new Map(),
       elopement: null,
+      artifactInstances: new Map(),
+      forgeries: new Map(),
+      thiefAttempts: new Map(),
     };
     // Launch Seduction first (tick=0)
     const sed = tryStartScheme(state, PLAYER_HOUSE_ID, {
@@ -584,6 +590,9 @@ describe("selectAggressor — validation walk == aggressor walk invariant", () =
       factionTensions: new Map(),
       duels: new Map(),
       elopement: null,
+      artifactInstances: new Map(),
+      forgeries: new Map(),
+      thiefAttempts: new Map(),
     };
     const result = tryStartScheme(state, PLAYER_HOUSE_ID, {
       kind: "Chaperone",
