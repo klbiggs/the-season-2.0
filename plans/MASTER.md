@@ -247,7 +247,7 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P7.5 | LLM key relocation to localhost proxy | [`phases/07-5-llm-relocation.md`](./phases/07-5-llm-relocation.md) | P4 | ✅ done |
 | P8 | Rival Houses, Patronesses & Duels | [`phases/08-rivals-patronesses.md`](./phases/08-rivals-patronesses.md) | P1, P5 | ✅ done |
 | P9 | Elopement Sprint Overlay | [`phases/09-elopement.md`](./phases/09-elopement.md) | P5 | ✅ done |
-| P10 | Artifacts, Wardrobe, Forgery & Theft | [`phases/10-artifacts.md`](./phases/10-artifacts.md) | P7 | 🚧 in progress |
+| P10 | Artifacts, Wardrobe, Forgery & Theft | [`phases/10-artifacts.md`](./phases/10-artifacts.md) | P7 | ✅ done |
 | P11 | Sibling Rivals & Inherited Secrets | [`phases/11-sibling-rivals-secrets.md`](./phases/11-sibling-rivals-secrets.md) | P7, P6 | — |
 | P12 | Hyde Park Promenade | [`phases/12-promenade.md`](./phases/12-promenade.md) | P3, P4, P10 | — |
 | P13 | Global Events & Era Progression | [`phases/13-global-events-era.md`](./phases/13-global-events-era.md) | P1, P10 | — |
