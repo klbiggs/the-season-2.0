@@ -24,4 +24,4 @@
 
 **Verification.** Semantic hit observable on prompts; failed embedding doesn't block conversation; save sidecar round-trips.
 
-**Close out.** When the gates and verification items above are green, run `/close-phase P17` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, apply any `CLAUDE.md` additions, and commit the changes (no push).
+**Close out.** When the gates and verification items above are green, run `/close-phase 17` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, apply any `CLAUDE.md` additions, and commit the changes (no push).

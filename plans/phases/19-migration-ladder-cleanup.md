@@ -59,4 +59,4 @@ At v1.0 ship, none of these benefits apply:
 
 ## Close out
 
-When the gates and verification items above are green, run `/close-phase P19` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, and commit the changes (no push). This is the final pre-ship phase — after P19, the project is ready to tag v1.0.
+When the gates and verification items above are green, run `/close-phase 19` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, and commit the changes (no push). This is the final pre-ship phase — after P19, the project is ready to tag v1.0.

@@ -16,4 +16,4 @@
 
 **Verification.** Re-reading the same content item returns persisted text verbatim; model not invoked on save/load.
 
-**Close out.** When the gates and verification items above are green, run `/close-phase P18` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, apply any `CLAUDE.md` additions, and commit the changes (no push).
+**Close out.** When the gates and verification items above are green, run `/close-phase 18` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, apply any `CLAUDE.md` additions, and commit the changes (no push).

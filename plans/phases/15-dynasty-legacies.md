@@ -24,4 +24,4 @@
 
 **Verification.** Vitest: trigger conditions over 5-generation simulation; save-roundtrip preserves perks.
 
-**Close out.** When the gates and verification items above are green, run `/close-phase P15` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, apply any `CLAUDE.md` additions, and commit the changes (no push).
+**Close out.** When the gates and verification items above are green, run `/close-phase 15` to update phase status in `plans/MASTER.md` §6, append to `plans/SESSION-NOTES.md`, resolve any open questions answered during the work, apply any `CLAUDE.md` additions, and commit the changes (no push).
