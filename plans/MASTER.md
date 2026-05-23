@@ -256,8 +256,11 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P16 | Polish — Audio, i18n, Procedural Identity | [`phases/16-polish.md`](./phases/16-polish.md) | most prior | — |
 | P17 | (Optional) Semantic Memory | [`phases/17-semantic-memory.md`](./phases/17-semantic-memory.md) | P4, P6, P5 | — |
 | P18 | (Optional) LLM Flavor Content | [`phases/18-llm-flavor.md`](./phases/18-llm-flavor.md) | P4, P10 | — |
+| P19 | Pre-ship cleanup: delete migration ladder | [`phases/19-migration-ladder-cleanup.md`](./phases/19-migration-ladder-cleanup.md) | all prior | — |
 
 **Note**: P7.5 is a cross-cutting architectural amendment (LLM-key relocation), not a new feature phase. P8+ "Depends on" columns do NOT inherit P7.5.
+
+**Note on P19**: The v1→v{N} migration ladder + SaveV1-V{N-1} schemas + Pre-schemas + strip cascade exist as a development-discipline forcing function through P0-P18 (catches non-additive schema changes, gives chain-test determinism coverage). At v1.0 ship there will be zero saves "in the wild," so the ladder is dead weight. P19 deletes the entire scaffolding and ships v1.0 with a single `SaveV{current}Schema`. Any extant dev saves require a one-time `npm run reset-save` (acceptable for greenfield).
 
 ---
 

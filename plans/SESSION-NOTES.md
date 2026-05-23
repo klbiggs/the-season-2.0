@@ -691,3 +691,17 @@ Items 6 and 8 remain partial:
 - `src/game/store.ts:reconcileSibling` — pre-tick player-elected action (10-publisher set)
 
 **Verification matrix exercised: 19/20 ✅** (item #14 30-run replay-stability covered indirectly by existing `replay-harness.test.ts` + `rng.replay.test.ts`; #12 satisfaction→duel pathway not exercised because integration spans store wrapper + duel resolution).
+
+## P19 added to plan — 2026-05-23
+
+**Decision:** add P19 "Pre-ship cleanup: delete migration ladder" as the final phase. P12-P18 continue to ship migrations as the existing pattern. P19 then deletes the entire v1→v{N} ladder (Pre-schemas, strip helpers, legacy emitters, chain tests, `MIGRATIONS` registry) and ships v1.0 with a single `SaveV{current}Schema` rebased to `version: 1`.
+
+**Why:** Greenfield development has zero users. The migration discipline was a development-time forcing function (catches non-additive schema changes, gives chain-test determinism coverage, allows mid-dev save survival across branches) — but those benefits don't apply post-ship. At v1.0 the ladder becomes dead weight (~2500-3000 LOC).
+
+**What stays:** The migration *discipline patterns* (`.default()` backward-compat, lazy-clone branches, `pruneOrphanedConversationKeys` extension pattern, idempotent migration shape) stay in CLAUDE.md as the contract for future post-v1 phases.
+
+**What goes:** All `migrate_v{N}_to_v{N+1}.ts` files, all `SaveV{N}Schema` for N < current, all Pre-schemas + strip helpers, all chain tests + idempotence tests + parity tests, `MIGRATIONS` registry + `runMigrations` runner.
+
+**Files of note:**
+- `plans/phases/19-migration-ladder-cleanup.md` — new stub subplan
+- `plans/MASTER.md` §6 — P19 row added + explanatory note
