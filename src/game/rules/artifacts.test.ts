@@ -63,9 +63,11 @@ function getPlayerHead(state: GameState) {
 
 describe("P10 artifact rules", () => {
   describe("createInitialState bootstrap", () => {
-    it("seeds 3 starting artifacts on fresh state", () => {
+    it("seeds 5 starting artifacts on fresh state (3 player + 2 NPC mounts)", () => {
+      // P12: createInitialState seeds 3 player artifacts AND 2 NPC mount
+      // instances (Lord Blackwood + Miss Carrington) via bootstrapNpcMountFamily.
       const state = createInitialState("alpha", DEFAULT_CAMPAIGN_NAME);
-      expect(state.artifactInstances.size).toBe(3);
+      expect(state.artifactInstances.size).toBe(5);
     });
     it("player head has 2 equipped artifacts (sapphires + mount) at bootstrap", () => {
       const state = createInitialState("alpha", DEFAULT_CAMPAIGN_NAME);

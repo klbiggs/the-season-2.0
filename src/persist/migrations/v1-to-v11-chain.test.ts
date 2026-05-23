@@ -42,9 +42,12 @@ describe("v1 → v11 chain via runMigrations(MIGRATIONS)", () => {
       expect(v11.rivalActors).toHaveLength(3);
       expect(v11.factionTensions).toHaveLength(6);
       expect(v11.elopement).toBeNull();
-      // P10 contract: 3 player starting artifacts seeded by symmetric-seed
-      // migration helper.
-      expect(v11.artifactInstances).toHaveLength(3);
+      // P10 contract: 3 player starting artifacts.
+      // P12 widening: `bootstrapPlayerArtifactsForMigration` now ALSO seeds
+      // 2 NPC mount instances (Lord Blackwood + Miss Carrington) — total 5.
+      // The fresh-state side via `createInitialState` mints the same 5
+      // instances via the same helpers, so hash parity holds.
+      expect(v11.artifactInstances).toHaveLength(5);
       expect(v11.forgeries).toHaveLength(0);
       expect(v11.thiefAttempts).toHaveLength(0);
       // Full parity: lifted V11 hash matches fresh-state hash.

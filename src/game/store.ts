@@ -131,7 +131,11 @@ enableMapSet();
 // so the dependency direction is persist → game, not the inverse.
 // (Import path is direct; not cyclic because bootstrap.ts only imports from
 // rng.ts + fixtures + constants.)
-import { bootstrapPlayerArtifactsForInit, seedStartingFamily } from "./bootstrap";
+import {
+  bootstrapNpcMountFamily,
+  bootstrapPlayerArtifactsForInit,
+  seedStartingFamily,
+} from "./bootstrap";
 
 export function createInitialState(
   seed: string,
@@ -171,6 +175,12 @@ export function createInitialState(
   // Map in-place (sets playerHead.equippedArtifactIds); returns the
   // artifactInstances Map for the literal below.
   const artifactInstances = bootstrapPlayerArtifactsForInit(characters, houses, 0);
+  // P12: seed NPC mount-family equip on baseline NPCs (Lord Blackwood +
+  // Miss Carrington). Mutates BOTH characters AND artifactInstances IN PLACE.
+  // Runs AFTER bootstrapPlayerArtifactsForInit so the per-definitionId
+  // counter for "mount" lands at 0 for the player head, 1+2 for NPCs.
+  // Idempotent — second call is a no-op.
+  bootstrapNpcMountFamily(characters, artifactInstances, 0);
   return {
     tick: 0,
     rng,
@@ -327,6 +337,35 @@ export type StoreActions = {
   ) =>
     | { ok: true }
     | { ok: false; reason: import("./rules/siblingRivals").ReconciliationRejection };
+  // P12 promenade actions. enterPromenade/exitPromenade manage session
+  // state on the orchestrator (in-memory). sendPromenadeMessage POSTs
+  // through the same proxy at /api/llm/conversation with mode="Promenade".
+  // exitPromenade ADVANCES THE TICK (commit-on-leave) and fires the full
+  // 10-publisher set per CLAUDE.md "10/10/9 publisher set across store
+  // wrappers". The other three are session-management; they do NOT tick.
+  enterPromenade: () =>
+    | {
+        ok: true;
+        sessionId: import("./rng").PromenadeSessionId;
+        partnerCharacterId: CharacterId;
+      }
+    | { ok: false; reason: import("./rules/promenade").PromenadeEntryRejection };
+  exitPromenade: () => void;
+  sendPromenadeMessage: (
+    input: PromenadeMessageInput,
+  ) => Promise<
+    { ok: true; outcome: ConversationResponse } | { ok: false; reason: ConversationFailure }
+  >;
+  abortPromenadeRequest: () => void;
+};
+
+// P12: input shape for sendPromenadeMessage. Differs from BallroomMessageInput
+// in that pinnedTactic is ALWAYS one of the 3 promenade tactics (the UI has
+// no "freely classify" affordance — every player message comes with a pinned
+// promenade-tactic button click).
+export type PromenadeMessageInput = {
+  freeformMessage: string;
+  pinnedTactic: "WittyBanter" | "DeepEmpathy" | "ComplimentMount";
 };
 
 export type DemandSatisfactionRejection =
@@ -385,6 +424,19 @@ import { publishWhisperTransitions, whisperBus } from "../runtime/events/whisper
 // have been declared above.
 import { advanceTickPure } from "../runtime/tickOrchestrator";
 import { runYearPassPure } from "../runtime/yearPass";
+import type { PromenadeSessionId } from "./rng";
+// P12 promenade imports. bootstrapNpcMountFamily is imported with the rest
+// of bootstrap.ts at the top (line 134); rules-side helpers live here.
+import {
+  type PromenadeEntryRejection,
+  appendPromenadeExchange,
+  canEnterPromenade,
+  characterEquipsMountFamily,
+  narrowToPromenadeTactic,
+  pickPromenadePartner,
+  playerHeadEquipsMountFamily,
+  resolvePromenadeCombat,
+} from "./rules/promenade";
 import { applyReconciliationAttempt } from "./rules/siblingRivals";
 
 // Apply a full GameState swap to the immer draft. Used by every store
@@ -551,10 +603,19 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishInheritedSecretTransitions(before, after);
         publishBloodFeudTransitions(before, after);
       },
-      replaceState: (next: GameState) =>
+      replaceState: (next: GameState) => {
+        // P12: defensive session-clear. The orchestrator's currentSession is
+        // in-memory and would persist across a load if not explicitly cleared.
+        // Without this, a post-load `currentMode() === "Promenade"` would
+        // falsely block enterBallroom/enterPromenade via the cross-mode
+        // SessionAlreadyOpen gate (the loaded GameState carries no session).
+        // abortCurrent() handles the load-mid-fetch race.
+        conversationOrchestrator.abortCurrent();
+        conversationOrchestrator.endSession();
         set((state) => {
           overwriteFromGameState(state, next);
-        }),
+        });
+      },
       travel: (to: LocationId) => {
         const stateBefore = get();
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
@@ -780,6 +841,13 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.elopement !== null) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
+        // P12: cross-mode mutual exclusion. Reject if a Promenade session is
+        // already open. The orchestrator throws on misuse as defense-in-depth,
+        // but the store-action layer gates first so the UI sees a typed
+        // rejection rather than an exception.
+        if (conversationOrchestrator.currentMode() === "Promenade") {
+          return { ok: false, reason: { kind: "SessionAlreadyOpen" as const } };
+        }
         const player = stateBefore.houses.get(PLAYER_HOUSE_ID);
         if (player === undefined || player.currentLocation !== "Capital") {
           return {
@@ -809,7 +877,13 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         return { ok: true, sessionId };
       },
       exitBallroom: (playerComposureAtExit: number) => {
-        const sessionId = conversationOrchestrator.currentSessionId();
+        // P12: cross-mode union — currentSessionId() returns BallSessionId |
+        // PromenadeSessionId | null. exitBallroom defensively narrows on
+        // currentMode() so a stray exitBallroom call against a Promenade
+        // session is a no-op (the dispatch path should never reach this
+        // branch — store-action layer routes to exitPromenade instead).
+        if (conversationOrchestrator.currentMode() !== "Ballroom") return;
+        const sessionId = conversationOrchestrator.currentSessionId() as BallSessionId | null;
         if (sessionId === null) return; // no-op if not in a session
         // Abort any in-flight conversation BEFORE committing composure.
         conversationOrchestrator.abortCurrent();
@@ -890,6 +964,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             targetMarriage,
             spouse,
           },
+          // P12: ballroom mode framing. The Zod schema's `.default("Ballroom")`
+          // would supply this on parse, but emitting explicitly avoids the
+          // pre-parse construction-vs-parse asymmetry.
+          mode: "Ballroom" as const,
         };
 
         // Publish ConversationSent BEFORE awaiting the LLM (per
@@ -1757,6 +1835,210 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           });
         }
         return { ok: true };
+      },
+      // ── P12 Hyde Park Promenade actions ───────────────────────────────
+      enterPromenade: () => {
+        const stateBefore = get();
+        // Pure-rule gate runs first. Returns typed rejection unions for
+        // PlayerExiled / ElopementInProgress / WrongLocation.
+        const check = canEnterPromenade(stateBefore);
+        if (!check.ok) {
+          locationBus.publish({
+            kind: "PromenadeEntryRejected",
+            tick: stateBefore.tick,
+            houseId: PLAYER_HOUSE_ID,
+            reason: check.reason,
+          });
+          return { ok: false, reason: check.reason };
+        }
+        // P12 cross-mode mutual exclusion (gates BOTH Ballroom AND Promenade
+        // sessions). The orchestrator throws as defense-in-depth, but the
+        // store-action layer returns a typed rejection here.
+        if (conversationOrchestrator.currentSessionId() !== null) {
+          const reason: PromenadeEntryRejection = { kind: "SessionAlreadyOpen" };
+          locationBus.publish({
+            kind: "PromenadeEntryRejected",
+            tick: stateBefore.tick,
+            houseId: PLAYER_HOUSE_ID,
+            reason,
+          });
+          return { ok: false, reason };
+        }
+        // Pick the partner (1 player-RNG draw on non-empty pool, 0 on empty).
+        const picked = pickPromenadePartner(stateBefore);
+        if (picked.partnerId === null) {
+          const reason: PromenadeEntryRejection = { kind: "NoEligiblePartner" };
+          locationBus.publish({
+            kind: "PromenadeEntryRejected",
+            tick: stateBefore.tick,
+            houseId: PLAYER_HOUSE_ID,
+            reason,
+          });
+          return { ok: false, reason };
+        }
+        // Commit the new RNG map to GameState BEFORE opening the session
+        // so any later sendPromenadeMessage call reads consistent state.rng.
+        set((draft) => {
+          overwriteFromGameState(draft, picked.nextState);
+        });
+        const sessionId = conversationOrchestrator.beginPromenadeSession(
+          get().tick,
+          picked.partnerId,
+        );
+        conversationBus.publish({
+          kind: "PromenadeEntered",
+          tick: stateBefore.tick,
+          houseId: PLAYER_HOUSE_ID,
+          sessionId,
+          partnerCharacterId: picked.partnerId,
+        });
+        return { ok: true, sessionId, partnerCharacterId: picked.partnerId };
+      },
+      exitPromenade: () => {
+        // Defensive — UI should never invoke this against a non-Promenade
+        // session, but the dispatch path can race a load (replaceState
+        // clears the session, then UI calls exit before re-render). No-op.
+        if (conversationOrchestrator.currentMode() !== "Promenade") return;
+        const sessionId = conversationOrchestrator.currentSessionId() as PromenadeSessionId;
+        const partnerCharacterId = conversationOrchestrator.currentPromenadePartner();
+        // Abort any in-flight per-turn request BEFORE the tick advance.
+        conversationOrchestrator.abortCurrent();
+        const stateBefore = get();
+        // The 1-tick cost per spec line 446 is the contract. History +
+        // affection mutations from sendPromenadeMessage already landed
+        // per-turn; the tick advance is the only commit on exit. No
+        // elopement gate needed because the view-routing precedence
+        // (Elopement > Promenade) means a mid-promenade elopement mount
+        // requires a parallel store action — which would have to land
+        // within an in-flight sendPromenadeMessage's window. Out-of-scope
+        // race per the plan's edge-case section.
+        const afterTick = advanceTickPure(stateBefore);
+        set((draft) => {
+          overwriteFromGameState(draft, afterTick);
+        });
+        conversationOrchestrator.endSession();
+        conversationBus.publish({
+          kind: "PromenadeExited",
+          tick: afterTick.tick,
+          houseId: PLAYER_HOUSE_ID,
+          sessionId,
+          partnerCharacterId,
+        });
+        // 10-publisher set per CLAUDE.md (matches travel/requestAudience/...).
+        publishCharacterDeaths(stateBefore, afterTick);
+        publishSchemeTransitions(stateBefore, afterTick);
+        publishWhisperTransitions(stateBefore, afterTick);
+        publishMarriageTransitions(stateBefore, afterTick);
+        publishTemptationLatchTransitions(stateBefore, afterTick);
+        publishElopementTransitions(stateBefore, afterTick);
+        publishArtifactTransitions(stateBefore, afterTick);
+        publishSiblingRivalTransitions(stateBefore, afterTick);
+        publishInheritedSecretTransitions(stateBefore, afterTick);
+        publishBloodFeudTransitions(stateBefore, afterTick);
+      },
+      sendPromenadeMessage: async (input: PromenadeMessageInput) => {
+        const stateBefore = get();
+        if (
+          conversationOrchestrator.currentSessionId() === null ||
+          conversationOrchestrator.currentMode() !== "Promenade"
+        ) {
+          return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
+        }
+        const partnerId = conversationOrchestrator.currentPromenadePartner();
+        if (partnerId === null) {
+          return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
+        }
+        const target = stateBefore.characters.get(partnerId);
+        const playerHead = stateBefore.houses.get(PLAYER_HOUSE_ID);
+        if (target === undefined || !target.alive || playerHead === undefined) {
+          return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
+        }
+        const pairKey = makePairKey(PLAYER_HOUSE_ID, target.id);
+        const history = stateBefore.conversationHistory.get(pairKey) ?? [];
+
+        // P12: 1-on-1 scene. Persona prompt sees only the partner.
+        // Wire-format type is mutable array; we declare a fresh empty one.
+        const otherCharactersInScene: Character[] = [];
+
+        // Marriage state snapshot — same shape as sendBallroomMessage.
+        let targetMarriage: MarriageRecord | null = null;
+        let spouse: Character | null = null;
+        if (target.marriageId !== null) {
+          const m = stateBefore.marriages.get(target.marriageId);
+          if (m !== undefined) {
+            targetMarriage = m;
+            if (!m.dissolved) {
+              const spouseId = m.spouseAId === target.id ? m.spouseBId : m.spouseAId;
+              spouse = stateBefore.characters.get(spouseId) ?? null;
+            }
+          }
+        }
+
+        const request = {
+          targetCharacterId: target.id,
+          playerHouseId: PLAYER_HOUSE_ID,
+          freeformMessage: input.freeformMessage,
+          history,
+          otherCharactersInScene,
+          characterStateSnapshot: {
+            target: {
+              ...target,
+              traits: getEffectiveTraits(stateBefore, target.id),
+              equippedArtifactIds: [...target.equippedArtifactIds],
+            },
+            otherCharactersInScene,
+            targetMarriage,
+            spouse,
+          },
+          mode: "Promenade" as const,
+        };
+
+        // Pin-priority resolver. UI always pins a promenade tactic.
+        const outcome = await conversationOrchestrator.send(request, input.pinnedTactic);
+        if (outcome.kind === "Failed") {
+          return { ok: false, reason: outcome.failure };
+        }
+        // Read mount-equip predicates at resolve time (defense-in-depth
+        // against state drift between request build and post-await).
+        const stateAtResolve = get();
+        const playerMount = playerHeadEquipsMountFamily(stateAtResolve);
+        const partnerAtResolve = stateAtResolve.characters.get(target.id);
+        const targetMount =
+          partnerAtResolve !== undefined &&
+          characterEquipsMountFamily(stateAtResolve, partnerAtResolve.equippedArtifactIds);
+
+        // Narrow the LLM's classification to a PromenadeTactic. Pin-priority
+        // guarantees the result is in-set; the narrowing helper makes the
+        // contract visible AND throws on out-of-set (defense-in-depth).
+        const promenadeTactic = narrowToPromenadeTactic(outcome.response.classifiedTactic);
+        const promenadeOutcome = resolvePromenadeCombat({
+          tactic: promenadeTactic,
+          qualityMultiplier: outcome.response.qualityMultiplier,
+          targetHasMountFamilyEquipped: targetMount,
+          playerHasMountFamilyEquipped: playerMount,
+        });
+
+        // Commit history + affection. Tick is NOT advanced here — only on
+        // exitPromenade.
+        set((draft) => {
+          overwriteFromGameState(
+            draft,
+            appendPromenadeExchange(
+              stateAtResolve,
+              target.id,
+              { text: input.freeformMessage, classifiedTactic: promenadeTactic },
+              { text: outcome.response.dialogue },
+              promenadeOutcome.affectionDelta,
+              stateAtResolve.tick,
+            ),
+          );
+        });
+
+        return { ok: true, outcome: outcome.response };
+      },
+      abortPromenadeRequest: () => {
+        if (conversationOrchestrator.currentMode() !== "Promenade") return;
+        conversationOrchestrator.abortCurrent();
       },
     })),
   );

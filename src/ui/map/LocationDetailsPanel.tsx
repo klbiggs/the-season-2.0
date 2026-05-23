@@ -5,7 +5,9 @@ import {
 } from "../../game/fixtures/locations";
 import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import { getLocationDelta } from "../../game/rules/locationEffects";
+import { eligiblePromenadePartners } from "../../game/rules/promenade";
 import type { SeasonStore } from "../../game/store";
+import { conversationOrchestrator } from "../../runtime/conversationOrchestrator";
 
 // Right-side details panel. Shows the current location's name, description,
 // per-tick deltas, and available actions. Conditional rendering per location:
@@ -19,9 +21,15 @@ type Props = {
   store: SeasonStore;
   location: LocationId;
   onEnterBallroom?: (() => void) | undefined;
+  onEnterPromenade?: (() => void) | undefined;
 };
 
-export function LocationDetailsPanel({ store, location, onEnterBallroom }: Props) {
+export function LocationDetailsPanel({
+  store,
+  location,
+  onEnterBallroom,
+  onEnterPromenade,
+}: Props) {
   const house = store((s) => s.houses.get(PLAYER_HOUSE_ID));
   const consecutiveTicks = house?.consecutiveTicksAtCurrentLocation ?? 0;
   const wealth = house?.wealth ?? 0;
@@ -29,10 +37,26 @@ export function LocationDetailsPanel({ store, location, onEnterBallroom }: Props
   const lastAudienceTick = house?.lastAudienceTick ?? null;
   const tick = store((s) => s.tick);
   const delta = getLocationDelta(location);
+  // P12: read full state to derive promenade-affordance availability.
+  const fullState = store();
 
   const showLiquidate = location === "Country" && wealth < 0;
   const showAudience = location === "Capital";
   const showWardrobe = location === "Capital";
+  // P12 promenade-button gating. Surface tooltips for each blocked branch
+  // so the player sees WHY the button is disabled.
+  const showPromenade = location === "Capital" && onEnterPromenade !== undefined;
+  const promenadeBlockedReason =
+    house?.exiled === true
+      ? "Your house is exiled."
+      : fullState.elopement !== null
+        ? "An elopement is in progress."
+        : conversationOrchestrator.currentMode() !== null
+          ? "A conversation is already in progress."
+          : eligiblePromenadePartners(fullState).length === 0
+            ? "No one of consequence is in Hyde Park today."
+            : "";
+  const promenadeDisabled = promenadeBlockedReason !== "";
 
   const canAudience =
     reputation >= 30 && (lastAudienceTick === null || tick - lastAudienceTick >= 30);
@@ -129,6 +153,25 @@ export function LocationDetailsPanel({ store, location, onEnterBallroom }: Props
             data-testid="location-details-enter-ballroom"
           >
             Enter the Ballroom
+          </button>
+        )}
+        {/* P12: Promenade action — only at Capital. Calls enterPromenade
+            which validates location + cross-mode gates + picks the partner
+            (1 player-RNG draw). On ok:true, App flips inPromenade → true
+            and PromenadeView mounts. */}
+        {showPromenade && (
+          <button
+            type="button"
+            disabled={promenadeDisabled}
+            title={promenadeBlockedReason}
+            onClick={() => {
+              const result = store.getState().enterPromenade();
+              if (result.ok && onEnterPromenade !== undefined) onEnterPromenade();
+            }}
+            className="px-3 py-2 rounded bg-emerald-700 text-white hover:bg-emerald-800 disabled:bg-stone-200 disabled:text-stone-400 text-sm"
+            data-testid="location-details-enter-promenade"
+          >
+            Take a Promenade in Hyde Park (1 tick)
           </button>
         )}
       </div>

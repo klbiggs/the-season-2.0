@@ -28,6 +28,7 @@ import type {
 } from "./entities";
 import {
   ARTIFACT_REGISTRY,
+  NPC_STARTING_MOUNT_FAMILY,
   PLAYER_STARTING_ARTIFACTS,
   makeArtifactInstanceId,
 } from "./fixtures/artifacts";
@@ -51,6 +52,7 @@ import {
   drawInt,
 } from "./rng";
 import { PLAYER_HOUSE_ID } from "./rng";
+import { MOUNT_FAMILY } from "./rules/promenade";
 
 export function seedStartingFamily(
   rngState: RngState,
@@ -257,37 +259,117 @@ export function bootstrapPlayerArtifactsForInit(
   return artifactInstances;
 }
 
-// Used by migrate_v10_to_v11 and the fromSaveV1..V10 outer wraps. Pure
+// P12: Idempotent NPC mount-family bootstrap. Mutates `characters` IN PLACE
+// (appends to each named NPC's equippedArtifactIds) AND mutates
+// `artifactInstances` IN PLACE (adds new ArtifactInstance entries). Returns
+// void — the Map mutations are the contract. A future maintainer treating
+// either map as immutable will silently break determinism; this in-place
+// semantics matches `bootstrapPlayerArtifactsForInit` above.
+//
+// IDEMPOTENT: per-iteration `alreadyEquipped` check via the registry walk
+// skips NPCs that already equip a mount-family instance. The load-resave-
+// reload chain is therefore stable: first load seeds; second load is a no-op.
+//
+// Called from TWO sites:
+//   1. createInitialState (fresh state path).
+//   2. fromSaveV12 (live load path; legacy lifts reach this via the chain).
+//
+// Per-iteration synthState rebuild inside the for-loop is the canonical
+// pattern here — each iteration freshly clones the LIVE `artifactInstances`
+// Map, so consecutive seeds see the just-minted instance via the prior
+// iteration's `artifactInstances.set` write. Single `.set` per iteration +
+// per-iteration synthState rebuild = collision-free IDs across N seeds.
+export function bootstrapNpcMountFamily(
+  characters: Map<CharacterId, Character>,
+  artifactInstances: Map<ArtifactInstanceId, ArtifactInstance>,
+  tick: number,
+): void {
+  for (const { characterId, definitionId } of NPC_STARTING_MOUNT_FAMILY) {
+    const npc = characters.get(characterId);
+    if (npc === undefined) continue; // legacy/migrated save missing this NPC
+    // Idempotence: skip if this NPC already equips ANY mount-family instance.
+    const alreadyEquipped = npc.equippedArtifactIds.some((instId) => {
+      const inst = artifactInstances.get(instId);
+      if (inst === undefined) return false;
+      const def = ARTIFACT_REGISTRY.get(inst.definitionId);
+      // Typed `MOUNT_FAMILY` constant from rules/promenade.ts — single source
+      // of truth (avoids a parallel "mount" literal in this file).
+      return def?.family === MOUNT_FAMILY;
+    });
+    if (alreadyEquipped) continue;
+    // Mint a fresh ArtifactInstance owned by this NPC + this NPC's house.
+    // Synthstate is rebuilt per iteration so the factory's index walk sees
+    // prior iterations' just-minted instances via the live-Map write below.
+    const synthState = {
+      artifactInstances: new Map(artifactInstances),
+    } as unknown as GameState;
+    const instId = makeArtifactInstanceId(synthState, definitionId);
+    const newInst: ArtifactInstance = {
+      id: instId,
+      definitionId,
+      ownerHouseId: npc.houseId,
+      ownerCharacterId: npc.id,
+      lastRefreshTick: tick,
+      forgedFlag: false,
+    };
+    artifactInstances.set(instId, newInst);
+    characters.set(npc.id, {
+      ...npc,
+      equippedArtifactIds: [...npc.equippedArtifactIds, instId],
+    });
+  }
+}
+
+// Used by migrate_v10_to_v11 and the fromSaveV1..V11 outer wraps. Pure
 // state-in/state-out. IDEMPOTENT — if the player head already has any
 // equippedArtifactIds OR state.artifactInstances is non-empty, returns
-// state unchanged (the migration-runner double-call path is safe).
+// state unchanged for the player-side seeding (the migration-runner
+// double-call path is safe).
+//
+// P12: ALSO threads through bootstrapNpcMountFamily so legacy lifts gain
+// the same NPC mount seeding as the fresh-state path. Each helper is
+// independently idempotent, so the call order is symmetric — player first
+// (so the per-definitionId counter for "mount" lands at 0 for the player
+// head, 1+2 for NPCs).
 // No `seed` parameter — starting inventory is deterministic via
-// PLAYER_STARTING_ARTIFACTS + lex-sorted ids.
+// PLAYER_STARTING_ARTIFACTS + NPC_STARTING_MOUNT_FAMILY + lex-sorted ids.
 export function bootstrapPlayerArtifactsForMigration(state: GameState): GameState {
-  if (state.artifactInstances.size > 0) return state;
+  // Player-artifact seeding. Guarded by the same "already seeded?" checks
+  // as before P12 — skipped when state.artifactInstances has any entries
+  // or the player head already equips anything.
   const player = state.houses.get(PLAYER_HOUSE_ID);
   if (!player) return state;
   const headChar = state.characters.get(player.headOfHouseCharacterId);
   if (!headChar) return state;
-  if (headChar.equippedArtifactIds.length > 0) return state;
 
-  const instances = computeStartingArtifactInstances(
-    state.artifactInstances,
-    headChar.id,
-    player.id,
-    state.tick,
-  );
   const newArtifactInstances = new Map(state.artifactInstances);
-  const equippedIds: ArtifactInstanceId[] = [];
-  for (let i = 0; i < instances.length; i++) {
-    const inst = instances[i];
-    const starter = PLAYER_STARTING_ARTIFACTS[i];
-    if (inst === undefined || starter === undefined) continue;
-    newArtifactInstances.set(inst.id, inst);
-    if (starter.equippedFromStart) equippedIds.push(inst.id);
-  }
   const newCharacters = new Map(state.characters);
-  newCharacters.set(headChar.id, { ...headChar, equippedArtifactIds: equippedIds });
+  const playerAlreadySeeded =
+    state.artifactInstances.size > 0 || headChar.equippedArtifactIds.length > 0;
+
+  if (!playerAlreadySeeded) {
+    const instances = computeStartingArtifactInstances(
+      state.artifactInstances,
+      headChar.id,
+      player.id,
+      state.tick,
+    );
+    const equippedIds: ArtifactInstanceId[] = [];
+    for (let i = 0; i < instances.length; i++) {
+      const inst = instances[i];
+      const starter = PLAYER_STARTING_ARTIFACTS[i];
+      if (inst === undefined || starter === undefined) continue;
+      newArtifactInstances.set(inst.id, inst);
+      if (starter.equippedFromStart) equippedIds.push(inst.id);
+    }
+    newCharacters.set(headChar.id, { ...headChar, equippedArtifactIds: equippedIds });
+  }
+
+  // P12: NPC mount seeding (per-NPC idempotent via the helper's
+  // alreadyEquipped check). Always invoked — re-calls on already-seeded
+  // NPCs are no-ops.
+  bootstrapNpcMountFamily(newCharacters, newArtifactInstances, state.tick);
+
   return {
     ...state,
     artifactInstances: newArtifactInstances,

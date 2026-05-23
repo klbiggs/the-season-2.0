@@ -19,7 +19,12 @@ export const RESPOND_TOOL: FunctionDeclaration = {
       dialogue: { type: "string" },
       classifiedTactic: {
         type: "string",
-        enum: ["Flattery", "WittyBanter", "SlyGossip", "DeepEmpathy"],
+        // P12: widened with "ComplimentMount" — promenade-only tactic. The
+        // ballroom mode-framing prefix (absent in ballroom) does not steer
+        // the model toward this value; promenade mode-framing actively names
+        // it. Server-side widening keeps the SDK declaration consistent with
+        // ProxyConversationRequestSchema.history's enum.
+        enum: ["Flattery", "WittyBanter", "SlyGossip", "DeepEmpathy", "ComplimentMount"],
       },
       qualityMultiplier: { type: "number" },
       moodHint: {

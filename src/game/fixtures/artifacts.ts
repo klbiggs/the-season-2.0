@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { GameState } from "../entities";
 import {
   type ArtifactInstanceId,
+  type CharacterId,
   type ForgeryId,
   type ThiefAttemptId,
   TraitIdSchema,
@@ -180,6 +181,23 @@ export const PLAYER_STARTING_ARTIFACTS: ReadonlyArray<{
   { definitionId: "sapphires", equippedFromStart: true, lastRefreshTick: 0 },
   { definitionId: "snuffbox", equippedFromStart: false, lastRefreshTick: 0 },
   { definitionId: "mount", equippedFromStart: true, lastRefreshTick: 0 },
+];
+
+// P12: NPC mount-family bootstrap. Two named baseline NPCs ship with an
+// equipped mount-family instance so the ComplimentMount promenade tactic
+// has meaningful partners from tick 0. Picks: Lord Blackwood (baseline NPC
+// head — cultural fit for equestrian portrayal) and Miss Carrington
+// (Romantic+Frivolous traits — fashionable mount ownership consistent with
+// the trait gestalt). NPC mounts always equip — equippedFromStart flag is
+// elided because there's no NPC unequipped-starting-artifact use case at v1.
+// lastRefreshTick is derived from the bootstrap helper's `tick` parameter
+// (always 0 on fresh state; save.tick on the live-load path).
+export const NPC_STARTING_MOUNT_FAMILY: ReadonlyArray<{
+  characterId: CharacterId;
+  definitionId: string;
+}> = [
+  { characterId: "npc-blackwood" as CharacterId, definitionId: "mount" },
+  { characterId: "npc-carrington" as CharacterId, definitionId: "mount" },
 ];
 
 // Deterministic ID factories. Each walks existing state to find the next

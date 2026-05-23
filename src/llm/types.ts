@@ -97,12 +97,24 @@ export const ProxyConversationRequestSchema = z.object({
     z.object({
       speaker: z.enum(["house-head", "other"]),
       text: z.string(),
-      classifiedTactic: z.enum(["Flattery", "WittyBanter", "SlyGossip", "DeepEmpathy"]).nullable(),
+      // P12: widened in lockstep with ExchangeSchema. Both sides MUST be edited
+      // together — client request build and server request parse both consume
+      // this shape.
+      classifiedTactic: z
+        .enum(["Flattery", "WittyBanter", "SlyGossip", "DeepEmpathy", "ComplimentMount"])
+        .nullable(),
       tick: z.number().int().nonnegative(),
     }),
   ),
   otherCharactersInScene: z.array(CharacterSchema),
   characterStateSnapshot: CharacterStateSnapshotSchema,
+  // P12: mode field. `.default("Ballroom")` is the P8/P9 backward-compat
+  // shortcut — pre-P12 clients omit the field, server parse applies the
+  // default; post-P12 clients always send the exact case ("Promenade" or
+  // "Ballroom"). Mode-framing prefix lives in server/conversation.ts's
+  // buildContents (NOT systemInstruction — cachedContent + systemInstruction
+  // are mutually exclusive per the Gemini SDK contract).
+  mode: z.enum(["Ballroom", "Promenade"]).default("Ballroom"),
 });
 export type ProxyConversationRequest = z.infer<typeof ProxyConversationRequestSchema>;
 
@@ -137,7 +149,17 @@ export type ConversationResponse = {
   toolCalls: ReadonlyArray<GenerateWhisperToolCall>;
 };
 
-const TACTIC_SET = new Set<string>(["Flattery", "WittyBanter", "SlyGossip", "DeepEmpathy"]);
+// P12: widened to 5 in lockstep with TACTICS at src/game/constants.ts:140.
+// Pin-always-overrides still applies — a promenade tactic pin overrides any
+// model classification, regardless of whether the received string is in this
+// set.
+const TACTIC_SET = new Set<string>([
+  "Flattery",
+  "WittyBanter",
+  "SlyGossip",
+  "DeepEmpathy",
+  "ComplimentMount",
+]);
 
 // resolveTactic: PIN ALWAYS OVERRIDES. If pinned is non-null, return pinned
 // (regardless of whether received is a valid enum). If pinned is null, use

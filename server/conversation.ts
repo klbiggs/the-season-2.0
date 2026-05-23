@@ -89,14 +89,30 @@ export async function handleConversation(req: IncomingMessage, res: ServerRespon
   }
 }
 
+// P12: mode framing rides on the per-turn `contents` payload, NOT
+// `systemInstruction`. Verified mutual-exclusion at server/conversation.ts:48-51:
+// once getOrCreatePersonaCache populates a cache for a target, every call
+// uses `cachedContent: cacheName` and the systemInstruction is never sent
+// again. A prefix on systemInstruction would silently drop on every cache
+// hit. Putting framing here lands it every turn regardless of cache state.
+const PROMENADE_MODE_FRAMING_PREFIX =
+  "[Setting: A casual daytime promenade in Hyde Park. " +
+  "The conversation is low-stakes; the partner is at ease. " +
+  "Faux-pas penalties do NOT apply; structural composure damage is not in play. " +
+  "Available tactics: WittyBanter, DeepEmpathy, ComplimentMount " +
+  "(the last is meaningful only when the partner owns a horse).]\n\n";
+
 function buildContents(req: {
   history: ReadonlyArray<{ speaker: "house-head" | "other"; text: string }>;
   freeformMessage: string;
+  mode: "Ballroom" | "Promenade";
 }): string {
+  const modeFramingPrefix = req.mode === "Promenade" ? PROMENADE_MODE_FRAMING_PREFIX : "";
   const transcript = req.history
     .map((ex) => (ex.speaker === "house-head" ? `Player: ${ex.text}` : `NPC: ${ex.text}`))
     .join("\n");
-  return transcript === "" ? req.freeformMessage : `${transcript}\n${req.freeformMessage}`;
+  const body = transcript === "" ? req.freeformMessage : `${transcript}\n${req.freeformMessage}`;
+  return modeFramingPrefix + body;
 }
 
 function mapSdkErrorToHttpStatus(err: unknown): number {

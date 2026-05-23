@@ -54,7 +54,14 @@ export function parsePairKey(key: ConversationPairKey): {
 export const ExchangeSchema = z.object({
   speaker: z.enum(["house-head", "other"]),
   text: z.string(),
-  classifiedTactic: z.enum(["Flattery", "WittyBanter", "SlyGossip", "DeepEmpathy"]).nullable(),
+  // P12: widened with "ComplimentMount" — promenade-mode-only tactic.
+  // Pre-P12 saves cannot contain "ComplimentMount" entries (the value did
+  // not exist), so legacy parse continues to succeed without a save-version
+  // bump. Forward-compat: a hypothetical pre-P12 build trying to load a
+  // post-P12 save would fail here — accepted v1 behavior (greenfield).
+  classifiedTactic: z
+    .enum(["Flattery", "WittyBanter", "SlyGossip", "DeepEmpathy", "ComplimentMount"])
+    .nullable(),
   tick: z.number().int().nonnegative(),
 });
 export type Exchange = z.infer<typeof ExchangeSchema>;

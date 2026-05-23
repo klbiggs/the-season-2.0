@@ -33,15 +33,23 @@ describe("v1 → v12 chain via runMigrations(MIGRATIONS)", () => {
       expect(v12.rivalActors).toHaveLength(3);
       expect(v12.factionTensions).toHaveLength(6);
       expect(v12.elopement).toBeNull();
-      expect(v12.artifactInstances).toHaveLength(3);
+      // P12: disk-side artifact count grows to 5 — the migration ladder's
+      // `migrate_v10_to_v11` step calls `bootstrapPlayerArtifactsForMigration`,
+      // which P12 widened to also seed NPC mounts via `bootstrapNpcMountFamily`.
+      // Three player artifacts (sapphires/snuffbox/mount) + two NPC mounts
+      // (Blackwood/Carrington) = 5 total.
+      expect(v12.artifactInstances).toHaveLength(5);
       // P11 contract: empty ledgers on every house.
       for (const [, h] of v12.houses) {
         expect(h.siblingRivals).toEqual([]);
         expect(h.inheritedSecrets).toEqual([]);
         expect(h.bloodFeuds).toEqual([]);
       }
-      // Full parity: lifted V12 hash matches fresh-state hash.
+      // P12: lifted V12 size matches the disk-side 5; fromSaveV12 also calls
+      // bootstrapNpcMountFamily but the helper is per-NPC idempotent so the
+      // double-call doesn't add anything. Hash parity with fresh state holds.
       const lifted = fromSaveV12(v12 as SaveV12);
+      expect(lifted.artifactInstances.size).toBe(5);
       expect(hashState(lifted)).toBe(hashState(createInitialState(seed, DEFAULT_CAMPAIGN_NAME)));
     },
   );

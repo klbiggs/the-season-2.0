@@ -17,9 +17,12 @@ import { MapBackdrop } from "./MapBackdrop";
 type Props = {
   store: SeasonStore;
   onEnterBallroom?: (() => void) | undefined;
+  // P12: promenade entry hook. MapView threads this down to
+  // LocationDetailsPanel's "Take a Promenade in Hyde Park" button.
+  onEnterPromenade?: (() => void) | undefined;
 };
 
-export function MapView({ store, onEnterBallroom }: Props) {
+export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
   const state = store();
   const house = state.houses.get(PLAYER_HOUSE_ID);
   const currentLocation: LocationId = house?.currentLocation ?? "Capital";
@@ -132,6 +135,7 @@ export function MapView({ store, onEnterBallroom }: Props) {
             store={store}
             location={currentLocation}
             onEnterBallroom={onEnterBallroom}
+            onEnterPromenade={onEnterPromenade}
           />
           {/* P5: Active Schemes ledger panel — inline summary on the map
             sidebar. P14 ships the full tabbed ledger view. */}

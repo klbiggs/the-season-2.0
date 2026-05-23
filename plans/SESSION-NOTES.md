@@ -2,6 +2,42 @@
 
 Closeout notes per phase. Decisions made during implementation that aren't captured by the subplan or git history. Newest entry on top.
 
+## P12 — closed 2026-05-23
+
+**Decisions made:**
+- TACTICS widened 4 → 5 (`ComplimentMount` appended). Intentionally absent from `TACTIC_BONUS_MOOD`, `CONVERSATION_TRAIT_BONUSES`, `CONVERSATION_TRAIT_PENALTIES`; ballroom-side `resolveCombat` returns no-synergy fallback (pinned by `combat.test.ts`).
+- No save-version bump. P12 ships with `SAVE_VERSION_CURRENT` still at 12. `ExchangeSchema` enum widened in-place (shared across live + every legacy `conversationHistory` round-trip — legacy saves cannot contain the new value by construction).
+- Cross-mode session mutual exclusion enforced at TWO layers: store-action rejection + orchestrator-level throw (defense-in-depth). `enterBallroom` and `enterPromenade` mutually exclusive via `SessionAlreadyOpen` rejection.
+- Promenade tick-on-exit (commit-on-leave) advances 1 tick + fires the 10-publisher set on `exitPromenade`; ballroom does NOT advance tick on exit (composure-only). Divergence is load-bearing for the spec "consumes one tick per visit" contract.
+- Mode framing rides on per-turn `contents` payload (NOT `systemInstruction`) — verified at `server/conversation.ts:45-51` because `cachedContent` and `systemInstruction` are mutually exclusive per the Gemini SDK contract; once the persona cache populates, `systemInstruction` is never sent again.
+- `sendPromenadeMessage` deliberately does NOT post-await re-gate on modal-state (elopement / exile). Race window is the in-flight LLM round-trip (≤15s); narrow surface; view-routing precedence handles visible-state recovery. Deliberate divergence from P9 modal-state-gate principle.
+- NPC mount-family equip ships via new `bootstrapNpcMountFamily` helper (idempotent, void-mutating). `fromSaveV12` extracts characters + artifactInstances locals before the GameState return literal so the helper can mutate Maps in place.
+
+**Open questions hit:**
+- None new at §10. The four P12-planning design calls (multi-turn LLM, no save bump, modal panel UI, 1-on-1 scene + tick-on-exit + zero composure + always-Mingle) are phase-scoped implementation choices, not spec-ambiguity rises.
+
+**Deferred / next-up:**
+- v1.5 candidate: a 6th tactic via TACTICS widening. Requires extending all three tactic Maps OR shipping parallel `combat.test.ts` no-synergy assertion.
+- v1.5 candidate: post-await modal-state gates on `sendPromenadeMessage` if playtest surfaces the race as real.
+- v1.5 candidate: a Court Audience mode (or similar) following the cross-mode session-mutual-exclusion pattern + per-turn `contents` framing.
+
+**Verification matrix exercised: all green** (752/752 vitest; biome lint clean; tsc clean across both tsconfigs). Replay-harness 30-run promenade-leg determinism passes.
+
+**Files of note:**
+- `src/game/rules/promenade.ts` + `.test.ts` (NEW) — pure-rules layer: partner picker, combat resolver, read helpers, exchange-write helper
+- `src/game/conversation/types.ts` — `ExchangeSchema` enum widened to 5 tactics
+- `src/llm/types.ts` — `ProxyConversationRequestSchema` widened: `mode: z.enum(["Ballroom", "Promenade"]).default("Ballroom")` + inline history enum widening + `TACTIC_SET` widening
+- `src/runtime/conversationOrchestrator.ts` — `SessionState` discriminated union + `beginPromenadeSession`/`currentMode`/`currentPromenadePartner`
+- `src/runtime/events/conversation.ts` — `PromenadeEntered` / `PromenadeExited` bus variants
+- `src/runtime/events/location.ts` — `PromenadeEntryRejected` bus variant
+- `src/game/store.ts` — `enterPromenade` / `exitPromenade` / `sendPromenadeMessage` / `abortPromenadeRequest` store actions
+- `src/ui/promenade/` (NEW directory) — promenade panel + LocationDetailsPanel "Take a Promenade in Hyde Park" affordance
+- `server/conversation.ts` — `buildContents` accepts `mode` field, prepends mode-framing prefix on Promenade requests
+- `server/tools.ts` — `RESPOND_TOOL`'s `classifiedTactic` enum widened to 5
+- `src/game/bootstrap.ts` — `bootstrapNpcMountFamily` (NEW) idempotent void-mutating helper
+- `src/persist/schema.ts` — `fromSaveV12` extract-locals-then-mutate pattern preserves bootstrap mount equip across save/load
+- `src/game/fixtures/artifacts.ts` — `NPC_STARTING_MOUNT_FAMILY` registry + factories
+
 ## P9 closeout — 2026-05-21 (promoted to ✅ done)
 
 Elopement Sprint Overlay: 7-tile chase backing the discovered-Seduction outcome (Q1–Q4 verdicts via /converge-plan'd subplan). Save format V9 → V10 with one new top-level field (`state.elopement: ElopementSprintState | null`) plus one new MarriageRecord field (`viaElopement: z.boolean().default(false)`).

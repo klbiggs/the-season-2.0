@@ -23,6 +23,7 @@ const baseRequest = (): ProxyConversationRequest => {
       targetMarriage: null,
       spouse: null,
     },
+    mode: "Ballroom",
   };
 };
 

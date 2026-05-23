@@ -49,12 +49,7 @@ const elements = [
 export default [
   {
     files: ["src/**/*.ts", "src/**/*.tsx", "server/**/*.ts"],
-    ignores: [
-      "src/**/*.test.ts",
-      "src/**/*.test.tsx",
-      "server/**/*.test.ts",
-      "src/**/*.gitkeep",
-    ],
+    ignores: ["src/**/*.test.ts", "src/**/*.test.tsx", "server/**/*.test.ts", "src/**/*.gitkeep"],
     languageOptions: {
       parser: tsParser,
       parserOptions: {

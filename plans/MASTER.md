@@ -249,7 +249,7 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P9 | Elopement Sprint Overlay | [`phases/09-elopement.md`](./phases/09-elopement.md) | P5 | ✅ done |
 | P10 | Artifacts, Wardrobe, Forgery & Theft | [`phases/10-artifacts.md`](./phases/10-artifacts.md) | P7 | ✅ done |
 | P11 | Sibling Rivals & Inherited Secrets | [`phases/11-sibling-rivals-secrets.md`](./phases/11-sibling-rivals-secrets.md) | P7, P6 | ✅ done |
-| P12 | Hyde Park Promenade | [`phases/12-promenade.md`](./phases/12-promenade.md) | P3, P4, P10 | — |
+| P12 | Hyde Park Promenade | [`phases/12-promenade.md`](./phases/12-promenade.md) | P3, P4, P10 | ✅ done |
 | P13 | Global Events & Era Progression | [`phases/13-global-events-era.md`](./phases/13-global-events-era.md) | P1, P10 | — |
 | P14 | Ledger View & Social Web Visualization | [`phases/14-ledger-social-web.md`](./phases/14-ledger-social-web.md) | most prior | — |
 | P15 | Dynasty Legacies & Renown Perks | [`phases/15-dynasty-legacies.md`](./phases/15-dynasty-legacies.md) | P7, P5, P6 | — |

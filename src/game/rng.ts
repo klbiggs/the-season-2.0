@@ -50,6 +50,9 @@ export type ThiefAttemptId = string & { readonly __brand: "ThiefAttemptId" };
 export type SiblingRivalActorId = string & { readonly __brand: "SiblingRivalActorId" };
 export type InheritedSecretId = string & { readonly __brand: "InheritedSecretId" };
 export type BloodFeudId = string & { readonly __brand: "BloodFeudId" };
+// P12: branded session ID for promenade sessions. Tick-derived (zero RNG
+// consumption); see plans/phases/12-promenade.md. Mirrors BallSessionId.
+export type PromenadeSessionId = string & { readonly __brand: "PromenadeSessionId" };
 
 // P3 (B1 fix): PLAYER_HOUSE_ID lives here, not in rng.seeds.ts, so that
 // src/game/rules/** can import it. rules → game-other is disallowed per
@@ -65,6 +68,14 @@ export const INDEPENDENT_HOUSE_ID = "independent" as HouseId;
 // Zero RNG consumption keeps the bootstrap budget at 1 (player head only).
 export function makeBallSessionId(tick: number): BallSessionId {
   return `ball-${tick}` as BallSessionId;
+}
+
+// P12: tick-derived promenade session ID. Cross-mode mutual exclusion at
+// the orchestrator (single currentSession field) means BallSessionId and
+// PromenadeSessionId cannot collide at the same tick — but the `promenade-`
+// prefix keeps them distinct in logs / event payloads regardless.
+export function makePromenadeSessionId(tick: number): PromenadeSessionId {
+  return `promenade-${tick}` as PromenadeSessionId;
 }
 
 // Branded-string Zod schemas use `.transform` (not `.brand`) to match the

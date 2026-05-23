@@ -22,6 +22,7 @@ import {
   type CharacterId,
   type HouseId,
   PLAYER_HOUSE_ID,
+  type PromenadeSessionId,
 } from "../../game/rng";
 import { EventBus } from "./bus";
 
@@ -30,10 +31,14 @@ export type { ConversationFailure };
 
 // Discriminated union returned by enterBallroom when validation fails.
 // P4 only has the WrongLocation variant; P8 will add PatronessVeto.
+// P12 adds SessionAlreadyOpen — fires when a Promenade session is already
+// open. enterPromenade's PromenadeEntryRejection carries the same variant
+// (defined in src/game/rules/promenade.ts) for the reciprocal direction.
 export type BallEntryRejection =
   | { kind: "WrongLocation"; current: LocationId }
   | { kind: "PlayerExiled" } // P6 exile-gate variant
-  | { kind: "ElopementInProgress" }; // P9 Q4 — enterBallroom is the upstream gate for sendBallroomMessage
+  | { kind: "ElopementInProgress" } // P9 Q4 — enterBallroom is the upstream gate for sendBallroomMessage
+  | { kind: "SessionAlreadyOpen" }; // P12 cross-mode gate
 
 export type ConversationEvent =
   | {
@@ -83,6 +88,24 @@ export type ConversationEvent =
       kind: "TargetCharacterDied";
       tick: number;
       targetCharacterId: CharacterId;
+    }
+  // P12: promenade session lifecycle events. Reuses conversationBus
+  // (no dedicated promenadeBus) matching the BallroomEntered/Exited precedent.
+  | {
+      kind: "PromenadeEntered";
+      tick: number;
+      houseId: HouseId;
+      sessionId: PromenadeSessionId;
+      partnerCharacterId: CharacterId;
+    }
+  | {
+      kind: "PromenadeExited";
+      tick: number;
+      houseId: HouseId;
+      sessionId: PromenadeSessionId;
+      // null only on the orchestrator-cleared edge case where the session was
+      // ended before exitPromenade reads the partner id.
+      partnerCharacterId: CharacterId | null;
     };
 
 export const conversationBus = new EventBus<ConversationEvent>();

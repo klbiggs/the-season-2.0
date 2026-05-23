@@ -20,7 +20,13 @@
 
 import { LLM_TIMEOUT_MS } from "../game/constants";
 import type { ConversationFailure } from "../game/conversation/types";
-import { type BallSessionId, makeBallSessionId } from "../game/rng";
+import {
+  type BallSessionId,
+  type CharacterId,
+  type PromenadeSessionId,
+  makeBallSessionId,
+  makePromenadeSessionId,
+} from "../game/rng";
 import { LlmClient } from "../llm/client";
 import { CancelledError, NetworkError, SchemaError } from "../llm/errors";
 import {
@@ -35,33 +41,99 @@ export type ConversationOutcome =
   | { kind: "Resolved"; response: ConversationResponse }
   | { kind: "Failed"; failure: ConversationFailure };
 
+// P12: cross-mode discriminated union for the in-memory session. Sessions
+// never persist (in-memory only) — saves discard sessions on reload.
+// `replaceState` defensively calls endSession() to avoid leaving an orphaned
+// `currentMode === "Promenade"` after load (which would falsely block the
+// cross-mode SessionAlreadyOpen gate on subsequent enterBallroom/enterPromenade).
+type SessionState =
+  | { mode: "Ballroom"; sessionId: BallSessionId; tickAtEntry: number }
+  | {
+      mode: "Promenade";
+      sessionId: PromenadeSessionId;
+      tickAtEntry: number;
+      partnerCharacterId: CharacterId;
+    };
+
 class ConversationOrchestrator {
   private currentRequestId = 0;
   private currentUserAbort: AbortController | null = null;
-  private currentSession: { sessionId: BallSessionId; tickAtEntry: number } | null = null;
+  private currentSession: SessionState | null = null;
   private readonly client = new LlmClient();
 
   // ── Session methods (called by store actions enterBallroom/exitBallroom) ──
 
   beginSession(tick: number): BallSessionId {
+    // P12: defense-in-depth against cross-mode misuse. Store-action layer
+    // gates first via the SessionAlreadyOpen rejection; this throw fires
+    // only on test code or future internal refactors that bypass the gate.
+    if (this.currentSession !== null && this.currentSession.mode === "Promenade") {
+      throw new Error("conversationOrchestrator.beginSession: a Promenade session is already open");
+    }
     // P4 disallows concurrent sessions. Re-entering within the same tick
     // returns the existing sessionId (idempotent); a new tick replaces.
-    if (this.currentSession !== null && this.currentSession.tickAtEntry === tick) {
+    if (
+      this.currentSession !== null &&
+      this.currentSession.mode === "Ballroom" &&
+      this.currentSession.tickAtEntry === tick
+    ) {
       return this.currentSession.sessionId;
     }
     const sessionId = makeBallSessionId(tick);
-    this.currentSession = { sessionId, tickAtEntry: tick };
+    this.currentSession = { mode: "Ballroom", sessionId, tickAtEntry: tick };
     return sessionId;
   }
 
-  endSession(): BallSessionId | null {
+  // P12: open a Promenade-mode session. Symmetric with beginSession but
+  // carries the deterministically-picked partner.
+  beginPromenadeSession(tick: number, partnerCharacterId: CharacterId): PromenadeSessionId {
+    if (this.currentSession !== null && this.currentSession.mode === "Ballroom") {
+      throw new Error(
+        "conversationOrchestrator.beginPromenadeSession: a Ballroom session is already open",
+      );
+    }
+    if (
+      this.currentSession !== null &&
+      this.currentSession.mode === "Promenade" &&
+      this.currentSession.tickAtEntry === tick &&
+      this.currentSession.partnerCharacterId === partnerCharacterId
+    ) {
+      // Idempotent re-entry — same (tick, partner). Mirrors beginSession's
+      // same-tick idempotence so a UI mount effect can't double-open.
+      return this.currentSession.sessionId;
+    }
+    const sessionId = makePromenadeSessionId(tick);
+    this.currentSession = {
+      mode: "Promenade",
+      sessionId,
+      tickAtEntry: tick,
+      partnerCharacterId,
+    };
+    return sessionId;
+  }
+
+  endSession(): BallSessionId | PromenadeSessionId | null {
     const id = this.currentSession?.sessionId ?? null;
     this.currentSession = null;
     return id;
   }
 
-  currentSessionId(): BallSessionId | null {
+  currentSessionId(): BallSessionId | PromenadeSessionId | null {
     return this.currentSession?.sessionId ?? null;
+  }
+
+  // P12: which mode is the current session in (or null if no session).
+  currentMode(): "Ballroom" | "Promenade" | null {
+    return this.currentSession?.mode ?? null;
+  }
+
+  // P12: partner id for the current Promenade session (or null if not in
+  // Promenade mode). Used by sendPromenadeMessage to read the partner at
+  // send time + by exitPromenade for the PromenadeExited event payload.
+  currentPromenadePartner(): CharacterId | null {
+    return this.currentSession?.mode === "Promenade"
+      ? this.currentSession.partnerCharacterId
+      : null;
   }
 
   // ── Request lifecycle ────────────────────────────────────────────────────

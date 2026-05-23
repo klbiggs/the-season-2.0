@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { bootstrapPlayerArtifactsForMigration } from "../game/bootstrap";
+import { bootstrapNpcMountFamily, bootstrapPlayerArtifactsForMigration } from "../game/bootstrap";
 import { ConversationPairKeySchema, ExchangeSchema } from "../game/conversation/types";
 import {
   ArtifactInstanceSchema,
@@ -1756,12 +1756,21 @@ export function toSaveV12(state: GameState): SaveV12 {
 }
 
 // V12 is the live format — no Bare/wrap split (no P12+ migration target yet).
+// P12: extract `characters` and `artifactInstances` to locals BEFORE the
+// return literal so `bootstrapNpcMountFamily` can mutate them in place. The
+// helper is idempotent — second loads of a save already containing NPC
+// mounts are no-ops, so the load-resave-reload chain is stable.
 export function fromSaveV12(save: SaveV12): GameState {
+  const characters = deserializeRegistry(save.characters) as GameState["characters"];
+  const artifactInstances = deserializeRegistry(
+    save.artifactInstances,
+  ) as GameState["artifactInstances"];
+  bootstrapNpcMountFamily(characters, artifactInstances, save.tick);
   return {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
     houses: deserializeRegistry(save.houses) as GameState["houses"],
-    characters: deserializeRegistry(save.characters) as GameState["characters"],
+    characters,
     marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
     campaignName: save.campaignName,
     era: save.era,
@@ -1785,9 +1794,7 @@ export function fromSaveV12(save: SaveV12): GameState {
     factionTensions: deserializeRegistry(save.factionTensions) as GameState["factionTensions"],
     duels: deserializeRegistry(save.duels) as GameState["duels"],
     elopement: save.elopement,
-    artifactInstances: deserializeRegistry(
-      save.artifactInstances,
-    ) as GameState["artifactInstances"],
+    artifactInstances,
     forgeries: deserializeRegistry(save.forgeries) as GameState["forgeries"],
     thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
   };

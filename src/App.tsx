@@ -8,6 +8,7 @@ import type { SaveLoadError } from "./persist/errors";
 import { BallroomView } from "./ui/ballroom/BallroomView";
 import { ElopementOverlay } from "./ui/elopement/ElopementOverlay";
 import { MapView } from "./ui/map/MapView";
+import { PromenadeView } from "./ui/promenade/PromenadeView";
 import { CorruptSaveBanner } from "./ui/shared/CorruptSaveBanner";
 import { SettingsMenu } from "./ui/shared/SettingsMenu";
 import { TopBar } from "./ui/shared/TopBar";
@@ -24,6 +25,7 @@ export function App({ store, seed }: Props) {
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [loadError, setLoadError] = useState<SaveLoadError | null>(null);
   const [inBallroom, setInBallroom] = useState(false);
+  const [inPromenade, setInPromenade] = useState(false);
   const elopement = store((s) => s.elopement);
 
   useEffect(() => {
@@ -55,8 +57,14 @@ export function App({ store, seed }: Props) {
         <ElopementOverlay store={store} />
       ) : inBallroom ? (
         <BallroomView store={store} onExit={() => setInBallroom(false)} />
+      ) : inPromenade ? (
+        <PromenadeView store={store} onExit={() => setInPromenade(false)} />
       ) : (
-        <MapView store={store} onEnterBallroom={() => setInBallroom(true)} />
+        <MapView
+          store={store}
+          onEnterBallroom={() => setInBallroom(true)}
+          onEnterPromenade={() => setInPromenade(true)}
+        />
       )}
     </main>
   );

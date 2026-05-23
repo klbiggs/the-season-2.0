@@ -137,8 +137,28 @@ export const AFFECTION_PROPOSAL_THRESHOLD = 80;
 export const COMPOSURE_DEFAULT = 100;
 
 // Spec §3 / §4: tactic and stance registries. Single source of truth.
-export const TACTICS = ["Flattery", "WittyBanter", "SlyGossip", "DeepEmpathy"] as const;
+// P12: widened to 5 — "ComplimentMount" is a promenade-only tactic. The
+// ballroom UI does NOT surface it, but the type union admits it because
+// state.conversationHistory's `Exchange.classifiedTactic` is shared across
+// both modes (single ExchangeSchema enum at src/game/conversation/types.ts).
+// See plans/phases/12-promenade.md "TACTICS widening (...)".
+export const TACTICS = [
+  "Flattery",
+  "WittyBanter",
+  "SlyGossip",
+  "DeepEmpathy",
+  "ComplimentMount",
+] as const;
 export type Tactic = (typeof TACTICS)[number];
+
+// Module-load assertion mirroring SCHEME_KINDS at line 295. Bumping TACTICS
+// length without revisiting the persist/schema enum cascade silently breaks
+// save round-trips for the conversationHistory Exchange records.
+if (TACTICS.length !== 5) {
+  throw new Error(
+    `TACTICS length changed (${TACTICS.length} !== 5) without phase plan + (where needed) save-version bump`,
+  );
+}
 
 export const STANCES = ["Wallflower", "Mingle", "TargetedPursuit"] as const;
 export type Stance = (typeof STANCES)[number];
@@ -814,3 +834,16 @@ if (BLOOD_FEUD_AFFECTION_PENALTY_PER_ASSOCIATE <= 0) {
 if (BLOOD_FEUD_DECAY_TICKS_MAX <= 0) {
   throw new Error("BLOOD_FEUD_DECAY_TICKS_MAX must be positive");
 }
+
+// ── Hyde Park Promenade (P12) ─────────────────────────────────────────────
+// Spec §3 "Hyde Park Daytime Promenade" (lines 192-198) + "Hyde Park
+// Promenade" (lines 444-450). Pure designer constants; tune via playtest.
+// The three base-tactic affection values are deliberately mid-range —
+// promenade is the "low-risk" daytime alternative, so deltas are smaller
+// than the ballroom's typical +20-40 synergy outcome. The mount bonus
+// stacks per-action (not per-session) so a mount-owning player gets
+// consistent value across a multi-turn visit.
+export const PROMENADE_BASE_AFFECTION_WITTY_BANTER = 8;
+export const PROMENADE_BASE_AFFECTION_DEEP_EMPATHY = 8;
+export const PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT = 12; // gated on target mount-family ownership
+export const PROMENADE_PLAYER_MOUNT_MINGLE_BONUS = 5; // per-action; player head equips a mount-family artifact
