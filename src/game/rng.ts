@@ -53,6 +53,10 @@ export type BloodFeudId = string & { readonly __brand: "BloodFeudId" };
 // P12: branded session ID for promenade sessions. Tick-derived (zero RNG
 // consumption); see plans/phases/12-promenade.md. Mirrors BallSessionId.
 export type PromenadeSessionId = string & { readonly __brand: "PromenadeSessionId" };
+// P13: brand for GlobalEvent entities (state.globalEvents Map key).
+// Index-counted per-kind via state-walk; see makeGlobalEventId in
+// src/game/rules/globalEvents.ts.
+export type GlobalEventId = string & { readonly __brand: "GlobalEventId" };
 
 // P3 (B1 fix): PLAYER_HOUSE_ID lives here, not in rng.seeds.ts, so that
 // src/game/rules/** can import it. rules → game-other is disallowed per
@@ -115,6 +119,9 @@ export const ThiefAttemptIdSchema = z.string().transform((s) => s as ThiefAttemp
 export const SiblingRivalActorIdSchema = z.string().transform((s) => s as SiblingRivalActorId);
 export const InheritedSecretIdSchema = z.string().transform((s) => s as InheritedSecretId);
 export const BloodFeudIdSchema = z.string().transform((s) => s as BloodFeudId);
+// P13: brand schema for GlobalEventId. state.globalEvents is z.map(K, V)
+// keyed on this brand.
+export const GlobalEventIdSchema = z.string().transform((s) => s as GlobalEventId);
 
 export const RngStateSchema = z.object({
   seed: z.string(),

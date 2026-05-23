@@ -239,6 +239,9 @@ export function buildRivalHouse(seed: RivalHouseSeed): House {
     siblingRivals: [],
     inheritedSecrets: [],
     bloodFeuds: [],
+    // P13: rival houses never research couriers (player-elected action gated
+    // on PLAYER_HOUSE_ID).
+    courierResearchEarned: false,
   };
 }
 

@@ -108,6 +108,8 @@ function defaultHouseV4Fields(h: HousePreV4): House {
     siblingRivals: [],
     inheritedSecrets: [],
     bloodFeuds: [],
+    // P13: legacy lift defaults to no Later-era courier research.
+    courierResearchEarned: false,
   };
 }
 
@@ -134,6 +136,8 @@ const HousePreV6Schema = HouseSchema.omit({
   siblingRivals: true,
   inheritedSecrets: true,
   bloodFeuds: true,
+  // P13: V4/V5 saves predate courierResearchEarned.
+  courierResearchEarned: true,
 });
 type HousePreV6 = z.infer<typeof HousePreV6Schema>;
 
@@ -148,6 +152,8 @@ function defaultHouseV6Fields(h: HousePreV6): House {
     siblingRivals: [],
     inheritedSecrets: [],
     bloodFeuds: [],
+    // P13: legacy lift defaults to no Later-era courier research.
+    courierResearchEarned: false,
   };
 }
 
@@ -171,6 +177,8 @@ const HousePreV7Schema = HouseSchema.omit({
   siblingRivals: true,
   inheritedSecrets: true,
   bloodFeuds: true,
+  // P13: V6 saves predate courierResearchEarned.
+  courierResearchEarned: true,
 });
 type HousePreV7 = z.infer<typeof HousePreV7Schema>;
 
@@ -184,6 +192,8 @@ function defaultHouseV7Fields(h: HousePreV7): House {
     siblingRivals: [],
     inheritedSecrets: [],
     bloodFeuds: [],
+    // P13: legacy lift defaults to no Later-era courier research.
+    courierResearchEarned: false,
   };
 }
 
@@ -272,6 +282,8 @@ const HousePreV12Pre11Schema = HouseSchema.omit({
   siblingRivals: true,
   inheritedSecrets: true,
   bloodFeuds: true,
+  // P13: V7-V12 saves predate courierResearchEarned.
+  courierResearchEarned: true,
 });
 type HousePreV12Pre11 = z.infer<typeof HousePreV12Pre11Schema>;
 
@@ -300,6 +312,8 @@ function liftLegacyHousesFromV12Pre11(
       siblingRivals: [],
       inheritedSecrets: [],
       bloodFeuds: [],
+      // P13: legacy V7-V12 saves predate the field.
+      courierResearchEarned: false,
     });
   }
   return out;

@@ -26,6 +26,7 @@ import {
 } from "./constants";
 import { ConversationPairKeySchema, ExchangeSchema } from "./conversation/types";
 import { ArchetypeSchema } from "./fixtures/archetypes";
+import { ARTIFACT_FAMILIES } from "./fixtures/artifacts";
 import { LocationIdSchema } from "./fixtures/locations";
 import { MoodSchema } from "./fixtures/moods";
 import { RoleSchema } from "./fixtures/roles";
@@ -38,6 +39,7 @@ import {
   FactionIdSchema,
   FactionPairKeySchema,
   ForgeryIdSchema,
+  GlobalEventIdSchema,
   GrievanceIdSchema,
   HouseIdSchema,
   InheritedSecretIdSchema,
@@ -167,6 +169,14 @@ export const HouseSchema = z.object({
   siblingRivals: z.array(SiblingRivalStateSchema).default([]),
   inheritedSecrets: z.array(InheritedSecretSchema).default([]),
   bloodFeuds: z.array(BloodFeudSchema).default([]),
+  // P13 addition: Later-era research-action one-shot latch. Set true by
+  // researchFastCouriers store action (free action; wealth-costed; gated on
+  // era === "Later"). When true, transitTicks halves outbound courier transit
+  // for couriers ORIGINATING from this house (in-flight couriers retain their
+  // absolute arrivalTick per CLAUDE.md non-negotiable §2). `.default(false)`
+  // parses legacy SaveV1-V12 HouseSchema payloads cleanly (P8/P9 backward-
+  // compat shortcut precedent).
+  courierResearchEarned: z.boolean().default(false),
 });
 export type House = z.infer<typeof HouseSchema>;
 
@@ -477,6 +487,35 @@ export const ThiefAttemptSchema = z.object({
   resolvedAtTick: z.number().int().nullable(),
 });
 export type ThiefAttempt = z.infer<typeof ThiefAttemptSchema>;
+
+// P13: GlobalEvent discriminated union. Per spec §3 line 392, every active
+// event carries its absolute start and end ticks so save/load preserves
+// lifecycle. MonarchsMood uniquely carries the cultural-pivot favored-family
+// rolled at start (per spec line 391, "at start, a 'favored culture' (one of
+// a small fixed set) is rolled"). The "small fixed set" maps to
+// ARTIFACT_FAMILIES directly (user-resolved P13 design decision; see plan).
+export const GlobalEventSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("WarEffort"),
+    id: GlobalEventIdSchema,
+    startTick: z.number().int().nonnegative(),
+    endTick: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("MarketCrash"),
+    id: GlobalEventIdSchema,
+    startTick: z.number().int().nonnegative(),
+    endTick: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("MonarchsMood"),
+    id: GlobalEventIdSchema,
+    startTick: z.number().int().nonnegative(),
+    endTick: z.number().int().nonnegative(),
+    favoredFamily: z.enum(ARTIFACT_FAMILIES),
+  }),
+]);
+export type GlobalEvent = z.infer<typeof GlobalEventSchema>;
 
 // GameState lives here (not in store.ts) so the rule layer can import it.
 // store.ts re-exports GameState/GameStateSchema for P0-era callers.

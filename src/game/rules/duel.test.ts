@@ -114,6 +114,7 @@ describe("resolveDuel — Stalemate skips grievance flip", () => {
       siblingRivals: [],
       inheritedSecrets: [],
       bloodFeuds: [],
+      courierResearchEarned: false,
     });
     const stateWithHouse = { ...state, houses: newHouses };
     const { state: postState, finalDuel } = resolveDuel(stateWithHouse, duelId, rng, {

@@ -119,6 +119,8 @@ export function makeHouse(overrides: Partial<House> = {}): House {
     siblingRivals: [],
     inheritedSecrets: [],
     bloodFeuds: [],
+    // P13 default — no Later-era research at fresh state.
+    courierResearchEarned: false,
     ...overrides,
   };
 }

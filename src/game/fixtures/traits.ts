@@ -36,7 +36,21 @@ export const TRAITS: ReadonlyArray<{ id: TraitId; label: string }> = [
   { id: "Reclusive" as TraitId, label: "Reclusive" },
   { id: "Hedonistic" as TraitId, label: "Hedonistic" },
   { id: "Ascetic" as TraitId, label: "Ascetic" },
+  // P13: wired-but-inert at v1. No acquisition path produces an officer-tagged
+  // character (not in ARCHETYPE_MATURATION_TRAIT_POOL, not in
+  // FINISHING_SCHOOL_TRAIT_MAP, not in conception/artifact paths). The trait
+  // gates WarEffort officer-death + WarEffort × Seduction multiplier rule
+  // branches; tests seed officer-tagged characters via fixture literals.
+  // First acquisition path deferred to v1.5/P16+. See CLAUDE.md
+  // "MilitaryOfficer trait ships wired-but-inert at v1 (P13)" pin.
+  { id: "MilitaryOfficer" as TraitId, label: "Military Officer" },
 ];
+
+if (TRAITS.length !== 33) {
+  throw new Error(
+    `TRAITS length changed (${TRAITS.length} !== 33) without phase plan + (where needed) save-version bump`,
+  );
+}
 
 // Derived id-only array for the noveltyPool source in inheritTraits. Explicit
 // `readonly TraitId[]` annotation does the type widening since Array.map

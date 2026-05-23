@@ -132,6 +132,9 @@ export function buildIndependentHouse(): House {
     // the neutral Crown affiliation; no patroness on this faction).
     hostility: 0,
     factionId: "faction-crown" as FactionId,
+    // P13: Independent house never researches couriers (the action is player-
+    // elected and gated on PLAYER_HOUSE_ID at the store layer).
+    courierResearchEarned: false,
     // P11: empty ledgers on Independent (sibling-rivals + inherited-secrets +
     // blood-feuds only attach to the player house at v1).
     siblingRivals: [],

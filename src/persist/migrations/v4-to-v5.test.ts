@@ -48,12 +48,14 @@ describe("migrate_v4_to_v5 byte-identity vs fresh state", () => {
     // P6: SaveV5's houses tuple uses HousePreV6Schema which omits BOTH
     // grievances AND exiled (post-P6 extension). Strip both for comparison.
     // P11: HousePreV6Schema also omits siblingRivals/inheritedSecrets/bloodFeuds.
+    // P13: HousePreV6Schema also omits courierResearchEarned.
     const {
       grievances: _g,
       exiled: _e,
       siblingRivals: _sr,
       inheritedSecrets: _is,
       bloodFeuds: _bf,
+      courierResearchEarned: _cre,
       ...freshIndyStripped
     } = freshIndy;
     expect(migratedIndy?.[1]).toEqual(freshIndyStripped);

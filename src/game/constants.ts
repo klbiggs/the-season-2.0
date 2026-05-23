@@ -847,3 +847,65 @@ export const PROMENADE_BASE_AFFECTION_WITTY_BANTER = 8;
 export const PROMENADE_BASE_AFFECTION_DEEP_EMPATHY = 8;
 export const PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT = 12; // gated on target mount-family ownership
 export const PROMENADE_PLAYER_MOUNT_MINGLE_BONUS = 5; // per-action; player head equips a mount-family artifact
+
+// ── Global Events & Era (P13) ─────────────────────────────────────────────
+// Spec §3 "Global Events" (lines 386-392) + "Era Progression" (lines 394-398)
+// + §7 line 658 "Cultural-pivot Monarch's Mood against no-artifact house"
+// (negative-surge-branch suppression pin). Pure designer constants; tune via
+// playtest. The 5%/tick trigger is the spec line 388 value verbatim. WarEffort
+// and MarketCrash duration deltas track spec line 389 verbatim. WarEffort
+// officer-death and MonarchsMood favored-family surge values are NEW tuning
+// (spec only specifies "small per-tick chance of dying" + "fixed per-tick
+// reputation surge" — concrete numbers ship per the P13 design decisions).
+
+export const GLOBAL_EVENT_TRIGGER_PROBABILITY_BASIS_POINTS = 500; // 5%/tick; spec line 388
+// Probability stored as basis points (× 10000) per CLAUDE.md P6 pin —
+// engine-stable integer comparison via Math.floor(roll * 10000) < threshold.
+
+// WarEffort (spec line 389-390: 10 ticks, +1 reputation, -2 wealth per tick)
+export const WAR_EFFORT_DURATION_TICKS = 10;
+export const WAR_EFFORT_REPUTATION_PER_TICK = 1; // applied to EVERY house
+export const WAR_EFFORT_WEALTH_PER_TICK = -2; // applied to EVERY house
+export const WAR_EFFORT_OFFICER_DEATH_PROBABILITY_BASIS_POINTS = 100;
+// ↑ 1%/tick per MilitaryOfficer character. Across a 10-tick WarEffort,
+// expected death rate per officer ≈ 9.6% (1 - 0.99^10). At v1 cohort
+// sizes (0 officers per the wired-but-inert design), this is dormant.
+// Death follows the canonical pruneOrphanedConversationKeys cascade.
+export const WAR_EFFORT_SEDUCTION_AFFECTION_MULTIPLIER = 1.5;
+// ↑ Multiplies the success-branch affection delta (SEDUCTION_AFFECTION_DELTA_ON_SUCCESS = 80)
+// for MilitaryOfficer aggressors only, while a WarEffort is active.
+// Discovery-roll probability is NOT modified — positive-outcome buff only.
+
+// MarketCrash (spec line 389: 5 ticks, -3 wealth per tick)
+export const MARKET_CRASH_DURATION_TICKS = 5;
+export const MARKET_CRASH_WEALTH_PER_TICK = -3; // applied to EVERY house
+
+// MonarchsMood (spec line 389 + 391: 5 ticks; favored-family rolled at start)
+export const MONARCHS_MOOD_DURATION_TICKS = 5;
+export const MONARCHS_MOOD_FAVORED_FAMILY_REPUTATION_SURGE_PER_TICK = 2;
+// ↑ Per-tick rep surge for houses with ≥1 equipped artifact whose family
+// matches the event's favoredFamily.
+export const MONARCHS_MOOD_SNUB_SCANDAL_PER_TICK = 1;
+// ↑ Per-tick scandal hit for houses WITHOUT a matching equipped artifact.
+// Spec §7 line 658 pin: no-match branch is +1 scandal ONLY; the cultural-
+// surge branch must NOT fire negatively (no scandal doubling, no penalty
+// stacking).
+
+// Later-era courier research (spec line 397-398)
+export const COURIER_RESEARCH_WEALTH_COST = 30;
+// ↑ One-shot wealth cost to unlock fast couriers. Halves NEW courier transit
+// times only; in-flight couriers retain their absolute arrivalTick.
+
+if (
+  GLOBAL_EVENT_TRIGGER_PROBABILITY_BASIS_POINTS <= 0 ||
+  GLOBAL_EVENT_TRIGGER_PROBABILITY_BASIS_POINTS > 10000
+) {
+  throw new Error("GLOBAL_EVENT_TRIGGER_PROBABILITY_BASIS_POINTS must be in (0, 10000]");
+}
+if (WAR_EFFORT_DURATION_TICKS <= 0) throw new Error("WAR_EFFORT_DURATION_TICKS must be positive");
+if (MARKET_CRASH_DURATION_TICKS <= 0)
+  throw new Error("MARKET_CRASH_DURATION_TICKS must be positive");
+if (MONARCHS_MOOD_DURATION_TICKS <= 0)
+  throw new Error("MONARCHS_MOOD_DURATION_TICKS must be positive");
+if (COURIER_RESEARCH_WEALTH_COST <= 0)
+  throw new Error("COURIER_RESEARCH_WEALTH_COST must be positive");

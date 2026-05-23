@@ -138,6 +138,9 @@ export function seedStartingFamily(
     siblingRivals: [],
     inheritedSecrets: [],
     bloodFeuds: [],
+    // P13: no Later-era courier research at fresh state. Flipped true by
+    // researchFastCouriers store action once era flips.
+    courierResearchEarned: false,
   };
 
   // P4: Independent house + 5 NPCs. Built from constants — no RNG draws.
