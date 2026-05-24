@@ -82,6 +82,7 @@ import { applyBankruptcyEscape, canEscapeBankruptcy } from "./rules/bankruptcyEs
 import type { EscapeRejection } from "./rules/bankruptcyEscape";
 import { resolveCombat } from "./rules/combat";
 import { resolveDuel } from "./rules/duel";
+import { applyResearchFastCouriers } from "./rules/globalEvents";
 import { type AudienceOutcome, applyAudience } from "./rules/monarchsAudience";
 import {
   type CancelSchemeRejection,
@@ -331,6 +332,13 @@ export type StoreActions = {
   thwartTheft: (
     thiefAttemptId: ThiefAttemptId,
   ) => { ok: true; outcome: "Thwarted" | "Stolen" } | { ok: false; reason: ThwartRejection };
+  // P13: research fast couriers. Free action (no tick advance). Gated on
+  // era === "Later" + !house.courierResearchEarned + wealth >= cost +
+  // modal-state gates (PlayerExiled / ElopementInProgress). Deducts wealth +
+  // flips the latch; direct-publishes CourierResearchUnlocked on globalEventBus.
+  researchFastCouriers: () =>
+    | { ok: true }
+    | { ok: false; reason: import("./rules/globalEvents").ResearchFastCouriersRejection };
   // P11: reconcile a sibling-rival. Pre-tick action (advances the tick on
   // ok:true paths — Success + Failure). Costs `SIBLING_RIVAL_RECONCILIATION_WEALTH_COST`
   // wealth + `_REPUTATION_COST` reputation regardless of outcome. Roll for
@@ -416,6 +424,7 @@ import {
   publishMarriageTransitions,
   publishTemptationLatchTransitions,
 } from "../runtime/events/family";
+import { globalEventBus, publishGlobalEventTransitions } from "../runtime/events/globalEvent";
 import {
   publishBloodFeudTransitions,
   publishInheritedSecretTransitions,
@@ -564,6 +573,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishSiblingRivalTransitions(before, after);
         publishInheritedSecretTransitions(before, after);
         publishBloodFeudTransitions(before, after);
+        // P13: global-event transitions (EraTransitioned + GlobalEventStarted +
+        // GlobalEventExpired). runYearPass omits this — year-pass STEPS doesn't
+        // include applyGlobalEventPhase.
+        publishGlobalEventTransitions(before, after);
       },
       runYearPass: () => {
         const exileGate = get();
@@ -677,6 +690,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishSiblingRivalTransitions(stateBefore, afterTick);
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
+        // P13: global-event transitions ride here too (every tick-advancing
+        // wrapper except runYearPass per the 11/11/9 publisher set).
+        publishGlobalEventTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       requestAudience: () => {
@@ -743,6 +759,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishSiblingRivalTransitions(stateBefore, afterTick);
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
+        publishGlobalEventTransitions(stateBefore, afterTick);
         return { outcome };
       },
       escapeBankruptcy: () => {
@@ -791,6 +808,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishSiblingRivalTransitions(stateBefore, afterTick);
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
+        // P13: global-event transitions ride here too (every tick-advancing
+        // wrapper except runYearPass per the 11/11/9 publisher set).
+        publishGlobalEventTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       refreshWardrobe: () => {
@@ -839,6 +859,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishSiblingRivalTransitions(stateBefore, afterTick);
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
+        // P13: global-event transitions ride here too (every tick-advancing
+        // wrapper except runYearPass per the 11/11/9 publisher set).
+        publishGlobalEventTransitions(stateBefore, afterTick);
         return { ok: true };
       },
       // ── P4 ballroom actions ───────────────────────────────────────────
@@ -1493,6 +1516,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishSiblingRivalTransitions(stateBefore, tickAdvanced);
         publishInheritedSecretTransitions(stateBefore, tickAdvanced);
         publishBloodFeudTransitions(stateBefore, tickAdvanced);
+        publishGlobalEventTransitions(stateBefore, tickAdvanced);
         return outcome;
       },
       assignTutor: (childCharacterId: CharacterId, tutorCharacterId: CharacterId) => {
@@ -1810,6 +1834,24 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         });
         return { ok: true, outcome: result.outcome };
       },
+      // P13: free action — no tick advance, no 11-publisher set. Direct-
+      // publishes CourierResearchUnlocked on success. Modal-state gates
+      // (PlayerExiled / ElopementInProgress) + era + already-researched +
+      // wealth gates live in applyResearchFastCouriers.
+      researchFastCouriers: () => {
+        const stateBefore = get();
+        const result = applyResearchFastCouriers(stateBefore);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((state) => {
+          overwriteFromGameState(state, result.nextState);
+        });
+        globalEventBus.publish({
+          kind: "CourierResearchUnlocked",
+          tick: stateBefore.tick,
+          houseId: PLAYER_HOUSE_ID,
+        });
+        return { ok: true };
+      },
       reconcileSibling: (siblingCharacterId: CharacterId) => {
         const before = get();
         const { nextState, outcome } = applyReconciliationAttempt(before, siblingCharacterId);
@@ -1835,6 +1877,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishSiblingRivalTransitions(before, after, reconciledKeys);
         publishInheritedSecretTransitions(before, after);
         publishBloodFeudTransitions(before, after);
+        publishGlobalEventTransitions(before, after);
         if (outcome.kind === "Success") {
           siblingRivalBus.publish({
             kind: "SiblingRivalReconciled",
@@ -1944,6 +1987,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishSiblingRivalTransitions(stateBefore, afterTick);
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
+        publishGlobalEventTransitions(stateBefore, afterTick);
       },
       sendPromenadeMessage: async (input: PromenadeMessageInput) => {
         const stateBefore = get();
