@@ -1,7 +1,7 @@
 // 5 portrait cards arranged in a CSS grid. Selection is single-target.
 
 import type { Character } from "../../game/entities";
-import type { CharacterId } from "../../game/rng";
+import type { CharacterId } from "../../game/rng.seeds";
 import { PortraitCard } from "./PortraitCard";
 
 type Props = {

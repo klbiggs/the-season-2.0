@@ -6,7 +6,7 @@
 
 import { useShallow } from "zustand/react/shallow";
 import type { WeaponizationBranch } from "../../game/constants";
-import type { WhisperId } from "../../game/rng";
+import type { WhisperId } from "../../game/rng.seeds";
 import type { SeasonStore } from "../../game/store";
 
 type Props = {

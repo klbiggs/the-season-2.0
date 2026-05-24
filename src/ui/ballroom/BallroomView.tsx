@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { COMPOSURE_DEFAULT, type Stance, type Tactic } from "../../game/constants";
 import { type ConversationFailure, makePairKey } from "../../game/conversation/types";
-import { INDEPENDENT_HOUSE_ID, PLAYER_HOUSE_ID } from "../../game/rng";
+import { INDEPENDENT_HOUSE_ID, PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import type { SeasonStore } from "../../game/store";
 import { conversationBus } from "../../runtime/events/conversation";
 import { ChatLog } from "./ChatLog";

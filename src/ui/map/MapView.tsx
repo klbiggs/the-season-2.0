@@ -5,10 +5,6 @@ import { canTravel } from "../../game/rules/travel";
 import type { SeasonStore } from "../../game/store";
 import { locationBus } from "../../runtime/events/location";
 import { useBusEvent } from "../../runtime/events/useBusEvent";
-import { ActiveSchemesPanel } from "../ledger/ActiveSchemesPanel";
-import { SpymasterInterceptCard } from "../ledger/SpymasterInterceptCard";
-import { StaffPanel } from "../ledger/StaffPanel";
-import { WhisperLedgerPanel } from "../ledger/WhisperLedgerPanel";
 import { ActionRejectionToast } from "./ActionRejectionToast";
 import { LocationDetailsPanel } from "./LocationDetailsPanel";
 import { LocationPin } from "./LocationPin";
@@ -93,11 +89,9 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
     });
   });
 
-  // P6: exile terminal-state banner. Renders above the map when the
-  // player house is exiled via Scandal Sheet attribution. The rule-layer
-  // exile gates block all player-elected mutations; the banner is the
-  // user-visible signal.
-  const isExiled = house?.exiled === true;
+  // P14: the exile terminal-state banner was HOISTED to App.tsx persistent
+  // chrome so it surfaces across all four views (Map / Ballroom / Promenade /
+  // Ledger), not just the map. MapView no longer renders it.
 
   // P13: active global events chip row. Renders right-aligned across the
   // map header. Lex-sort the events for stable visual order across renders.
@@ -107,16 +101,6 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
 
   return (
     <div className="flex flex-col" data-testid="map-view">
-      {isExiled && (
-        <div
-          role="alert"
-          aria-live="assertive"
-          className="bg-red-900 text-white px-6 py-3 font-bold text-center"
-          data-testid="exile-banner"
-        >
-          House Exiled — Campaign Ended. Start a new game from the Settings menu.
-        </div>
-      )}
       {activeEvents.length > 0 && (
         <div
           className="flex flex-wrap justify-end gap-2 px-6 py-2 bg-stone-900"
@@ -172,13 +156,9 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
             onEnterBallroom={onEnterBallroom}
             onEnterPromenade={onEnterPromenade}
           />
-          {/* P5: Active Schemes ledger panel — inline summary on the map
-            sidebar. P14 ships the full tabbed ledger view. */}
-          <ActiveSchemesPanel store={store} />
-          {/* P6: Whispers / Staff / Spymaster panels — inline. P14 tabs. */}
-          <WhisperLedgerPanel store={store} />
-          <StaffPanel store={store} />
-          <SpymasterInterceptCard store={store} />
+          {/* P14: the inline ledger panels (Active Schemes / Whispers / Staff /
+            Spymaster) MOVED into the dedicated LedgerView (TopBar entry). The
+            map sidebar is now location-focused. */}
         </div>
         {toast !== null && (
           <ActionRejectionToast message={toast.message} onDismiss={() => setToast(null)} />

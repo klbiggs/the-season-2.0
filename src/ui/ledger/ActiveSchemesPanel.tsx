@@ -62,6 +62,7 @@ export function ActiveSchemesPanel({ store }: Props) {
               <button
                 type="button"
                 className="active-schemes-panel__cancel"
+                data-testid={`active-scheme-cancel-${scheme.id}`}
                 title="Cancel this scheme. No wealth refund."
                 onClick={() => {
                   // Spec line 362: cancellation refunds nothing. UI confirms via

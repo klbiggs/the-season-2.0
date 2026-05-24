@@ -2,6 +2,35 @@
 
 Closeout notes per phase. Decisions made during implementation that aren't captured by the subplan or git history. Newest entry on top.
 
+## P14 — closed 2026-05-24
+
+**Decisions made:**
+- NO save-format bump — P14 is the first reading-only phase. `SAVE_VERSION_CURRENT` stays 13; no schema/projection/selector/hash changes. All mutation surfaces route through pre-existing P3-P13 store actions.
+- Ledger ships as a 4th top-level view (`src/ui/ledger/LedgerView.tsx`), suppressed by the Elopement overlay, entered via a `View Ledger` TopBar button. Hand-rolled ARIA tabs (shadcn deferred to v1.5 — not installed; verified zero `@/components/ui` hits).
+- 8 tabs: Family Tree, Whispers, Schemes, Patronesses, Grievances, Rivals, Staff, Artifacts. Whispers/Staff/Schemes WRAP the existing inline panels (which MOVED off the Map sidebar — `MapView` shrinks to `LocationDetailsPanel`). P11 content folds in: sibling-rivals under Family Tree, inherited-secrets + blood-feuds + faction-tension matrix under Rivals.
+- Artifacts tab closes the P10 UI gap (equip/unequip, wardrobe refresh, forgery ledger gated on a living Bohemian Rake, thief-attempt banners + thwart).
+- Exile banner HOISTED from `MapView` into the `App.tsx` persistent chrome so it surfaces across all four views.
+- TopBar widened with `wealth` + `effective-reputation` read-outs (the latter via `getEffectiveReputation`), so artifact equip/unequip outcomes are visible outside the Artifacts tab.
+- Social Web (`react-force-graph-2d`) renders player-OUTBOUND affection edges only (NPC-side keys exist but are deferred to v1.5). `useSocialWebReactions` (mounted INSIDE `SocialWebView`) drives slide-away cues from faux-pas / sabotage / proposal-rejection bus events.
+- Two new prod deps (`framer-motion`, `react-force-graph-2d`) + one dev dep (`@testing-library/react`). UI Vitest files use a per-file `// @vitest-environment jsdom` directive (NOT a global flip) to keep jsdom off the ~150 rules-layer tests.
+
+**Open questions hit:**
+- §10 OQ#9 (Social Web replaces textual ledgers?) → **Resolved: Coexist.**
+
+**Deferred / next-up:**
+- Verification matrix #35's faux-pas → slide-away leg is unit-tested only (cue emission, useSocialWebReactions); not end-to-end, because it requires a live ballroom LLM round-trip and canvas animation isn't assertable in jsdom.
+- Pre-existing `lint:boundaries` residual of exactly **2 errors** (`src/game/rules/inheritedSecrets.ts:38`, `src/game/rules/siblingRivals.ts:42` — both import `GameState` from `../store`). Carved out of P14 scope; fix is a 2-file `import type { GameState } from "../entities"` swap, best bundled into P19 cleanup.
+- shadcn `Tabs`, sortable/filterable tables, NPC→player Social Web edges, cross-view global-events chip row — all v1.5 candidates.
+
+**Files of note:**
+- src/ui/ledger/LedgerView.tsx — 8-tab shell
+- src/ui/ledger/tabs/ — FamilyTreeTab, WhispersTab, SchemesTab, PatronessesTab, GrievancesTab, RivalsTab, StaffTab, ArtifactsTab
+- src/ui/ledger/houseName.ts — shared house-name resolver
+- src/ui/socialWeb/SocialWebView.tsx:48 — `buildSocialGraphData` pure derivation
+- src/ui/socialWeb/useSocialWebReactions.ts — bus-event → animation-cue hook
+- src/game/rng.seeds.ts:9 — brand-type re-export barrel for UI (type-only; launders the boundary)
+- src/App.tsx:50 — hoisted exile banner; tests/e2e/ledger.spec.ts — golden-path e2e
+
 ## P13 — closed 2026-05-23
 
 **Decisions made:**

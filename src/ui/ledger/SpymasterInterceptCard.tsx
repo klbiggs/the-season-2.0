@@ -5,7 +5,7 @@
 
 import { useShallow } from "zustand/react/shallow";
 import { SPYMASTER_INTERCEPT_WEALTH_COST } from "../../game/constants";
-import { PLAYER_HOUSE_ID } from "../../game/rng";
+import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import type { SeasonStore } from "../../game/store";
 
 type Props = {

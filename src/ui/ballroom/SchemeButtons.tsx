@@ -15,8 +15,8 @@
 // the button reads `targetCharacterId: null`.
 
 import { SCHEME_KINDS, SCHEME_PREREQUISITES, SCHEME_TUNING } from "../../game/constants";
-import type { CharacterId } from "../../game/rng";
-import { PLAYER_HOUSE_ID } from "../../game/rng";
+import type { CharacterId } from "../../game/rng.seeds";
+import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import type { SeasonStore } from "../../game/store";
 
 type Props = {

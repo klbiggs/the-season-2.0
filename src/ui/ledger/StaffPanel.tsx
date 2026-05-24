@@ -5,7 +5,7 @@
 
 import { useShallow } from "zustand/react/shallow";
 import { STAFF_ASSIGNMENTS, type StaffAssignment } from "../../game/constants";
-import type { StaffId } from "../../game/rng";
+import type { StaffId } from "../../game/rng.seeds";
 import type { SeasonStore } from "../../game/store";
 
 type Props = {

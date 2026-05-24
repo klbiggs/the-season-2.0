@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { type ConversationFailure, makePairKey } from "../../game/conversation/types";
-import { PLAYER_HOUSE_ID } from "../../game/rng";
+import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import {
   characterEquipsMountFamily,
   playerHeadEquipsMountFamily,

@@ -23,9 +23,11 @@
   },
   "dependencies": {
     "dexie": "~4.0.10",
+    "framer-motion": "~12.0.0",
     "immer": "~10.1.1",
     "react": "~19.0.0",
     "react-dom": "~19.0.0",
+    "react-force-graph-2d": "~1.27.0",
     "seedrandom": "3.0.5",
     "zod": "~3.24.1",
     "zustand": "~5.0.2"
@@ -35,6 +37,7 @@
     "@google/genai": "~2.4.0",
     "@playwright/test": "~1.49.1",
     "@tailwindcss/vite": "~4.0.0-beta.7",
+    "@testing-library/react": "~16.1.0",
     "@types/node": "~22.13.0",
     "@types/react": "~19.0.2",
     "@types/react-dom": "~19.0.2",

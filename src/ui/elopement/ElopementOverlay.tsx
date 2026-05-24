@@ -10,7 +10,7 @@ import {
   ELOPEMENT_PUSH_COMPOSURE_COST,
   ELOPEMENT_TRACK_LENGTH,
 } from "../../game/constants";
-import { PLAYER_HOUSE_ID } from "../../game/rng";
+import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import type { SeasonStore } from "../../game/store";
 
 type Props = {
