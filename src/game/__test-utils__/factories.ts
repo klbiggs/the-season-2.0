@@ -125,6 +125,11 @@ export function makeHouse(overrides: Partial<House> = {}): House {
     bloodFeuds: [],
     // P13 default — no Later-era research at fresh state.
     courierResearchEarned: false,
+    // P15 defaults — no perks / zeroed counters at fresh state (going-forward-only).
+    awardedDynastyPerks: [],
+    consecutiveHeirsNaturalDeath: 0,
+    cumulativeSuccessfulSeductions: 0,
+    cumulativeWeaponizedWhispers: 0,
     ...overrides,
   };
 }

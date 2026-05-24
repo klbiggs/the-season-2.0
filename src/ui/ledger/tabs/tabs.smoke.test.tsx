@@ -22,6 +22,7 @@ import {
   type WhisperId,
 } from "../../../game/rng.seeds";
 import { createStore } from "../../../game/store";
+import { DynastyTab } from "./DynastyTab";
 import { GrievancesTab } from "./GrievancesTab";
 import { PatronessesTab } from "./PatronessesTab";
 import { RivalsTab } from "./RivalsTab";
@@ -199,5 +200,44 @@ describe("SchemesTab (matrix #6)", () => {
     expect(screen.getByTestId("schemes-history-completed-list")).toBeTruthy();
     expect(screen.getByTestId("schemes-history-cancelled-list")).toBeTruthy();
     expect(screen.getByTestId("schemes-history-failed-list")).toBeTruthy();
+  });
+});
+
+describe("DynastyTab (P15)", () => {
+  it("renders progress counters toward each unearned perk on a fresh house", () => {
+    const store = createStore({ seed: "d" });
+    render(<DynastyTab store={store} />);
+    expect(screen.getByTestId("ledger-tab-dynasty")).toBeTruthy();
+    // Fresh house: nothing awarded, all three perks shown as progress.
+    expect(screen.getByTestId("dynasty-awarded-empty")).toBeTruthy();
+    expect(screen.getByTestId("dynasty-progress-row-Patronage")).toBeTruthy();
+    expect(screen.getByTestId("dynasty-progress-row-Seduction")).toBeTruthy();
+    expect(screen.getByTestId("dynasty-progress-row-Whispers")).toBeTruthy();
+  });
+
+  it("renders an awarded perk with its tick + generation and drops it from progress", () => {
+    const store = createStore({ seed: "d" });
+    store.getState().replaceState(
+      makeGameState({
+        houses: new Map([
+          [
+            PLAYER_HOUSE_ID,
+            makeHouse({
+              id: PLAYER_HOUSE_ID,
+              awardedDynastyPerks: [
+                { perk: "Seduction", awardedAtTick: 42, awardedDuringGeneration: 3 },
+              ],
+              cumulativeSuccessfulSeductions: 4,
+            }),
+          ],
+        ]),
+      }),
+    );
+    render(<DynastyTab store={store} />);
+    const row = screen.getByTestId("dynasty-awarded-row-Seduction");
+    expect(row.textContent).toContain("tick 42");
+    expect(row.textContent).toContain("generation 3");
+    // Awarded perk no longer appears as a progress row.
+    expect(screen.queryByTestId("dynasty-progress-row-Seduction")).toBeNull();
   });
 });

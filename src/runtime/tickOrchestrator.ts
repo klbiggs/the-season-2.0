@@ -20,6 +20,7 @@
 
 import { applyForgerySurfacingPhase, applyThiefNoticePhase } from "../game/rules/artifacts";
 import { applyCourierAndStaffPhase } from "../game/rules/courier";
+import { evaluateDynastyPerks } from "../game/rules/dynastyLegacies";
 import { applyEconomyPhase } from "../game/rules/economy";
 import { applyGlobalEventPhase } from "../game/rules/globalEvents";
 import { applyHappinessPhase } from "../game/rules/happiness";
@@ -42,8 +43,13 @@ export type TickPhase = (state: GameState) => GameState;
 
 // P13: identityPhase stub at slot 6 replaced with applyGlobalEventPhase
 // (era flip + WarEffort/MarketCrash/MonarchsMood per-tick effects + expiry +
-// 5%/tick trigger roll). PHASES count stays at 14; rivals stays terminal per
-// CLAUDE.md non-negotiable.
+// 5%/tick trigger roll).
+// P15: evaluateDynastyPerks appended as terminal slot 15, AFTER the rival
+// phase. PHASES count is 15. "Rivals always run last" is refined to "last
+// among RNG-CONSUMING phases" (CLAUDE.md amendment): evaluateDynastyPerks is
+// RNG-free (a pure milestone read + award-list push), so following the rival
+// phase cannot perturb the seeded draw stream — the draw-count stream through
+// the rival phase is byte-identical whether or not it runs.
 const PHASES: readonly TickPhase[] = [
   advanceTickPhase, // 1. time advance
   applyEconomyPhase, // 2. economy
@@ -58,7 +64,8 @@ const PHASES: readonly TickPhase[] = [
   applyThiefNoticePhase, // 11. thief notice + auto-resolve (NEW at P10)
   applySiblingRivalActionPhase, // 12. sibling-rival action roll (NEW at P11)
   applyInheritedSecretSurfacingPhase, // 13. inherited-secret surfacing + blood-feud decay (NEW at P11)
-  applyRivalActionPhase, // 14. rival-house action roll (NEW at P8 — ALWAYS last)
+  applyRivalActionPhase, // 14. rival-house action roll (NEW at P8 — last among RNG-consuming phases)
+  evaluateDynastyPerks, // 15. dynasty-perk evaluation (NEW at P15 — RNG-free, so permitted after rivals)
 ] as const;
 
 export function advanceTickPure(state: GameState): GameState {

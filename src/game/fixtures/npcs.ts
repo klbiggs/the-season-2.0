@@ -140,5 +140,10 @@ export function buildIndependentHouse(): House {
     siblingRivals: [],
     inheritedSecrets: [],
     bloodFeuds: [],
+    // P15: dynasty legacies attach to the player house only; Independent zeroed.
+    awardedDynastyPerks: [],
+    consecutiveHeirsNaturalDeath: 0,
+    cumulativeSuccessfulSeductions: 0,
+    cumulativeWeaponizedWhispers: 0,
   };
 }

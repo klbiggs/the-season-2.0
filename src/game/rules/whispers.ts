@@ -16,6 +16,7 @@ import {
   SCANDAL_SHEET_ATTRIBUTION_PROBABILITY,
   SCANDAL_SHEET_REPUTATION_DROP,
   WEAPONIZATION_BRANCHES,
+  WHISPERS_PERK_VERIFICATION_MULTIPLIER,
   WHISPER_VERIFICATION_PER_TICK,
   WHISPER_VERIFICATION_THRESHOLD,
   type WeaponizationBranch,
@@ -37,6 +38,7 @@ import {
 import { clamp } from "../util/clamp";
 import { getCharacterOrThrow, getHouseOrThrow } from "../util/lookups";
 import { transitTicks } from "./courier";
+import { hasDynastyPerk } from "./dynastyLegacies";
 
 // ── Public input/result types ────────────────────────────────────────────
 
@@ -188,6 +190,11 @@ export function pickWallflowerBonusSubject(
 // whisper whose courier has arrived (arrivedAtTick !== null). Flips status
 // to Verified when progress crosses the threshold. NO PRNG draws.
 export function applyWhisperVerificationPhase(state: GameState): GameState {
+  // P15: the Whispers perk doubles the per-tick verification increment for
+  // player-SOURCED whispers (offensive determinant, plan D5). Read the perk
+  // flag once outside the loop; the per-whisper source-house resolve happens
+  // inside. RNG-free.
+  const hasWhispersPerk = hasDynastyPerk(state, "Whispers");
   let mutated = false;
   const newWhispers = new Map(state.whispers);
   const sortedIds = [...newWhispers.keys()].sort();
@@ -195,7 +202,12 @@ export function applyWhisperVerificationPhase(state: GameState): GameState {
     // biome-ignore lint/style/noNonNullAssertion: id from keys() always present
     const w = newWhispers.get(id)!;
     if (w.status !== "Unverified" || w.arrivedAtTick === null) continue;
-    const nextProgress = Math.min(100, w.verificationProgress + WHISPER_VERIFICATION_PER_TICK);
+    const playerSourced = state.characters.get(w.sourceCharacterId)?.houseId === PLAYER_HOUSE_ID;
+    const increment =
+      hasWhispersPerk && playerSourced
+        ? WHISPER_VERIFICATION_PER_TICK * WHISPERS_PERK_VERIFICATION_MULTIPLIER
+        : WHISPER_VERIFICATION_PER_TICK;
+    const nextProgress = Math.min(100, w.verificationProgress + increment);
     const nextStatus: WhisperStatus =
       nextProgress >= WHISPER_VERIFICATION_THRESHOLD ? "Verified" : "Unverified";
     newWhispers.set(id, { ...w, verificationProgress: nextProgress, status: nextStatus });
@@ -278,7 +290,7 @@ export function tryWeaponizeWhisper(
     case "ScandalSheet":
       return resolveScandalSheet(state, owner, whisper);
     case "AccidentalSlip":
-      return resolveAccidentalSlip(state, whisper);
+      return resolveAccidentalSlip(state, owner, whisper);
   }
 }
 
@@ -292,6 +304,14 @@ function resolveBlackmail(
   newHouses.set(owner.id, {
     ...owner,
     scandal: clamp(owner.scandal + BLACKMAIL_SCANDAL_COST, 0, 100),
+  });
+  // P15: increment the owner's cumulative-weaponized-whispers counter. Read the
+  // POST-write entry so the increment composes with the just-written scandal
+  // bump above instead of clobbering it.
+  const ownerAfterScandal = newHouses.get(owner.id) ?? owner;
+  newHouses.set(owner.id, {
+    ...ownerAfterScandal,
+    cumulativeWeaponizedWhispers: ownerAfterScandal.cumulativeWeaponizedWhispers + 1,
   });
   // affectionMap[(playerHouseId, subjectCharacterId)] += BLACKMAIL_AFFECTION_BOOST (clamped)
   const key = makePairKey(owner.id, whisper.subjectCharacterId);
@@ -337,6 +357,14 @@ function resolveScandalSheet(
     const updatedOwner = newHouses.get(owner.id) ?? owner;
     newHouses.set(owner.id, { ...updatedOwner, exiled: true });
   }
+  // P15: increment the owner's cumulative-weaponized-whispers counter. Read the
+  // POST-write entry (which may carry the exiled flag set above) so the
+  // increment composes instead of clobbering the just-written owner state.
+  const ownerAfterWrites = newHouses.get(owner.id) ?? owner;
+  newHouses.set(owner.id, {
+    ...ownerAfterWrites,
+    cumulativeWeaponizedWhispers: ownerAfterWrites.cumulativeWeaponizedWhispers + 1,
+  });
   const newWhispers = new Map(state.whispers);
   newWhispers.set(whisper.id, {
     ...whisper,
@@ -351,7 +379,11 @@ function resolveScandalSheet(
   };
 }
 
-function resolveAccidentalSlip(state: GameState, whisper: Whisper): WeaponizeWhisperResult {
+function resolveAccidentalSlip(
+  state: GameState,
+  owner: ReturnType<typeof getHouseOrThrow>,
+  whisper: Whisper,
+): WeaponizeWhisperResult {
   // No upfront effect; the drip fires on subsequent conversation turns.
   const newWhispers = new Map(state.whispers);
   newWhispers.set(whisper.id, {
@@ -361,7 +393,14 @@ function resolveAccidentalSlip(state: GameState, whisper: Whisper): WeaponizeWhi
     weaponizedAtTick: state.tick,
     accidentalSlipDripsRemaining: ACCIDENTAL_SLIP_DURATION_TICKS,
   });
-  return { ok: true, state: { ...state, whispers: newWhispers } };
+  // P15: increment the owner's cumulative-weaponized-whispers counter. This
+  // branch has NO existing houses clone, so add a fresh new Map clone.
+  const newHouses = new Map(state.houses);
+  newHouses.set(owner.id, {
+    ...owner,
+    cumulativeWeaponizedWhispers: owner.cumulativeWeaponizedWhispers + 1,
+  });
+  return { ok: true, state: { ...state, whispers: newWhispers, houses: newHouses } };
 }
 
 export function dismissWhisper(state: GameState, whisperId: WhisperId): DismissWhisperResult {

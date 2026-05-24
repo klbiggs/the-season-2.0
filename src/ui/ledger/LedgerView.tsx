@@ -7,6 +7,7 @@
 import { useState } from "react";
 import type { SeasonStore } from "../../game/store";
 import { ArtifactsTab } from "./tabs/ArtifactsTab";
+import { DynastyTab } from "./tabs/DynastyTab";
 import { FamilyTreeTab } from "./tabs/FamilyTreeTab";
 import { GrievancesTab } from "./tabs/GrievancesTab";
 import { PatronessesTab } from "./tabs/PatronessesTab";
@@ -28,7 +29,8 @@ type TabKey =
   | "grievances"
   | "rivals"
   | "staff"
-  | "artifacts";
+  | "artifacts"
+  | "dynasty";
 
 const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "family-tree", label: "Family Tree" },
@@ -39,6 +41,7 @@ const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "rivals", label: "Rivals" },
   { key: "staff", label: "Staff" },
   { key: "artifacts", label: "Artifacts" },
+  { key: "dynasty", label: "Dynasty" },
 ];
 
 export function LedgerView({ store, onExit }: Props) {
@@ -85,6 +88,7 @@ export function LedgerView({ store, onExit }: Props) {
         {active === "rivals" && <RivalsTab store={store} />}
         {active === "staff" && <StaffTab store={store} />}
         {active === "artifacts" && <ArtifactsTab store={store} />}
+        {active === "dynasty" && <DynastyTab store={store} />}
       </div>
     </div>
   );

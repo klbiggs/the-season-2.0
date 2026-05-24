@@ -20,6 +20,7 @@
 import type { CharacterId, HouseId } from "../game/rng";
 import { applyAgingStep } from "../game/rules/aging";
 import { applyConceptionStep } from "../game/rules/conception";
+import { evaluateDynastyPerks } from "../game/rules/dynastyLegacies";
 import { applyMaturationStep } from "../game/rules/maturation";
 import { buildSiblingRivalPromotionStep } from "../game/rules/siblingRivals";
 import { applySuccessionStep } from "../game/rules/succession";
@@ -54,6 +55,10 @@ export function runYearPassPure(state: GameState): GameState {
     applySuccessionStep,
     buildSiblingRivalPromotionStep(preSuccessionHeads),
     applyConceptionStep,
+    // P15 slot 6: dynasty-perk evaluation against fully post-succession state
+    // (§7 "succession-driven perks must compute against post-succession state").
+    // RNG-free; same function as PHASES slot 15 (one function, two terminal slots).
+    evaluateDynastyPerks,
   ];
   return STEPS.reduce<GameState>((acc, step) => step(acc), state);
 }

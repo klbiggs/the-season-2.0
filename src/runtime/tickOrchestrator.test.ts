@@ -129,16 +129,21 @@ describe("advanceTickPure — phase-array ordering", () => {
       tracker.trackedPhase("mood-drift"),
       tracker.trackedPhase("happiness-drift"),
       tracker.trackedPhase("rival-action"),
+      // P15: RNG-free dynasty-perk evaluation appended after rivals (terminal).
+      tracker.trackedPhase("dynasty-perk-evaluation"),
     ];
     runOrchestratorWithPhases(makeState({}), phases);
-    expect(tracker.trace).toHaveLength(9);
-    // Slot 8 happiness sits between mood-drift (slot 7) and rival-action (slot 9, ALWAYS last).
+    expect(tracker.trace).toHaveLength(10);
+    // Slot 8 happiness sits between mood-drift (slot 7) and rival-action.
     const moodIdx = tracker.trace.indexOf("mood-drift");
     const happinessIdx = tracker.trace.indexOf("happiness-drift");
     const rivalIdx = tracker.trace.indexOf("rival-action");
+    const perkIdx = tracker.trace.indexOf("dynasty-perk-evaluation");
     expect(happinessIdx).toBe(moodIdx + 1);
     expect(rivalIdx).toBe(happinessIdx + 1);
-    // Rival-action is the LAST phase (CLAUDE.md non-negotiable).
-    expect(rivalIdx).toBe(tracker.trace.length - 1);
+    // P15: rival-action is the last RNG-CONSUMING phase (second-to-last overall);
+    // the RNG-free dynasty-perk evaluation is the sole phase permitted after it.
+    expect(rivalIdx).toBe(tracker.trace.length - 2);
+    expect(perkIdx).toBe(tracker.trace.length - 1);
   });
 });

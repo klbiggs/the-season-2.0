@@ -13,6 +13,7 @@ import {
   COURIER_DIRECTIONS,
   COURIER_PAYLOAD_TYPES,
   COURIER_STATUSES,
+  DYNASTY_PERK_KINDS,
   ELOPEMENT_FRESH_HORSES_MAX_USES,
   ELOPEMENT_TRACK_LENGTH,
   GRIEVANCE_SOURCES,
@@ -127,6 +128,18 @@ export const BloodFeudSchema = z.object({
 });
 export type BloodFeud = z.infer<typeof BloodFeudSchema>;
 
+// P15: DynastyPerkAward — an awarded permanent house-level perk (spec §4 line 560:
+// "A perk enum, the awarded-at tick, the awarded-during-generation marker").
+// Stored on House.awardedDynastyPerks (player house only); at most one per kind.
+export const DynastyPerkAwardSchema = z.object({
+  perk: z.enum(DYNASTY_PERK_KINDS),
+  awardedAtTick: z.number().int().nonnegative(),
+  // Snapshot of House.generation at award time. POST-succession per §7 (the
+  // year-pass terminal eval runs after succession has bumped generation).
+  awardedDuringGeneration: z.number().int().nonnegative(),
+});
+export type DynastyPerkAward = z.infer<typeof DynastyPerkAwardSchema>;
+
 export const HouseSchema = z.object({
   id: HouseIdSchema,
   wealth: z.number(),
@@ -177,6 +190,16 @@ export const HouseSchema = z.object({
   // parses legacy SaveV1-V12 HouseSchema payloads cleanly (P8/P9 backward-
   // compat shortcut precedent).
   courierResearchEarned: z.boolean().default(false),
+  // P15: Dynasty Legacies. Player house owns all four; non-player houses default
+  // empty/0 and never increment (every mutation site gates on PLAYER_HOUSE_ID).
+  // awardedDynastyPerks is the spec §4 line 541 "list of awarded dynasty perks".
+  // The three counters seed to 0 on fresh state AND every legacy lift / migration
+  // → no retroactive awards (§10 OQ#22 "going-forward only"). `.default(...)` lets
+  // legacy V1-V13 saves parse cleanly (P8/P11/P13 backward-compat shortcut).
+  awardedDynastyPerks: z.array(DynastyPerkAwardSchema).default([]),
+  consecutiveHeirsNaturalDeath: z.number().int().nonnegative().default(0),
+  cumulativeSuccessfulSeductions: z.number().int().nonnegative().default(0),
+  cumulativeWeaponizedWhispers: z.number().int().nonnegative().default(0),
 });
 export type House = z.infer<typeof HouseSchema>;
 

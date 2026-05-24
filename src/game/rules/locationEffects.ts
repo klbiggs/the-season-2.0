@@ -18,11 +18,14 @@ import {
   FINISHING_SCHOOL_TRAIT_PROBABILITY,
   FINISHING_SCHOOL_WEALTH_DRAIN_PER_TICK,
   LOCATION_DELTAS,
+  PATRONAGE_PERK_RURAL_ESTATE_FLAT_BONUS,
+  PATRONAGE_PERK_RURAL_ESTATE_MULTIPLIER,
   RUSTIC_TRAIT_TICKS_AT_RURAL_ESTATE,
 } from "../constants";
 import type { GameState } from "../entities";
 import type { LocationId } from "../fixtures/locations";
 import { PLAYER_HOUSE_ID, type RngState, type TraitId, drawNext } from "../rng";
+import { hasDynastyPerk } from "./dynastyLegacies";
 
 const RUSTIC_TRAIT_ID = "Rustic" as TraitId;
 
@@ -49,7 +52,16 @@ export function applyLocationEffectsPhase(state: GameState): GameState {
   if (head === undefined) return state;
   const delta = LOCATION_DELTAS[house.currentLocation];
 
-  let wealth = house.wealth + delta.wealth;
+  // P15: the Patronage perk boosts the positive Country-location wealth yield
+  // (plan D2 — "events hosted at the rural estate" maps to the rural-estate
+  // wealth yield). Only while resident at Country, only when the perk is held,
+  // only on a positive delta. RNG-free; clamps below unchanged.
+  const wealthDelta =
+    house.currentLocation === "Country" && delta.wealth > 0 && hasDynastyPerk(state, "Patronage")
+      ? Math.round(delta.wealth * PATRONAGE_PERK_RURAL_ESTATE_MULTIPLIER) +
+        PATRONAGE_PERK_RURAL_ESTATE_FLAT_BONUS
+      : delta.wealth;
+  let wealth = house.wealth + wealthDelta;
   const reputation = clamp(house.reputation + delta.reputation, 0, 100);
   const scandal = clamp(house.scandal + delta.scandal, 0, 100);
   const consecutiveTicks = house.consecutiveTicksAtCurrentLocation + 1;

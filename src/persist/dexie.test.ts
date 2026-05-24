@@ -54,12 +54,12 @@ describe("load() — InvalidSaveSchemaError", () => {
     await expect(load(SLOT)).rejects.toBeInstanceOf(InvalidSaveSchemaError);
   });
 
-  it("fires when SaveV13 (current-version) fields are malformed", async () => {
-    // P13 — current-version path is SaveV13. Malformed current-version records
-    // hit SaveV13Schema.parse directly and surface as InvalidSaveSchemaError
+  it("fires when SaveV14 (current-version) fields are malformed", async () => {
+    // P15 — current-version path is SaveV14. Malformed current-version records
+    // hit SaveV14Schema.parse directly and surface as InvalidSaveSchemaError
     // (NOT MigrationFailedError — no migration runs).
     await _putRawForTests(SLOT, {
-      version: 13,
+      version: 14,
       tick: "not-a-number",
       rng: [],
       houses: [],

@@ -416,6 +416,7 @@ import { conversationOrchestrator } from "../runtime/conversationOrchestrator";
 import { conversationBus, publishCharacterDeaths } from "../runtime/events/conversation";
 import type { BallEntryRejection } from "../runtime/events/conversation";
 import { duelBus } from "../runtime/events/duels";
+import { publishDynastyPerkAwards } from "../runtime/events/dynastyLegacy";
 import { elopementBus, publishElopementTransitions } from "../runtime/events/elopement";
 import {
   familyBus,
@@ -577,6 +578,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // GlobalEventExpired). runYearPass omits this — year-pass STEPS doesn't
         // include applyGlobalEventPhase.
         publishGlobalEventTransitions(before, after);
+        // P15: dynasty-perk awards (DynastyPerkAwarded) — rides every tick-
+        // advancing wrapper including runYearPass (12/12/10 set).
+        publishDynastyPerkAwards(before, after);
       },
       runYearPass: () => {
         const exileGate = get();
@@ -624,6 +628,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishSiblingRivalTransitions(before, after);
         publishInheritedSecretTransitions(before, after);
         publishBloodFeudTransitions(before, after);
+        // P15: dynasty-perk awards ride runYearPass too (the Patronage perk
+        // awards at the year-pass terminal STEPS slot 6) — 12/12/10 set.
+        publishDynastyPerkAwards(before, after);
       },
       replaceState: (next: GameState) => {
         // P12: defensive session-clear. The orchestrator's currentSession is
@@ -693,6 +700,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // P13: global-event transitions ride here too (every tick-advancing
         // wrapper except runYearPass per the 11/11/9 publisher set).
         publishGlobalEventTransitions(stateBefore, afterTick);
+        publishDynastyPerkAwards(stateBefore, afterTick);
         return { ok: true };
       },
       requestAudience: () => {
@@ -760,6 +768,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
         publishGlobalEventTransitions(stateBefore, afterTick);
+        publishDynastyPerkAwards(stateBefore, afterTick);
         return { outcome };
       },
       escapeBankruptcy: () => {
@@ -811,6 +820,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // P13: global-event transitions ride here too (every tick-advancing
         // wrapper except runYearPass per the 11/11/9 publisher set).
         publishGlobalEventTransitions(stateBefore, afterTick);
+        publishDynastyPerkAwards(stateBefore, afterTick);
         return { ok: true };
       },
       refreshWardrobe: () => {
@@ -862,6 +872,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // P13: global-event transitions ride here too (every tick-advancing
         // wrapper except runYearPass per the 11/11/9 publisher set).
         publishGlobalEventTransitions(stateBefore, afterTick);
+        publishDynastyPerkAwards(stateBefore, afterTick);
         return { ok: true };
       },
       // ── P4 ballroom actions ───────────────────────────────────────────
@@ -1517,6 +1528,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishInheritedSecretTransitions(stateBefore, tickAdvanced);
         publishBloodFeudTransitions(stateBefore, tickAdvanced);
         publishGlobalEventTransitions(stateBefore, tickAdvanced);
+        publishDynastyPerkAwards(stateBefore, tickAdvanced);
         return outcome;
       },
       assignTutor: (childCharacterId: CharacterId, tutorCharacterId: CharacterId) => {
@@ -1878,6 +1890,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishInheritedSecretTransitions(before, after);
         publishBloodFeudTransitions(before, after);
         publishGlobalEventTransitions(before, after);
+        publishDynastyPerkAwards(before, after);
         if (outcome.kind === "Success") {
           siblingRivalBus.publish({
             kind: "SiblingRivalReconciled",
@@ -1988,6 +2001,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
         publishGlobalEventTransitions(stateBefore, afterTick);
+        publishDynastyPerkAwards(stateBefore, afterTick);
       },
       sendPromenadeMessage: async (input: PromenadeMessageInput) => {
         const stateBefore = get();

@@ -909,3 +909,70 @@ if (MONARCHS_MOOD_DURATION_TICKS <= 0)
   throw new Error("MONARCHS_MOOD_DURATION_TICKS must be positive");
 if (COURIER_RESEARCH_WEALTH_COST <= 0)
   throw new Error("COURIER_RESEARCH_WEALTH_COST must be positive");
+
+// ============================================================================
+// P15 — Dynasty Legacies & Renown Perks
+// plans/phases/15-dynasty-legacies.md  (spec §3 lines 507-510, §7 line 656)
+// ============================================================================
+
+// Perk enum (spec §4 line 560 "perk enum"). Drives DynastyPerkAwardSchema +
+// the Ledger Dynasty-tab labels. Player-house-only; awarded at most once per kind.
+export const DYNASTY_PERK_KINDS = ["Patronage", "Seduction", "Whispers"] as const;
+export type DynastyPerkKind = (typeof DYNASTY_PERK_KINDS)[number];
+// Cardinality guard (mirrors TACTICS.length). Adding a 4th perk requires a
+// save-version bump (the enum is serialized inside House.awardedDynastyPerks).
+if (DYNASTY_PERK_KINDS.length !== 3) {
+  throw new Error(
+    `DYNASTY_PERK_KINDS length changed (${DYNASTY_PERK_KINDS.length} !== 3) without phase plan + save-version bump`,
+  );
+}
+
+// --- Triggers (spec §3 lines 507-509) ---
+/** Patronage: 3 consecutive heirs surviving to natural death (not duel/assassination). */
+export const PATRONAGE_PERK_CONSECUTIVE_NATURAL_DEATHS = 3;
+/** Seduction: 4 cumulative successful Seduction completions across all generations. */
+export const SEDUCTION_PERK_CUMULATIVE_SUCCESSES = 4;
+/** Whispers: cumulative fixed total of whispers reaching Weaponized (plan D6 — "fixed total"). */
+export const WHISPERS_PERK_CUMULATIVE_WEAPONIZED = 5;
+
+// --- Effects (spec §3 line 510) ---
+/** Patronage: multiplies the positive Country-location wealth yield (plan D2). */
+export const PATRONAGE_PERK_RURAL_ESTATE_MULTIPLIER = 5.0;
+/** Patronage: flat extra wealth/tick added on top of the multiplied yield while
+ *  resident at Country with the perk (plan D2 — makes a 3-generation milestone
+ *  reward economically meaningful, not the marginal +1/tick of a bare 2x of yield:1). */
+export const PATRONAGE_PERK_RURAL_ESTATE_FLAT_BONUS = 3;
+/** Seduction: fixed positive base added to the success affection delta. */
+export const SEDUCTION_PERK_AFFECTION_BASE_BONUS = 15;
+/** Seduction: halves discovery-scandal (applied to the already-selected delta). */
+export const SEDUCTION_PERK_DISCOVERY_SCANDAL_MULTIPLIER = 0.5;
+/** Whispers: doubles the per-tick verification increment for player-sourced whispers. */
+export const WHISPERS_PERK_VERIFICATION_MULTIPLIER = 2.0;
+/** Whispers: per-courier auto-intercept probability on inbound whispers about the player house. */
+export const WHISPERS_PERK_INBOUND_INTERCEPT_PROBABILITY = 0.15;
+
+// --- Module-load assertions ---
+if (PATRONAGE_PERK_CONSECUTIVE_NATURAL_DEATHS <= 0)
+  throw new Error("PATRONAGE_PERK_CONSECUTIVE_NATURAL_DEATHS must be positive");
+if (SEDUCTION_PERK_CUMULATIVE_SUCCESSES <= 0)
+  throw new Error("SEDUCTION_PERK_CUMULATIVE_SUCCESSES must be positive");
+if (WHISPERS_PERK_CUMULATIVE_WEAPONIZED <= 0)
+  throw new Error("WHISPERS_PERK_CUMULATIVE_WEAPONIZED must be positive");
+if (PATRONAGE_PERK_RURAL_ESTATE_MULTIPLIER <= 1)
+  throw new Error("PATRONAGE_PERK_RURAL_ESTATE_MULTIPLIER must be > 1");
+if (PATRONAGE_PERK_RURAL_ESTATE_FLAT_BONUS <= 0)
+  throw new Error("PATRONAGE_PERK_RURAL_ESTATE_FLAT_BONUS must be positive");
+if (
+  SEDUCTION_PERK_DISCOVERY_SCANDAL_MULTIPLIER <= 0 ||
+  SEDUCTION_PERK_DISCOVERY_SCANDAL_MULTIPLIER >= 1
+) {
+  throw new Error("SEDUCTION_PERK_DISCOVERY_SCANDAL_MULTIPLIER must be in (0, 1)");
+}
+if (WHISPERS_PERK_VERIFICATION_MULTIPLIER <= 1)
+  throw new Error("WHISPERS_PERK_VERIFICATION_MULTIPLIER must be > 1");
+if (
+  WHISPERS_PERK_INBOUND_INTERCEPT_PROBABILITY <= 0 ||
+  WHISPERS_PERK_INBOUND_INTERCEPT_PROBABILITY >= 1
+) {
+  throw new Error("WHISPERS_PERK_INBOUND_INTERCEPT_PROBABILITY must be in (0, 1)");
+}

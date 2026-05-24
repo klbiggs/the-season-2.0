@@ -33,6 +33,7 @@ import {
 } from "../rng";
 import { clamp } from "../util/clamp";
 import { pruneOrphanedConversationKeys } from "./aging";
+import { recordPlayerHeadViolentDeath } from "./dynastyLegacies";
 import { resolveBloodFeudByGrievance } from "./inheritedSecrets";
 
 export type ResolveDuelOptions = {
@@ -157,6 +158,13 @@ export function resolveDuel(
         { ...workingState, characters: newCharacters },
         new Set<CharacterId>([loserId]),
       );
+      // P15: reset the player house's consecutive-natural-death streak on a
+      // violent (duel) kill of the player head. Assign back to workingState —
+      // it is the threaded base for the subsequent grievance/blood-feud writes
+      // and the final return; a bare un-assigned call would be discarded. The
+      // helper no-ops unless loserId is the current player head. Composes with
+      // the later resolveBloodFeudByGrievance write (each spreads ...workingState).
+      workingState = recordPlayerHeadViolentDeath(workingState, loserId);
     }
   } else if (loserCasualty === "Wounded" && loserId !== null) {
     const loserChar = newCharacters.get(loserId);

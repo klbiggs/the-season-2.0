@@ -20,6 +20,8 @@ import {
   SEDUCTION_AFFECTION_DELTA_ON_SUCCESS,
   SEDUCTION_DISCOVERY_PROBABILITY,
   SEDUCTION_DISCOVERY_SCANDAL,
+  SEDUCTION_PERK_AFFECTION_BASE_BONUS,
+  SEDUCTION_PERK_DISCOVERY_SCANDAL_MULTIPLIER,
   type SchemeFailureReasonKind,
   type SchemeKind,
   type SchemeStatus,
@@ -36,6 +38,7 @@ import {
   type CharacterId,
   type GrievanceId,
   type HouseId,
+  PLAYER_HOUSE_ID,
   type SchemeId,
   type TraitId,
   drawNext,
@@ -45,6 +48,7 @@ import {
 import { clamp } from "../util/clamp";
 import { getCharacterOrThrow, getHouseOrThrow } from "../util/lookups";
 import { pruneOrphanedConversationKeys } from "./aging";
+import { hasDynastyPerk, recordPlayerHeadViolentDeath } from "./dynastyLegacies";
 import { startElopementSprintFromDiscoveredSeduction } from "./elopement";
 
 // P13: strict-TS-friendly cast of the trait literal for the WarEffort ×
@@ -556,10 +560,18 @@ function resolveSeduction(state: GameState, scheme: Scheme): GameState {
           : aggressorMarriage.spouseAId
         : null;
     const targetIsSpouse = aggressorSpouseId !== null && targetId === aggressorSpouseId;
-    const scandalDelta =
+    const selectedScandalDelta =
       aggressor?.temptationHookUnlocked === true && !targetIsSpouse
         ? TEMPTATION_DISCOUNTED_SCANDAL
         : SEDUCTION_DISCOVERY_SCANDAL;
+    // P15: the Seduction perk halves the discovery scandal for player-owned
+    // Seductions. Composes with the temptation discount above (halves whichever
+    // delta was selected). Gated to player-owned: rival Seductions never count
+    // and never get effects.
+    const scandalDelta =
+      scheme.ownerHouseId === PLAYER_HOUSE_ID && hasDynastyPerk(state, "Seduction")
+        ? Math.round(selectedScandalDelta * SEDUCTION_PERK_DISCOVERY_SCANDAL_MULTIPLIER)
+        : selectedScandalDelta;
     // P9: the discovery branch composes scandal + sprint mount + status flip.
     // startElopementSprintFromDiscoveredSeduction applies the scandal and sets
     // state.elopement to a fresh ElopementSprintState in one atomic step; the
@@ -589,13 +601,37 @@ function resolveSeduction(state: GameState, scheme: Scheme): GameState {
   );
   const seductionMultiplier =
     isOfficer && hasActiveWarEffort ? WAR_EFFORT_SEDUCTION_AFFECTION_MULTIPLIER : 1.0;
-  const finalDelta = Math.round(SEDUCTION_AFFECTION_DELTA_ON_SUCCESS * seductionMultiplier);
+  // P15: the Seduction perk adds a fixed positive base to the success affection
+  // delta BEFORE the WarEffort multiplier scales it (documented order). Gated to
+  // player-owned Seductions.
+  const isPlayerOwned = scheme.ownerHouseId === PLAYER_HOUSE_ID;
+  const perkBonus =
+    isPlayerOwned && hasDynastyPerk(state, "Seduction") ? SEDUCTION_PERK_AFFECTION_BASE_BONUS : 0;
+  const finalDelta = Math.round(
+    (SEDUCTION_AFFECTION_DELTA_ON_SUCCESS + perkBonus) * seductionMultiplier,
+  );
 
   const newAffection = new Map(baseState.affectionMap);
   const key = makePairKey(scheme.ownerHouseId, targetId);
   const current = newAffection.get(key) ?? 0;
   newAffection.set(key, clamp(current + finalDelta, 0, 100));
-  const stateWithAffection = { ...baseState, affectionMap: newAffection };
+  let stateWithAffection = { ...baseState, affectionMap: newAffection };
+
+  // P15: increment the player house's cumulative-successful-Seductions counter
+  // on player-owned successes. The success branch writes affectionMap ONLY —
+  // there is NO existing houses clone to reuse, so add a fresh new Map clone for
+  // the counter write. The Seduction perk awards at the terminal eval phase.
+  if (isPlayerOwned) {
+    const playerHouse = baseState.houses.get(PLAYER_HOUSE_ID);
+    if (playerHouse !== undefined) {
+      const newHouses = new Map(baseState.houses);
+      newHouses.set(PLAYER_HOUSE_ID, {
+        ...playerHouse,
+        cumulativeSuccessfulSeductions: playerHouse.cumulativeSuccessfulSeductions + 1,
+      });
+      stateWithAffection = { ...stateWithAffection, houses: newHouses };
+    }
+  }
   return flipSchemeStatus(stateWithAffection, scheme.id, "Completed");
 }
 
@@ -668,15 +704,22 @@ function resolveAssassination(state: GameState, scheme: Scheme): GameState {
     scandal: clamp(ownerHouse.scandal + ASSASSINATION_SCANDAL_DELTA, 0, 100),
   });
 
+  // P15: violent-death counter reset must thread INTO the state that flows
+  // into prune — a bare recordPlayerHeadViolentDeath(state, targetId) is
+  // silently discarded by the inline rebuild (newHouses derives from the
+  // original state.houses, not the helper output). The reset writes the
+  // PLAYER house entry while the owner-scandal write above targets the
+  // assassin's house entry — independent sets, so they compose cleanly.
+  const afterReset = recordPlayerHeadViolentDeath(
+    { ...state, characters: newCharacters, houses: newHouses },
+    targetId,
+  );
   // Death-cascade pure-rule call. Assassination is the first tick-phase path
   // that kills a character. pruneOrphanedConversationKeys (extracted from
   // applyAgingStep) walks the orphan-prune body that was previously inlined
   // and only fired from runYearPass. Heir-inheritance comment migrated
   // verbatim with the helper body.
-  const afterPrune = pruneOrphanedConversationKeys(
-    { ...state, characters: newCharacters, houses: newHouses },
-    new Set<CharacterId>([targetId]),
-  );
+  const afterPrune = pruneOrphanedConversationKeys(afterReset, new Set<CharacterId>([targetId]));
   return flipSchemeStatus(afterPrune, scheme.id, "Completed");
 }
 

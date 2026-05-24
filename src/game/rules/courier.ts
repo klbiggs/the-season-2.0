@@ -5,10 +5,12 @@
 // composer applyCourierAndStaffPhase that drains arriving couriers,
 // progresses whisper verification, and runs the staff outputs phase.
 
+import { WHISPERS_PERK_INBOUND_INTERCEPT_PROBABILITY } from "../constants";
 import type { GameState } from "../entities";
 import { type LocationId, TRANSIT_PAIRS } from "../fixtures/locations";
-import type { HouseId } from "../rng";
+import { type HouseId, PLAYER_HOUSE_ID, drawNext, getOrThrow } from "../rng";
 import { UnknownLocationPairError } from "../util/errors";
+import { hasDynastyPerk } from "./dynastyLegacies";
 import { applyStaffOutputsPhase } from "./staff";
 import { applyCourierDrainStep, applyWhisperVerificationPhase } from "./whispers";
 
@@ -68,6 +70,58 @@ export function transitTicks(
 //   - Staff THIRD so cadence outputs read the post-drain whispers Map.
 export function applyCourierAndStaffPhase(state: GameState): GameState {
   const afterVerify = applyWhisperVerificationPhase(state);
-  const afterDrain = applyCourierDrainStep(afterVerify);
+  // P15: the Whispers perk's inbound-intercept step runs BETWEEN verify and
+  // drain — after verify (per the ordering rationale above), before drain so an
+  // intercepted courier never delivers this tick. Gated: zero draws + input
+  // unchanged when the player doesn't hold the perk.
+  const afterIntercept = applyWhispersPerkInterceptStep(afterVerify);
+  const afterDrain = applyCourierDrainStep(afterIntercept);
   return applyStaffOutputsPhase(afterDrain);
+}
+
+// P15: Whispers-perk inbound-intercept (plan D5). Auto-intercepts InFlight
+// inbound interceptable couriers destined for the player house whose carried
+// whisper's SUBJECT resolves to a player-house character (whispers ABOUT the
+// player). The subject clause is load-bearing — without it the intercept would
+// also grab the player's own returning intel. One conditional player-RNG draw
+// per matching courier (P10 forgery-roll precedent; NOT P13's unconditional
+// per-tick draw). Returns input unchanged with ZERO draws when the perk is not
+// held. Mirrors trySpymasterMailIntercept's 4-predicate filter + courier-only
+// write (the whisper is NOT mutated; an intercepted courier never drains so
+// arrivedAtTick stays null naturally).
+export function applyWhispersPerkInterceptStep(state: GameState): GameState {
+  if (!hasDynastyPerk(state, "Whispers")) return state;
+  let rngState = getOrThrow(state.rng, PLAYER_HOUSE_ID);
+  let rngMutated = false;
+  let mutated = false;
+  const newCouriers = new Map(state.couriers);
+  const sortedIds = [...newCouriers.keys()].sort();
+  for (const id of sortedIds) {
+    // biome-ignore lint/style/noNonNullAssertion: id from keys() always present
+    const c = newCouriers.get(id)!;
+    if (
+      c.status !== "InFlight" ||
+      c.direction !== "Inbound" ||
+      !c.interceptable ||
+      c.destinationHouseId !== PLAYER_HOUSE_ID
+    ) {
+      continue;
+    }
+    // Subject-resolve two-hop: courier → whisper → subject character → house.
+    const subjectId = state.whispers.get(c.whisperId)?.subjectCharacterId;
+    if (subjectId === undefined) continue;
+    if (state.characters.get(subjectId)?.houseId !== PLAYER_HOUSE_ID) continue;
+    // One conditional draw per matching courier.
+    const { next, rngState: post } = drawNext(rngState);
+    rngState = post;
+    rngMutated = true;
+    if (next < WHISPERS_PERK_INBOUND_INTERCEPT_PROBABILITY) {
+      newCouriers.set(id, { ...c, status: "Intercepted", resolvedAtTick: state.tick });
+      mutated = true;
+    }
+  }
+  if (!rngMutated) return state;
+  const rng = new Map(state.rng);
+  rng.set(PLAYER_HOUSE_ID, rngState);
+  return mutated ? { ...state, couriers: newCouriers, rng } : { ...state, rng };
 }

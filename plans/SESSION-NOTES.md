@@ -2,6 +2,34 @@
 
 Closeout notes per phase. Decisions made during implementation that aren't captured by the subplan or git history. Newest entry on top.
 
+## P15 — closed 2026-05-24
+
+**Decisions made:**
+- Save format bumped v13 → v14: 4 new `House` fields (`awardedDynastyPerks` + 3 progress counters) + `DynastyPerkAward` entity + `DYNASTY_PERK_KINDS` enum. No new top-level `GameState` fields (rides existing `houses` serialization; quad-sync untouched — both extension trip-wires stayed green).
+- **D1 (going-forward-only, OQ#22):** stored zero-seeded counters, NOT derive-at-eval — a derive design would retroactively award perks from on-disk schemes/whispers on first migrated load. Counters seed 0 on fresh state AND `migrate_v13_to_v14`.
+- **D2 (Patronage effect):** maps "events hosted at the rural estate" → Country wealth-yield boost (`×5` + flat `+3` while resident). Magnitude was surfaced to the user mid-plan (a bare 2× = +1/tick was economically trivial); user chose the larger multiplier + flat bonus.
+- **D3 (eval placement):** `evaluateDynastyPerks` is RNG-free, so it sits at the TRUE terminal slot AFTER rivals (tick PHASES slot 15) and at year-pass STEPS slot 6 (post-conception → post-succession per §7). Refined "rivals always run last" to "last among RNG-consuming phases."
+- **D4 (counter mutation at death/event sites):** no cause-of-death field; the site knows the cause. Assassination reset must thread into the pre-prune rebuild (a bare call is discarded).
+- **D5:** whisper-perk determinants — verification 2× for player-SOURCED whispers (offensive); inbound intercept for player-SUBJECT couriers (defensive, 4-predicate + two-hop subject filter, conditional one-draw-per-match).
+- Publisher pin → **12/12/10** (`publishDynastyPerkAwards` rides all 9 wrapper sites incl. `runYearPass`, unlike `publishGlobalEventTransitions`).
+
+**Implementation approach:**
+- Shared foundation (constants, entities, rules module, event module, fresh-state House constructors) built first, then 4 file-disjoint slices fanned out as parallel subagents (PERSIST / GAMEPLAY / WIRING / UI).
+
+**Verification gaps / not exercised:**
+- UI golden path: the Dynasty ledger tab is unit-tested via `tabs.smoke.test.tsx` (renders both empty-progress and awarded states), but NOT driven to a live dynasty milestone in a browser — reaching one needs 3 generations of natural-death succession (or 4 seductions / 5 weaponized whispers), impractical in a manual session. The plan explicitly permitted stating this.
+- Optional replay-harness milestone variant: skipped (death-forcing not exposed at the store level; the intercept RNG-budget + existing 62-test replay harness already cover determinism).
+
+**Open questions hit:**
+- §10 OQ #22 resolved (going-forward-only, enforced structurally). No new OQs emerged.
+
+**Files of note:**
+- `src/game/rules/dynastyLegacies.ts` — `evaluateDynastyPerks` / `hasDynastyPerk` / `recordPlayerHead{Natural,Violent}Death`
+- `src/runtime/events/dynastyLegacy.ts` — `dynastyLegacyBus` + `publishDynastyPerkAwards`
+- `src/persist/schema.ts` — `HousePreV14Schema`, `stripP15FieldsForLegacyEmit`, `fromSaveV13Bare` split, `SaveV14Schema`/`toSaveV14`/`fromSaveV14`
+- `src/game/rules/courier.ts:applyWhispersPerkInterceptStep` — conditional intercept draw (verify→intercept→drain→staff)
+- `src/ui/ledger/tabs/DynastyTab.tsx` — read-only awarded-perks + progress display
+
 ## P14 — closed 2026-05-24
 
 **Decisions made:**

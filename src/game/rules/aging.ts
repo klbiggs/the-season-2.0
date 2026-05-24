@@ -25,6 +25,7 @@ import { RIVAL_HOUSE_IDS_SET } from "../fixtures/rivals";
 import { PLAYER_HOUSE_ID } from "../rng";
 import type { ArtifactInstanceId, CharacterId, HouseId, ThiefAttemptId } from "../rng";
 import { clamp } from "../util/clamp";
+import { recordPlayerHeadNaturalDeath } from "./dynastyLegacies";
 
 // === VERBATIM MIGRATION of the heir-promotion safety block from
 // applyAgingStep's top-of-function comment (aging.ts:8-14 pre-P5). The
@@ -398,5 +399,9 @@ export function applyAgingStep(state: GameState): GameState {
   // Delegate orphan-prune to the shared helper. Passing { ...state, characters }
   // forwards the already-aged characters Map; the helper owns the
   // conversationHistory/affectionMap synthesis and returns the full new state.
-  return pruneOrphanedConversationKeys({ ...state, characters }, newlyDead);
+  // P15: record the natural-death streak increment on the POST-prune state so
+  // the counter write is not clobbered by the helper's own houses clone (the
+  // prune branches spread ...house, preserving the counter through the clone).
+  const pruned = pruneOrphanedConversationKeys({ ...state, characters }, newlyDead);
+  return recordPlayerHeadNaturalDeath(pruned, newlyDead);
 }

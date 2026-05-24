@@ -141,6 +141,11 @@ export function seedStartingFamily(
     // P13: no Later-era courier research at fresh state. Flipped true by
     // researchFastCouriers store action once era flips.
     courierResearchEarned: false,
+    // P15: no perks / zeroed counters at fresh state (going-forward-only, §10 OQ#22).
+    awardedDynastyPerks: [],
+    consecutiveHeirsNaturalDeath: 0,
+    cumulativeSuccessfulSeductions: 0,
+    cumulativeWeaponizedWhispers: 0,
   };
 
   // P4: Independent house + 5 NPCs. Built from constants — no RNG draws.

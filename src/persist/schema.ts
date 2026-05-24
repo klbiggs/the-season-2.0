@@ -72,9 +72,10 @@ import { DEFAULT_CAMPAIGN_NAME } from "../game/store";
 // (siblingRivals, inheritedSecrets, bloodFeuds) + GRIEVANCE_SOURCES widening
 // ("BloodFeud"). P13 bumps from 12 → 13 (adds state.globalEvents Map +
 // House.courierResearchEarned + MilitaryOfficer trait — see SaveV13Schema).
-// Legacy toSaveV1..V12 retain their literal `version: N` writes; only
-// toSaveV13 references SAVE_VERSION_CURRENT.
-export const SAVE_VERSION_CURRENT = 13 as const;
+// P15 bumps from 13 → 14 (adds 4 new House fields: awardedDynastyPerks +
+// 3 progress counters — see SaveV14Schema). Legacy toSaveV1..V13 retain their
+// literal `version: N` writes; only toSaveV14 references SAVE_VERSION_CURRENT.
+export const SAVE_VERSION_CURRENT = 14 as const;
 
 // ── HousePreV4 (legacy on-disk House shape for V1/V2/V3 saves) ────────────
 // Omits the 5 P3-added fields (currentLocation, etc.) AND the P5 grievances
@@ -114,6 +115,11 @@ function defaultHouseV4Fields(h: HousePreV4): House {
     bloodFeuds: [],
     // P13: legacy lift defaults to no Later-era courier research.
     courierResearchEarned: false,
+    // P15: legacy lift seeds dynasty-legacy fields empty/0 (going-forward-only).
+    awardedDynastyPerks: [],
+    consecutiveHeirsNaturalDeath: 0,
+    cumulativeSuccessfulSeductions: 0,
+    cumulativeWeaponizedWhispers: 0,
   };
 }
 
@@ -142,6 +148,11 @@ const HousePreV6Schema = HouseSchema.omit({
   bloodFeuds: true,
   // P13: V4/V5 saves predate courierResearchEarned.
   courierResearchEarned: true,
+  // P15: V4/V5 saves predate the 4 dynasty-legacy fields.
+  awardedDynastyPerks: true,
+  consecutiveHeirsNaturalDeath: true,
+  cumulativeSuccessfulSeductions: true,
+  cumulativeWeaponizedWhispers: true,
 });
 type HousePreV6 = z.infer<typeof HousePreV6Schema>;
 
@@ -158,6 +169,11 @@ function defaultHouseV6Fields(h: HousePreV6): House {
     bloodFeuds: [],
     // P13: legacy lift defaults to no Later-era courier research.
     courierResearchEarned: false,
+    // P15: legacy lift seeds dynasty-legacy fields empty/0 (going-forward-only).
+    awardedDynastyPerks: [],
+    consecutiveHeirsNaturalDeath: 0,
+    cumulativeSuccessfulSeductions: 0,
+    cumulativeWeaponizedWhispers: 0,
   };
 }
 
@@ -183,6 +199,11 @@ const HousePreV7Schema = HouseSchema.omit({
   bloodFeuds: true,
   // P13: V6 saves predate courierResearchEarned.
   courierResearchEarned: true,
+  // P15: V6 saves predate the 4 dynasty-legacy fields.
+  awardedDynastyPerks: true,
+  consecutiveHeirsNaturalDeath: true,
+  cumulativeSuccessfulSeductions: true,
+  cumulativeWeaponizedWhispers: true,
 });
 type HousePreV7 = z.infer<typeof HousePreV7Schema>;
 
@@ -198,6 +219,11 @@ function defaultHouseV7Fields(h: HousePreV7): House {
     bloodFeuds: [],
     // P13: legacy lift defaults to no Later-era courier research.
     courierResearchEarned: false,
+    // P15: legacy lift seeds dynasty-legacy fields empty/0 (going-forward-only).
+    awardedDynastyPerks: [],
+    consecutiveHeirsNaturalDeath: 0,
+    cumulativeSuccessfulSeductions: 0,
+    cumulativeWeaponizedWhispers: 0,
   };
 }
 
@@ -232,7 +258,17 @@ function stripGrievancesForLegacyEmit(
       // rejects on re-parse.
       // P13 extension: drop courierResearchEarned too — HousePreV6 (V4/V5 target)
       // predates the field.
-      const { grievances: _g, exiled: _e, courierResearchEarned: _cre, ...rest } = h;
+      // P15 extension: drop the 4 dynasty-legacy fields — V4/V5 predate them.
+      const {
+        grievances: _g,
+        exiled: _e,
+        courierResearchEarned: _cre,
+        awardedDynastyPerks: _adp,
+        consecutiveHeirsNaturalDeath: _chnd,
+        cumulativeSuccessfulSeductions: _css,
+        cumulativeWeaponizedWhispers: _cww,
+        ...rest
+      } = h;
       return [id, rest as HousePreV6];
     });
 }
@@ -255,6 +291,11 @@ function stripV6FieldsForLegacyEmit(
         wardrobeLastRefreshTick: _wlrt,
         blockadeBypassEarned: _bbe,
         courierResearchEarned: _cre, // P13 extension — V2/V3 saves predate it
+        // P15 extension — V2/V3 saves predate the 4 dynasty-legacy fields.
+        awardedDynastyPerks: _adp,
+        consecutiveHeirsNaturalDeath: _chnd,
+        cumulativeSuccessfulSeductions: _css,
+        cumulativeWeaponizedWhispers: _cww,
         ...rest
       } = h;
       return [id, rest as HousePreV4];
@@ -275,12 +316,17 @@ function stripExiledForLegacyEmit(
       // P11 extension: also drop siblingRivals/inheritedSecrets/bloodFeuds —
       // HousePreV7 (V6 target) predates all three.
       // P13 extension: drop courierResearchEarned — V6 saves predate it.
+      // P15 extension: drop the 4 dynasty-legacy fields — V6 predates them.
       const {
         exiled: _e,
         siblingRivals: _sr,
         inheritedSecrets: _is,
         bloodFeuds: _bf,
         courierResearchEarned: _cre,
+        awardedDynastyPerks: _adp,
+        consecutiveHeirsNaturalDeath: _chnd,
+        cumulativeSuccessfulSeductions: _css,
+        cumulativeWeaponizedWhispers: _cww,
         ...rest
       } = h;
       return [id, rest as HousePreV7];
@@ -299,6 +345,11 @@ const HousePreV12Pre11Schema = HouseSchema.omit({
   bloodFeuds: true,
   // P13: V7-V12 saves predate courierResearchEarned.
   courierResearchEarned: true,
+  // P15: V7-V11 saves predate the 4 dynasty-legacy fields.
+  awardedDynastyPerks: true,
+  consecutiveHeirsNaturalDeath: true,
+  cumulativeSuccessfulSeductions: true,
+  cumulativeWeaponizedWhispers: true,
 });
 type HousePreV12Pre11 = z.infer<typeof HousePreV12Pre11Schema>;
 
@@ -310,11 +361,16 @@ function stripP11FieldsForLegacyEmit(
 ): Array<[string, HousePreV12Pre11]> {
   return entries.map(([id, h]) => {
     // P13 extension: drop courierResearchEarned — V7-V11 saves predate it.
+    // P15 extension: drop the 4 dynasty-legacy fields — V7-V11 predate them.
     const {
       siblingRivals: _sr,
       inheritedSecrets: _is,
       bloodFeuds: _bf,
       courierResearchEarned: _cre,
+      awardedDynastyPerks: _adp,
+      consecutiveHeirsNaturalDeath: _chnd,
+      cumulativeSuccessfulSeductions: _css,
+      cumulativeWeaponizedWhispers: _cww,
       ...rest
     } = h;
     return [id, rest as HousePreV12Pre11];
@@ -327,6 +383,11 @@ function stripP11FieldsForLegacyEmit(
 // `HousePreV13` Pre-schema alias (HouseSchema.omit({ courierResearchEarned })).
 const HousePreV13Schema = HouseSchema.omit({
   courierResearchEarned: true,
+  // P15: V12 saves predate the 4 dynasty-legacy fields.
+  awardedDynastyPerks: true,
+  consecutiveHeirsNaturalDeath: true,
+  cumulativeSuccessfulSeductions: true,
+  cumulativeWeaponizedWhispers: true,
 });
 type HousePreV13 = z.infer<typeof HousePreV13Schema>;
 
@@ -334,9 +395,63 @@ function stripCourierResearchForLegacyEmit(
   entries: ReadonlyArray<readonly [string, House]>,
 ): Array<[string, HousePreV13]> {
   return entries.map(([id, h]) => {
-    const { courierResearchEarned: _cre, ...rest } = h;
+    // P15 extension: drop the 4 dynasty-legacy fields too — HousePreV13 (V12
+    // target) predates them, and the live HouseSchema now carries them.
+    const {
+      courierResearchEarned: _cre,
+      awardedDynastyPerks: _adp,
+      consecutiveHeirsNaturalDeath: _chnd,
+      cumulativeSuccessfulSeductions: _css,
+      cumulativeWeaponizedWhispers: _cww,
+      ...rest
+    } = h;
     return [id, rest as HousePreV13];
   });
+}
+
+// P15: strip helper for the new most-recent-legacy V13 emit. V13 saves predate
+// the four dynasty-legacy fields (awardedDynastyPerks + 3 progress counters).
+// The output type is the HousePreV14 Pre-schema alias. Analog of
+// stripCourierResearchForLegacyEmit; called in toSaveV13.
+const HousePreV14Schema = HouseSchema.omit({
+  awardedDynastyPerks: true,
+  consecutiveHeirsNaturalDeath: true,
+  cumulativeSuccessfulSeductions: true,
+  cumulativeWeaponizedWhispers: true,
+});
+type HousePreV14 = z.infer<typeof HousePreV14Schema>;
+
+function stripP15FieldsForLegacyEmit(
+  entries: ReadonlyArray<readonly [string, House]>,
+): Array<[string, HousePreV14]> {
+  return entries.map(([id, h]) => {
+    const {
+      awardedDynastyPerks: _adp,
+      consecutiveHeirsNaturalDeath: _chnd,
+      cumulativeSuccessfulSeductions: _css,
+      cumulativeWeaponizedWhispers: _cww,
+      ...rest
+    } = h;
+    return [id, rest as HousePreV14];
+  });
+}
+
+// P15 lift helper: HousePreV14 → House by appending the 4 dynasty-legacy fields
+// empty/0 (going-forward-only per §10 OQ#22). Analog of liftHousesFromPreV13.
+function liftHousesFromPreV14(
+  serialized: ReadonlyArray<readonly [HouseId, HousePreV14]>,
+): GameState["houses"] {
+  const out: GameState["houses"] = new Map();
+  for (const [id, h] of serialized) {
+    out.set(id, {
+      ...h,
+      awardedDynastyPerks: [],
+      consecutiveHeirsNaturalDeath: 0,
+      cumulativeSuccessfulSeductions: 0,
+      cumulativeWeaponizedWhispers: 0,
+    });
+  }
+  return out;
 }
 
 // P11 helper: deserialize a HousePreV12Pre11 tuple array (legacy V7-V11 houses)
@@ -354,6 +469,11 @@ function liftLegacyHousesFromV12Pre11(
       bloodFeuds: [],
       // P13: legacy V7-V12 saves predate the field.
       courierResearchEarned: false,
+      // P15: legacy lift seeds dynasty-legacy fields empty/0 (going-forward-only).
+      awardedDynastyPerks: [],
+      consecutiveHeirsNaturalDeath: 0,
+      cumulativeSuccessfulSeductions: 0,
+      cumulativeWeaponizedWhispers: 0,
     });
   }
   return out;
@@ -1843,7 +1963,15 @@ function liftHousesFromPreV13(
 ): GameState["houses"] {
   const out: GameState["houses"] = new Map();
   for (const [id, h] of serialized) {
-    out.set(id, { ...h, courierResearchEarned: false });
+    // P15: also seed the 4 dynasty-legacy fields empty/0 (going-forward-only).
+    out.set(id, {
+      ...h,
+      courierResearchEarned: false,
+      awardedDynastyPerks: [],
+      consecutiveHeirsNaturalDeath: 0,
+      cumulativeSuccessfulSeductions: 0,
+      cumulativeWeaponizedWhispers: 0,
+    });
   }
   return out;
 }
@@ -1896,17 +2024,21 @@ export function fromSaveV12(save: SaveV12): GameState {
   return bare;
 }
 
-// ── SaveV13 (P13 live format) ────────────────────────────────────────────
+// ── SaveV13 (P13 format — demoted to legacy at P15) ──────────────────────
 // P13: adds GameState.globalEvents Map (per-event WarEffort/MarketCrash/
 // MonarchsMood entries) + House.courierResearchEarned (boolean latch) +
 // MilitaryOfficer trait (string in TraitIdSchema's transform — round-trips
 // as a raw string; no enum widening on the save schema).
+// P15: V13 demoted to legacy. The houses tuple now uses `HousePreV14Schema`
+// (omits the 4 dynasty-legacy fields, which V13 saves predate). The emit-side
+// `toSaveV13` strips via `stripP15FieldsForLegacyEmit`; the load-side
+// `fromSaveV13` lifts by appending the 4 fields empty/0 per house.
 
 export const SaveV13Schema = z.object({
   version: z.literal(13),
   tick: z.number().int().nonnegative(),
   rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
-  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])), // LIVE HouseSchema — includes courierResearchEarned
+  houses: z.array(z.tuple([HouseIdSchema, HousePreV14Schema])), // P15: V13 saves predate the 4 dynasty-legacy fields
   characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
   marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
   campaignName: z.string(),
@@ -1933,11 +2065,133 @@ export const SaveV13Schema = z.object({
 });
 export type SaveV13 = z.infer<typeof SaveV13Schema>;
 
-// P13 live emitter. ONLY emitter to reference SAVE_VERSION_CURRENT (every
-// other emitter pins its literal version). No strip helper — live HouseSchema
-// already includes courierResearchEarned; globalEvents serializes directly.
+// P15: V13 demoted to legacy. Version literal pinned to 13 (was
+// SAVE_VERSION_CURRENT pre-P15). Houses tuple stripped via
+// stripP15FieldsForLegacyEmit so the emit matches the V13 on-disk shape
+// (HousePreV14 — no dynasty-legacy fields). globalEvents serializes directly.
 export function toSaveV13(state: GameState): SaveV13 {
   return SaveV13Schema.parse({
+    version: 13, // P15: literal pin (was SAVE_VERSION_CURRENT pre-P15)
+    tick: state.tick,
+    rng: serializeRegistry(state.rng),
+    houses: stripP15FieldsForLegacyEmit(serializeRegistry(state.houses)), // P15 strip
+    characters: serializeRegistry(state.characters),
+    marriages: serializeRegistry(state.marriages),
+    campaignName: state.campaignName,
+    era: state.era,
+    conversationHistory: serializeRegistry(state.conversationHistory),
+    affectionMap: serializeRegistry(state.affectionMap),
+    schemes: serializeRegistry(state.schemes),
+    whispers: serializeRegistry(state.whispers),
+    couriers: serializeRegistry(state.couriers),
+    staff: serializeRegistry(state.staff),
+    proposalsLog: serializeRegistry(state.proposalsLog),
+    tutorAssignmentsLog: serializeRegistry(state.tutorAssignmentsLog),
+    pendingTutorTraitChoices: serializeRegistry(state.pendingTutorTraitChoices),
+    patronesses: serializeRegistry(state.patronesses),
+    rivalActors: serializeRegistry(state.rivalActors),
+    factionTensions: serializeRegistry(state.factionTensions),
+    duels: serializeRegistry(state.duels),
+    elopement: state.elopement,
+    artifactInstances: serializeRegistry(state.artifactInstances),
+    forgeries: serializeRegistry(state.forgeries),
+    thiefAttempts: serializeRegistry(state.thiefAttempts),
+    globalEvents: serializeRegistry(state.globalEvents),
+  });
+}
+
+// P15: V13 demoted to legacy at P15. Bare core does pure deserialization +
+// HousePreV14 → House lift (appends the 4 dynasty-legacy fields empty/0). The
+// public wrapper composes the P12 bootstrapNpcMountFamily seed step (mutates
+// Maps in place — void return), matching the fromSaveV12Bare/fromSaveV12 shape.
+// The split REMOVES the prior inline bootstrap interleave (V13 now has a
+// migration target — v13→v14).
+export function fromSaveV13Bare(save: SaveV13): GameState {
+  return {
+    tick: save.tick,
+    rng: deserializeRegistry(save.rng) as GameState["rng"],
+    houses: liftHousesFromPreV14(save.houses as ReadonlyArray<readonly [HouseId, HousePreV14]>),
+    characters: deserializeRegistry(save.characters) as GameState["characters"],
+    marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
+    campaignName: save.campaignName,
+    era: save.era,
+    conversationHistory: deserializeRegistry(
+      save.conversationHistory,
+    ) as GameState["conversationHistory"],
+    affectionMap: deserializeRegistry(save.affectionMap) as GameState["affectionMap"],
+    schemes: deserializeRegistry(save.schemes) as GameState["schemes"],
+    whispers: deserializeRegistry(save.whispers) as GameState["whispers"],
+    couriers: deserializeRegistry(save.couriers) as GameState["couriers"],
+    staff: deserializeRegistry(save.staff) as GameState["staff"],
+    proposalsLog: deserializeRegistry(save.proposalsLog) as GameState["proposalsLog"],
+    tutorAssignmentsLog: deserializeRegistry(
+      save.tutorAssignmentsLog,
+    ) as GameState["tutorAssignmentsLog"],
+    pendingTutorTraitChoices: deserializeRegistry(
+      save.pendingTutorTraitChoices,
+    ) as GameState["pendingTutorTraitChoices"],
+    patronesses: deserializeRegistry(save.patronesses) as GameState["patronesses"],
+    rivalActors: deserializeRegistry(save.rivalActors) as GameState["rivalActors"],
+    factionTensions: deserializeRegistry(save.factionTensions) as GameState["factionTensions"],
+    duels: deserializeRegistry(save.duels) as GameState["duels"],
+    elopement: save.elopement,
+    artifactInstances: deserializeRegistry(
+      save.artifactInstances,
+    ) as GameState["artifactInstances"],
+    forgeries: deserializeRegistry(save.forgeries) as GameState["forgeries"],
+    thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
+    globalEvents: deserializeRegistry(save.globalEvents) as GameState["globalEvents"],
+  };
+}
+
+// Public wrapper — composes the P12 NPC-mount-equip seed helper (void-mutating).
+export function fromSaveV13(save: SaveV13): GameState {
+  const bare = fromSaveV13Bare(save);
+  bootstrapNpcMountFamily(bare.characters, bare.artifactInstances, save.tick);
+  return bare;
+}
+
+// ── SaveV14 (P15 live format) ────────────────────────────────────────────
+// P15: adds 4 new House fields (awardedDynastyPerks + 3 progress counters).
+// Same shape as SaveV13 but the houses tuple references the LIVE HouseSchema
+// (includes the dynasty-legacy fields). No new top-level GameState field — the
+// 4 fields ride the existing houses Map serialization.
+
+export const SaveV14Schema = z.object({
+  version: z.literal(14),
+  tick: z.number().int().nonnegative(),
+  rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])), // LIVE HouseSchema — includes the 4 dynasty-legacy fields
+  characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
+  marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
+  campaignName: z.string(),
+  era: z.enum(["Earlier", "Later"]),
+  conversationHistory: z.array(z.tuple([ConversationPairKeySchema, z.array(ExchangeSchema)])),
+  affectionMap: z.array(z.tuple([ConversationPairKeySchema, z.number().int().min(0).max(100)])),
+  schemes: z.array(z.tuple([SchemeIdSchema, SchemeSchema])),
+  whispers: z.array(z.tuple([WhisperIdSchema, WhisperSchema])),
+  couriers: z.array(z.tuple([CourierPayloadIdSchema, CourierPayloadSchema])),
+  staff: z.array(z.tuple([StaffIdSchema, StaffMemberSchema])),
+  proposalsLog: z.array(z.tuple([CharacterIdSchema, ProposalLogEntrySchema])),
+  tutorAssignmentsLog: z.array(z.tuple([CharacterIdSchema, TutorAssignmentLogEntrySchema])),
+  pendingTutorTraitChoices: z.array(z.tuple([CharacterIdSchema, PendingTutorTraitChoiceSchema])),
+  patronesses: z.array(z.tuple([PatronessIdSchema, PatronessRecordSchema])),
+  rivalActors: z.array(z.tuple([HouseIdSchema, RivalActorStateSchema])),
+  factionTensions: z.array(z.tuple([FactionPairKeySchema, z.number().int().min(0).max(100)])),
+  duels: z.array(z.tuple([DuelIdSchema, DuelSchema])),
+  elopement: ElopementSprintStateSchema.nullable(),
+  artifactInstances: z.array(z.tuple([ArtifactInstanceIdSchema, ArtifactInstanceSchema])),
+  forgeries: z.array(z.tuple([ForgeryIdSchema, ForgeryRecordSchema])),
+  thiefAttempts: z.array(z.tuple([ThiefAttemptIdSchema, ThiefAttemptSchema])),
+  globalEvents: z.array(z.tuple([GlobalEventIdSchema, GlobalEventSchema])),
+});
+export type SaveV14 = z.infer<typeof SaveV14Schema>;
+
+// P15 live emitter. ONLY emitter to reference SAVE_VERSION_CURRENT (every
+// other emitter pins its literal version). No strip helper — live HouseSchema
+// already includes the 4 dynasty-legacy fields.
+export function toSaveV14(state: GameState): SaveV14 {
+  return SaveV14Schema.parse({
     version: SAVE_VERSION_CURRENT,
     tick: state.tick,
     rng: serializeRegistry(state.rng),
@@ -1967,10 +2221,10 @@ export function toSaveV13(state: GameState): SaveV13 {
   });
 }
 
-// P13 live loader. Mirrors fromSaveV12's extract-locals-then-mutate pattern
-// so bootstrapNpcMountFamily (void-mutating) composes cleanly without an
-// extra Bare/wrap split (V13 has no migration target yet — that comes at P14).
-export function fromSaveV13(save: SaveV13): GameState {
+// P15 live loader. Mirrors fromSaveV13 — the 4 new House fields deserialize
+// directly via the live HouseSchema; the NPC-mount-equip seed step composes
+// after deserialization.
+export function fromSaveV14(save: SaveV14): GameState {
   const characters = deserializeRegistry(save.characters) as GameState["characters"];
   const artifactInstances = deserializeRegistry(
     save.artifactInstances,

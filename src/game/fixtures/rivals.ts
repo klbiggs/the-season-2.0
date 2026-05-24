@@ -242,6 +242,11 @@ export function buildRivalHouse(seed: RivalHouseSeed): House {
     // P13: rival houses never research couriers (player-elected action gated
     // on PLAYER_HOUSE_ID).
     courierResearchEarned: false,
+    // P15: dynasty legacies are player-house-only; rivals zeroed (never increment).
+    awardedDynastyPerks: [],
+    consecutiveHeirsNaturalDeath: 0,
+    cumulativeSuccessfulSeductions: 0,
+    cumulativeWeaponizedWhispers: 0,
   };
 }
 

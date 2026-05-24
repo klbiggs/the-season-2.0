@@ -49,6 +49,7 @@ describe("migrate_v4_to_v5 byte-identity vs fresh state", () => {
     // grievances AND exiled (post-P6 extension). Strip both for comparison.
     // P11: HousePreV6Schema also omits siblingRivals/inheritedSecrets/bloodFeuds.
     // P13: HousePreV6Schema also omits courierResearchEarned.
+    // P15: HousePreV6Schema also omits the 4 dynasty-legacy fields.
     const {
       grievances: _g,
       exiled: _e,
@@ -56,6 +57,10 @@ describe("migrate_v4_to_v5 byte-identity vs fresh state", () => {
       inheritedSecrets: _is,
       bloodFeuds: _bf,
       courierResearchEarned: _cre,
+      awardedDynastyPerks: _adp,
+      consecutiveHeirsNaturalDeath: _chnd,
+      cumulativeSuccessfulSeductions: _css,
+      cumulativeWeaponizedWhispers: _cww,
       ...freshIndyStripped
     } = freshIndy;
     expect(migratedIndy?.[1]).toEqual(freshIndyStripped);
