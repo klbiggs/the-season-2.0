@@ -7,6 +7,7 @@
 
 import type { GameState } from "../entities";
 import { type LocationId, TRANSIT_PAIRS } from "../fixtures/locations";
+import type { HouseId } from "../rng";
 import { UnknownLocationPairError } from "../util/errors";
 import { applyStaffOutputsPhase } from "./staff";
 import { applyCourierDrainStep, applyWhisperVerificationPhase } from "./whispers";
@@ -23,11 +24,30 @@ const TRANSIT_TABLE: ReadonlyMap<string, number> = (() => {
   return m;
 })();
 
-export function transitTicks(from: LocationId, to: LocationId): number {
+// P13: signature widened from (from, to) to (state, originatorHouseId, from, to)
+// to read the per-house courierResearchEarned flag. When the originator has
+// the Later-era research action applied, transit halves with floor 1.
+// Only NEW couriers are halved; in-flight couriers retain their absolute
+// arrivalTick per CLAUDE.md non-negotiable §2.
+//
+// Sole non-test caller is whispers.ts:generateWhisperCourier (verified via
+// `grep -n 'transitTicks(' src/`). The function currently hardcodes
+// `originHouseId: PLAYER_HOUSE_ID` so at v1 only the player benefits from
+// the halving (rivals don't have a UI affordance for the research action).
+export function transitTicks(
+  state: GameState,
+  originatorHouseId: HouseId,
+  from: LocationId,
+  to: LocationId,
+): number {
   if (from === to) return 0;
-  const ticks = TRANSIT_TABLE.get(canonicalKey(from, to));
-  if (ticks === undefined) throw new UnknownLocationPairError(from, to);
-  return ticks;
+  const base = TRANSIT_TABLE.get(canonicalKey(from, to));
+  if (base === undefined) throw new UnknownLocationPairError(from, to);
+  const originator = state.houses.get(originatorHouseId);
+  if (originator?.courierResearchEarned) {
+    return Math.max(1, Math.ceil(base * 0.5));
+  }
+  return base;
 }
 
 // P6: orchestrator phase at PHASES slot 4 (replaces P1 identityPhase stub).

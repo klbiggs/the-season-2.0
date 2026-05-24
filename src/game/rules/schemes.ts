@@ -26,6 +26,7 @@ import {
   TEMPTATION_DISCOUNTED_SCANDAL,
   TREASON_FRAMING_RIVAL_HOSTILITY_DELTA,
   TREASON_FRAMING_RIVAL_REPUTATION_DELTA,
+  WAR_EFFORT_SEDUCTION_AFFECTION_MULTIPLIER,
 } from "../constants";
 import { makePairKey } from "../conversation/types";
 import type { GameState, Grievance, Scheme } from "../entities";
@@ -36,13 +37,22 @@ import {
   type GrievanceId,
   type HouseId,
   type SchemeId,
+  type TraitId,
   drawNext,
   getOrThrow,
 } from "../rng";
+
 import { clamp } from "../util/clamp";
 import { getCharacterOrThrow, getHouseOrThrow } from "../util/lookups";
 import { pruneOrphanedConversationKeys } from "./aging";
 import { startElopementSprintFromDiscoveredSeduction } from "./elopement";
+
+// P13: strict-TS-friendly cast of the trait literal for the WarEffort ×
+// Seduction multiplier check inside resolveSeduction. Per CLAUDE.md
+// "wired-but-inert at v1" pin — no v1 acquisition path produces an
+// officer-tagged character, so this trait check is dormant until a future
+// v1.5 phase ships an acquisition path.
+const MILITARY_OFFICER: TraitId = "MilitaryOfficer" as TraitId;
 
 // ── Public input/result types ────────────────────────────────────────────
 
@@ -564,11 +574,27 @@ function resolveSeduction(state: GameState, scheme: Scheme): GameState {
     return flipSchemeStatus(stateWithScandalAndSprint, scheme.id, "Failed", "Discovered");
   }
 
-  // Not-discovered: apply +80 affection (clamped), flip to Completed.
+  // Not-discovered: apply success affection (clamped), flip to Completed.
+  // P13: WarEffort × MilitaryOfficer multiplier composes here. The aggressor
+  // gets a +50% affection delta on success when ALL of: (a) aggressor has
+  // MilitaryOfficer trait, (b) at least one WarEffort event is currently
+  // active in state.globalEvents. Pure positive-outcome buff — discovery roll
+  // above is NOT modulated. Per the wired-but-inert design pin, no v1 path
+  // produces a MilitaryOfficer-tagged character, so this branch is dormant
+  // until a future v1.5 acquisition path ships.
+  const aggressor = baseState.characters.get(scheme.aggressorCharacterId);
+  const isOfficer = aggressor?.traits.includes(MILITARY_OFFICER);
+  const hasActiveWarEffort = [...baseState.globalEvents.values()].some(
+    (e) => e.kind === "WarEffort",
+  );
+  const seductionMultiplier =
+    isOfficer && hasActiveWarEffort ? WAR_EFFORT_SEDUCTION_AFFECTION_MULTIPLIER : 1.0;
+  const finalDelta = Math.round(SEDUCTION_AFFECTION_DELTA_ON_SUCCESS * seductionMultiplier);
+
   const newAffection = new Map(baseState.affectionMap);
   const key = makePairKey(scheme.ownerHouseId, targetId);
   const current = newAffection.get(key) ?? 0;
-  newAffection.set(key, clamp(current + SEDUCTION_AFFECTION_DELTA_ON_SUCCESS, 0, 100));
+  newAffection.set(key, clamp(current + finalDelta, 0, 100));
   const stateWithAffection = { ...baseState, affectionMap: newAffection };
   return flipSchemeStatus(stateWithAffection, scheme.id, "Completed");
 }

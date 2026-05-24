@@ -21,6 +21,7 @@
 import { applyForgerySurfacingPhase, applyThiefNoticePhase } from "../game/rules/artifacts";
 import { applyCourierAndStaffPhase } from "../game/rules/courier";
 import { applyEconomyPhase } from "../game/rules/economy";
+import { applyGlobalEventPhase } from "../game/rules/globalEvents";
 import { applyHappinessPhase } from "../game/rules/happiness";
 import { applyInheritedSecretSurfacingPhase } from "../game/rules/inheritedSecrets";
 import { applyLocationEffectsPhase } from "../game/rules/locationEffects";
@@ -31,10 +32,6 @@ import { applySchemeResolutionPhase } from "../game/rules/schemes";
 import { applySiblingRivalActionPhase } from "../game/rules/siblingRivals";
 import type { GameState } from "../game/store";
 
-function identityPhase(state: GameState): GameState {
-  return state;
-}
-
 function advanceTickPhase(state: GameState): GameState {
   return { ...state, tick: state.tick + 1 };
 }
@@ -43,16 +40,17 @@ function advanceTickPhase(state: GameState): GameState {
 // this type for the runOrchestratorWithPhases injection seam.
 export type TickPhase = (state: GameState) => GameState;
 
-// P11: PHASES grows 12→14. applySiblingRivalActionPhase +
-// applyInheritedSecretSurfacingPhase insert at slots 12 + 13 (BEFORE rivals).
-// applyRivalActionPhase shifts to slot 14 — ALWAYS LAST per CLAUDE.md non-negotiable.
+// P13: identityPhase stub at slot 6 replaced with applyGlobalEventPhase
+// (era flip + WarEffort/MarketCrash/MonarchsMood per-tick effects + expiry +
+// 5%/tick trigger roll). PHASES count stays at 14; rivals stays terminal per
+// CLAUDE.md non-negotiable.
 const PHASES: readonly TickPhase[] = [
   advanceTickPhase, // 1. time advance
   applyEconomyPhase, // 2. economy
   applyLocationEffectsPhase, // 3. location effects (NEW at P3)
   applyCourierAndStaffPhase, // 4. courier + verify + staff (NEW at P6)
   applySchemeResolutionPhase, // 5. scheme resolution (P5)
-  identityPhase, // 6. global-event roll (P1 stub)
+  applyGlobalEventPhase, // 6. global-event roll + era transition (NEW at P13; replaced P1 identityPhase stub)
   applyMoodDriftPhase, // 7. mood drift
   applyHappinessPhase, // 8. happiness drift (NEW at P7)
   applyPatronessErosionPhase, // 9. patroness erosion (NEW at P8)

@@ -138,7 +138,12 @@ export function generateWhisperCourier(
 ): CourierPayload {
   const destinationHouse = getHouseOrThrow(state, destinationHouseId);
   const destinationLocation = destinationHouse.currentLocation;
-  const arrivalTick = state.tick + transitTicks(originLocation, destinationLocation);
+  // P13: transitTicks widened to take (state, originatorHouseId, from, to).
+  // At v1 only PLAYER_HOUSE_ID originates couriers (see literal at line 147
+  // below), so we thread PLAYER_HOUSE_ID directly. Halves transit when the
+  // player has applied the Later-era research action.
+  const arrivalTick =
+    state.tick + transitTicks(state, PLAYER_HOUSE_ID, originLocation, destinationLocation);
   const direction = destinationHouseId === PLAYER_HOUSE_ID ? "Inbound" : "Outbound";
   return {
     id: makeCourierPayloadId(state, PLAYER_HOUSE_ID),
