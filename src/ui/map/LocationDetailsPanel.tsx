@@ -43,6 +43,13 @@ export function LocationDetailsPanel({
   const showLiquidate = location === "Country" && wealth < 0;
   const showAudience = location === "Capital";
   const showWardrobe = location === "Capital";
+  // P13: courier-research button — only at Capital, only when Later era is
+  // live, only when not already earned, only when wealth >= cost. The
+  // researchFastCouriers store action gates these conditions at the rule
+  // layer too; the UI gate is the friendlier surface.
+  const showCourierResearch =
+    location === "Capital" && fullState.era === "Later" && house?.courierResearchEarned === false;
+  const courierResearchAffordable = wealth >= 30; // COURIER_RESEARCH_WEALTH_COST
   // P12 promenade-button gating. Surface tooltips for each blocked branch
   // so the player sees WHY the button is disabled.
   const showPromenade = location === "Capital" && onEnterPromenade !== undefined;
@@ -137,6 +144,20 @@ export function LocationDetailsPanel({
             data-testid="location-details-wardrobe"
           >
             Refresh Wardrobe (−20 wealth)
+          </button>
+        )}
+        {/* P13: Later-era one-shot courier research action. Halves the
+            transit time of all new outbound couriers. In-flight couriers
+            retain their absolute arrivalTick. Free action — no tick cost. */}
+        {showCourierResearch && (
+          <button
+            type="button"
+            disabled={!courierResearchAffordable}
+            onClick={() => store.getState().researchFastCouriers()}
+            className="px-3 py-2 rounded bg-sky-700 text-white hover:bg-sky-800 disabled:bg-stone-200 disabled:text-stone-400 text-sm"
+            data-testid="location-details-courier-research"
+          >
+            Research Fast Couriers (−30 wealth, halves new transit)
           </button>
         )}
         {/* P4: Enter Ballroom action — only at Capital. Calls

@@ -99,6 +99,12 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
   // user-visible signal.
   const isExiled = house?.exiled === true;
 
+  // P13: active global events chip row. Renders right-aligned across the
+  // map header. Lex-sort the events for stable visual order across renders.
+  // Tick-countdown uses `endTick - state.tick + 1` (inclusive of current
+  // tick — matches the apply-before-expire <= predicate at expireFinishedEvents).
+  const activeEvents = [...state.globalEvents.values()].sort((a, b) => a.id.localeCompare(b.id));
+
   return (
     <div className="flex flex-col" data-testid="map-view">
       {isExiled && (
@@ -109,6 +115,35 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
           data-testid="exile-banner"
         >
           House Exiled — Campaign Ended. Start a new game from the Settings menu.
+        </div>
+      )}
+      {activeEvents.length > 0 && (
+        <div
+          className="flex flex-wrap justify-end gap-2 px-6 py-2 bg-stone-900"
+          data-testid="active-events-banner"
+        >
+          {activeEvents.map((event) => {
+            const ticksRemaining = event.endTick - state.tick + 1;
+            const colorClass =
+              event.kind === "WarEffort"
+                ? "bg-rose-700 text-rose-50"
+                : event.kind === "MarketCrash"
+                  ? "bg-amber-700 text-amber-50"
+                  : "bg-violet-700 text-violet-50";
+            const label =
+              event.kind === "MonarchsMood"
+                ? `${event.kind}: ${event.favoredFamily} favored (${ticksRemaining} ticks left)`
+                : `${event.kind} (${ticksRemaining} ticks left)`;
+            return (
+              <span
+                key={event.id}
+                className={`px-3 py-1 rounded text-sm font-medium ${colorClass}`}
+                data-testid={`event-chip-${event.kind}`}
+              >
+                {label}
+              </span>
+            );
+          })}
         </div>
       )}
       <div className="flex gap-4 p-6">
