@@ -48,6 +48,7 @@ function makeState(overrides: Partial<GameState>): GameState {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    globalEvents: new Map(),
     ...overrides,
   };
 }
@@ -311,6 +312,7 @@ describe("applyConceptionStep — multi-marriage RNG isolation (synthetic fixtur
         artifactInstances: new Map(),
         forgeries: new Map(),
         thiefAttempts: new Map(),
+        globalEvents: new Map(),
       };
       const next1 = applyConceptionStep(state);
       const next2 = applyConceptionStep(state);

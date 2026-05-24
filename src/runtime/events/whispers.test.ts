@@ -63,6 +63,7 @@ function makeState(overrides: Partial<GameState>): GameState {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    globalEvents: new Map(),
     ...overrides,
   };
 }

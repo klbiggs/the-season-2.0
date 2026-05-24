@@ -10,6 +10,7 @@ import {
   ElopementSprintStateSchema,
   ForgeryRecordSchema,
   type GameState,
+  GlobalEventSchema,
   type Grievance,
   type House,
   HouseSchema,
@@ -49,6 +50,7 @@ import {
   DuelIdSchema,
   FactionPairKeySchema,
   ForgeryIdSchema,
+  GlobalEventIdSchema,
   type HouseId,
   HouseIdSchema,
   INDEPENDENT_HOUSE_ID,
@@ -68,9 +70,11 @@ import { DEFAULT_CAMPAIGN_NAME } from "../game/store";
 
 // Live save-format version. P11 bumps to 12 with 3 new House ledger fields
 // (siblingRivals, inheritedSecrets, bloodFeuds) + GRIEVANCE_SOURCES widening
-// ("BloodFeud"). Legacy toSaveV1..V11 retain their literal `version: N` writes;
-// only toSaveV12 references SAVE_VERSION_CURRENT.
-export const SAVE_VERSION_CURRENT = 12 as const;
+// ("BloodFeud"). P13 bumps from 12 → 13 (adds state.globalEvents Map +
+// House.courierResearchEarned + MilitaryOfficer trait — see SaveV13Schema).
+// Legacy toSaveV1..V12 retain their literal `version: N` writes; only
+// toSaveV13 references SAVE_VERSION_CURRENT.
+export const SAVE_VERSION_CURRENT = 13 as const;
 
 // ── HousePreV4 (legacy on-disk House shape for V1/V2/V3 saves) ────────────
 // Omits the 5 P3-added fields (currentLocation, etc.) AND the P5 grievances
@@ -226,7 +230,9 @@ function stripGrievancesForLegacyEmit(
       // grievances and exiled. Without exiled-drop, post-P6 toSaveV4/V5 emit
       // houses-with-exiled which the (now exiled-omitting) HousePreV6Schema
       // rejects on re-parse.
-      const { grievances: _g, exiled: _e, ...rest } = h;
+      // P13 extension: drop courierResearchEarned too — HousePreV6 (V4/V5 target)
+      // predates the field.
+      const { grievances: _g, exiled: _e, courierResearchEarned: _cre, ...rest } = h;
       return [id, rest as HousePreV6];
     });
 }
@@ -248,6 +254,7 @@ function stripV6FieldsForLegacyEmit(
         lastAudienceTick: _lat,
         wardrobeLastRefreshTick: _wlrt,
         blockadeBypassEarned: _bbe,
+        courierResearchEarned: _cre, // P13 extension — V2/V3 saves predate it
         ...rest
       } = h;
       return [id, rest as HousePreV4];
@@ -267,7 +274,15 @@ function stripExiledForLegacyEmit(
     .map(([id, h]) => {
       // P11 extension: also drop siblingRivals/inheritedSecrets/bloodFeuds —
       // HousePreV7 (V6 target) predates all three.
-      const { exiled: _e, siblingRivals: _sr, inheritedSecrets: _is, bloodFeuds: _bf, ...rest } = h;
+      // P13 extension: drop courierResearchEarned — V6 saves predate it.
+      const {
+        exiled: _e,
+        siblingRivals: _sr,
+        inheritedSecrets: _is,
+        bloodFeuds: _bf,
+        courierResearchEarned: _cre,
+        ...rest
+      } = h;
       return [id, rest as HousePreV7];
     });
 }
@@ -294,8 +309,33 @@ function stripP11FieldsForLegacyEmit(
   entries: ReadonlyArray<readonly [string, House]>,
 ): Array<[string, HousePreV12Pre11]> {
   return entries.map(([id, h]) => {
-    const { siblingRivals: _sr, inheritedSecrets: _is, bloodFeuds: _bf, ...rest } = h;
+    // P13 extension: drop courierResearchEarned — V7-V11 saves predate it.
+    const {
+      siblingRivals: _sr,
+      inheritedSecrets: _is,
+      bloodFeuds: _bf,
+      courierResearchEarned: _cre,
+      ...rest
+    } = h;
     return [id, rest as HousePreV12Pre11];
+  });
+}
+
+// P13: strip helper for the new most-recent-legacy V12 emit. V12 saves predate
+// only courierResearchEarned (the other P13 additions — globalEvents Map +
+// MilitaryOfficer trait — don't ride on House). The output type is a fresh
+// `HousePreV13` Pre-schema alias (HouseSchema.omit({ courierResearchEarned })).
+const HousePreV13Schema = HouseSchema.omit({
+  courierResearchEarned: true,
+});
+type HousePreV13 = z.infer<typeof HousePreV13Schema>;
+
+function stripCourierResearchForLegacyEmit(
+  entries: ReadonlyArray<readonly [string, House]>,
+): Array<[string, HousePreV13]> {
+  return entries.map(([id, h]) => {
+    const { courierResearchEarned: _cre, ...rest } = h;
+    return [id, rest as HousePreV13];
   });
 }
 
@@ -641,6 +681,7 @@ function fromSaveV1Bare(save: SaveV1): GameState {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    globalEvents: new Map(),
   };
 }
 
@@ -730,6 +771,7 @@ function fromSaveV2Bare(save: SaveV2): GameState {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    globalEvents: new Map(),
   };
 }
 
@@ -810,6 +852,7 @@ function fromSaveV3Bare(save: SaveV3): GameState {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    globalEvents: new Map(),
   };
 }
 
@@ -896,6 +939,7 @@ export function fromSaveV4Bare(save: SaveV4): GameState {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    globalEvents: new Map(),
   };
 }
 
@@ -985,6 +1029,7 @@ export function fromSaveV5Bare(save: SaveV5): GameState {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    globalEvents: new Map(),
   };
 }
 
@@ -1079,6 +1124,7 @@ export function fromSaveV6Bare(save: SaveV6): GameState {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    globalEvents: new Map(),
   };
 }
 
@@ -1206,6 +1252,7 @@ export function fromSaveV7Bare(save: SaveV7): GameState {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    globalEvents: new Map(),
   };
 }
 
@@ -1294,6 +1341,7 @@ export function fromSaveV8Bare(save: SaveV8): GameState {
     | "factionTensions"
     | "duels"
     | "elopement"
+    | "globalEvents"
     | "artifactInstances"
     | "forgeries"
     | "thiefAttempts"
@@ -1333,6 +1381,7 @@ export function fromSaveV8Bare(save: SaveV8): GameState {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    globalEvents: new Map(),
   } as GameState;
 }
 
@@ -1353,6 +1402,7 @@ export function fromSaveV8(save: SaveV8): GameState {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    globalEvents: new Map(),
   };
   // P10: bootstrap player artifact inventory symmetric with createInitialState.
   return bootstrapPlayerArtifactsForMigration(
@@ -1426,7 +1476,10 @@ export function toSaveV9(state: GameState): SaveV9 {
 // `elopement: null` (V9 saves predate the field).
 export function fromSaveV9Bare(
   save: SaveV9,
-): Omit<GameState, "elopement" | "artifactInstances" | "forgeries" | "thiefAttempts"> {
+): Omit<
+  GameState,
+  "elopement" | "artifactInstances" | "forgeries" | "thiefAttempts" | "globalEvents"
+> {
   return {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
@@ -1468,6 +1521,7 @@ export function fromSaveV9(save: SaveV9): GameState {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    globalEvents: new Map(),
   });
 }
 
@@ -1577,6 +1631,7 @@ export function fromSaveV10Bare(save: SaveV10): GameState {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    globalEvents: new Map(),
   };
 }
 
@@ -1695,6 +1750,7 @@ export function fromSaveV11Bare(save: SaveV11): GameState {
     ) as GameState["artifactInstances"],
     forgeries: deserializeRegistry(save.forgeries) as GameState["forgeries"],
     thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
+    globalEvents: new Map(),
   };
 }
 
@@ -1704,17 +1760,21 @@ export function fromSaveV11(save: SaveV11): GameState {
   return fromSaveV11Bare(save);
 }
 
-// ── SaveV12 (P11 live format) ─────────────────────────────────────────────
+// ── SaveV12 (P11 live format — demoted to legacy at P13) ─────────────────
 // Adds 3 new House ledger array fields (siblingRivals, inheritedSecrets, bloodFeuds)
 // + GRIEVANCE_SOURCES widening ("BloodFeud"). All three House fields use `.default([])`
 // per the P8/P9/P10 backward-compat precedent — no Pre-shape rebuild needed at parse,
 // but the strip cascade ensures legacy V7-V11 emit stays byte-identical.
+// P13: V12 demoted to legacy. The houses tuple now uses `HousePreV13Schema`
+// (omits courierResearchEarned, which V12 saves predate). The emit-side
+// `toSaveV12` strips via `stripCourierResearchForLegacyEmit`; the load-side
+// `fromSaveV12` lifts by appending `courierResearchEarned: false` per house.
 
 export const SaveV12Schema = z.object({
   version: z.literal(12),
   tick: z.number().int().nonnegative(),
   rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
-  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])), // LIVE HouseSchema with P11 ledger fields
+  houses: z.array(z.tuple([HouseIdSchema, HousePreV13Schema])), // P13: V12 saves predate courierResearchEarned
   characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
   marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
   campaignName: z.string(),
@@ -1739,8 +1799,145 @@ export const SaveV12Schema = z.object({
 });
 export type SaveV12 = z.infer<typeof SaveV12Schema>;
 
+// P13: V12 demoted to legacy. Version literal pinned to 12 (was SAVE_VERSION_CURRENT
+// pre-P13). Houses tuple stripped via stripCourierResearchForLegacyEmit so the
+// emit matches the V12 on-disk shape (HousePreV13 — no courierResearchEarned).
 export function toSaveV12(state: GameState): SaveV12 {
   return SaveV12Schema.parse({
+    version: 12, // P13: literal pin (was SAVE_VERSION_CURRENT pre-P13)
+    tick: state.tick,
+    rng: serializeRegistry(state.rng),
+    houses: stripCourierResearchForLegacyEmit(serializeRegistry(state.houses)), // P13 strip
+    characters: serializeRegistry(state.characters),
+    marriages: serializeRegistry(state.marriages),
+    campaignName: state.campaignName,
+    era: state.era,
+    conversationHistory: serializeRegistry(state.conversationHistory),
+    affectionMap: serializeRegistry(state.affectionMap),
+    schemes: serializeRegistry(state.schemes),
+    whispers: serializeRegistry(state.whispers),
+    couriers: serializeRegistry(state.couriers),
+    staff: serializeRegistry(state.staff),
+    proposalsLog: serializeRegistry(state.proposalsLog),
+    tutorAssignmentsLog: serializeRegistry(state.tutorAssignmentsLog),
+    pendingTutorTraitChoices: serializeRegistry(state.pendingTutorTraitChoices),
+    patronesses: serializeRegistry(state.patronesses),
+    rivalActors: serializeRegistry(state.rivalActors),
+    factionTensions: serializeRegistry(state.factionTensions),
+    duels: serializeRegistry(state.duels),
+    elopement: state.elopement,
+    artifactInstances: serializeRegistry(state.artifactInstances),
+    forgeries: serializeRegistry(state.forgeries),
+    thiefAttempts: serializeRegistry(state.thiefAttempts),
+  });
+}
+
+// P13: V12 demoted to legacy at P13. Bare core does pure deserialization +
+// HousePreV13 → House lift (appends courierResearchEarned: false). The public
+// wrapper composes the P12 bootstrapNpcMountFamily seed step (mutates Maps
+// in place — void return).
+//
+// Lift helper: HousePreV13 → House by appending courierResearchEarned: false.
+function liftHousesFromPreV13(
+  serialized: ReadonlyArray<readonly [HouseId, HousePreV13]>,
+): GameState["houses"] {
+  const out: GameState["houses"] = new Map();
+  for (const [id, h] of serialized) {
+    out.set(id, { ...h, courierResearchEarned: false });
+  }
+  return out;
+}
+
+export function fromSaveV12Bare(save: SaveV12): GameState {
+  return {
+    tick: save.tick,
+    rng: deserializeRegistry(save.rng) as GameState["rng"],
+    houses: liftHousesFromPreV13(save.houses as ReadonlyArray<readonly [HouseId, HousePreV13]>),
+    characters: deserializeRegistry(save.characters) as GameState["characters"],
+    marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
+    campaignName: save.campaignName,
+    era: save.era,
+    conversationHistory: deserializeRegistry(
+      save.conversationHistory,
+    ) as GameState["conversationHistory"],
+    affectionMap: deserializeRegistry(save.affectionMap) as GameState["affectionMap"],
+    schemes: deserializeRegistry(save.schemes) as GameState["schemes"],
+    whispers: deserializeRegistry(save.whispers) as GameState["whispers"],
+    couriers: deserializeRegistry(save.couriers) as GameState["couriers"],
+    staff: deserializeRegistry(save.staff) as GameState["staff"],
+    proposalsLog: deserializeRegistry(save.proposalsLog) as GameState["proposalsLog"],
+    tutorAssignmentsLog: deserializeRegistry(
+      save.tutorAssignmentsLog,
+    ) as GameState["tutorAssignmentsLog"],
+    pendingTutorTraitChoices: deserializeRegistry(
+      save.pendingTutorTraitChoices,
+    ) as GameState["pendingTutorTraitChoices"],
+    patronesses: deserializeRegistry(save.patronesses) as GameState["patronesses"],
+    rivalActors: deserializeRegistry(save.rivalActors) as GameState["rivalActors"],
+    factionTensions: deserializeRegistry(save.factionTensions) as GameState["factionTensions"],
+    duels: deserializeRegistry(save.duels) as GameState["duels"],
+    elopement: save.elopement,
+    artifactInstances: deserializeRegistry(
+      save.artifactInstances,
+    ) as GameState["artifactInstances"],
+    forgeries: deserializeRegistry(save.forgeries) as GameState["forgeries"],
+    thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
+    // P13: V12 saves predate globalEvents — empty on lift.
+    globalEvents: new Map(),
+  };
+}
+
+// Public wrapper — composes the P12 NPC-mount-equip seed helper (void-mutating).
+// Symmetric with migrate_v12_to_v13 so load-path and migration-runner path
+// both produce equivalent post-bootstrap state.
+export function fromSaveV12(save: SaveV12): GameState {
+  const bare = fromSaveV12Bare(save);
+  bootstrapNpcMountFamily(bare.characters, bare.artifactInstances, save.tick);
+  return bare;
+}
+
+// ── SaveV13 (P13 live format) ────────────────────────────────────────────
+// P13: adds GameState.globalEvents Map (per-event WarEffort/MarketCrash/
+// MonarchsMood entries) + House.courierResearchEarned (boolean latch) +
+// MilitaryOfficer trait (string in TraitIdSchema's transform — round-trips
+// as a raw string; no enum widening on the save schema).
+
+export const SaveV13Schema = z.object({
+  version: z.literal(13),
+  tick: z.number().int().nonnegative(),
+  rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])), // LIVE HouseSchema — includes courierResearchEarned
+  characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
+  marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
+  campaignName: z.string(),
+  era: z.enum(["Earlier", "Later"]),
+  conversationHistory: z.array(z.tuple([ConversationPairKeySchema, z.array(ExchangeSchema)])),
+  affectionMap: z.array(z.tuple([ConversationPairKeySchema, z.number().int().min(0).max(100)])),
+  schemes: z.array(z.tuple([SchemeIdSchema, SchemeSchema])),
+  whispers: z.array(z.tuple([WhisperIdSchema, WhisperSchema])),
+  couriers: z.array(z.tuple([CourierPayloadIdSchema, CourierPayloadSchema])),
+  staff: z.array(z.tuple([StaffIdSchema, StaffMemberSchema])),
+  proposalsLog: z.array(z.tuple([CharacterIdSchema, ProposalLogEntrySchema])),
+  tutorAssignmentsLog: z.array(z.tuple([CharacterIdSchema, TutorAssignmentLogEntrySchema])),
+  pendingTutorTraitChoices: z.array(z.tuple([CharacterIdSchema, PendingTutorTraitChoiceSchema])),
+  patronesses: z.array(z.tuple([PatronessIdSchema, PatronessRecordSchema])),
+  rivalActors: z.array(z.tuple([HouseIdSchema, RivalActorStateSchema])),
+  factionTensions: z.array(z.tuple([FactionPairKeySchema, z.number().int().min(0).max(100)])),
+  duels: z.array(z.tuple([DuelIdSchema, DuelSchema])),
+  elopement: ElopementSprintStateSchema.nullable(),
+  artifactInstances: z.array(z.tuple([ArtifactInstanceIdSchema, ArtifactInstanceSchema])),
+  forgeries: z.array(z.tuple([ForgeryIdSchema, ForgeryRecordSchema])),
+  thiefAttempts: z.array(z.tuple([ThiefAttemptIdSchema, ThiefAttemptSchema])),
+  // P13 ADDITION:
+  globalEvents: z.array(z.tuple([GlobalEventIdSchema, GlobalEventSchema])),
+});
+export type SaveV13 = z.infer<typeof SaveV13Schema>;
+
+// P13 live emitter. ONLY emitter to reference SAVE_VERSION_CURRENT (every
+// other emitter pins its literal version). No strip helper — live HouseSchema
+// already includes courierResearchEarned; globalEvents serializes directly.
+export function toSaveV13(state: GameState): SaveV13 {
+  return SaveV13Schema.parse({
     version: SAVE_VERSION_CURRENT,
     tick: state.tick,
     rng: serializeRegistry(state.rng),
@@ -1766,15 +1963,14 @@ export function toSaveV12(state: GameState): SaveV12 {
     artifactInstances: serializeRegistry(state.artifactInstances),
     forgeries: serializeRegistry(state.forgeries),
     thiefAttempts: serializeRegistry(state.thiefAttempts),
+    globalEvents: serializeRegistry(state.globalEvents),
   });
 }
 
-// V12 is the live format — no Bare/wrap split (no P12+ migration target yet).
-// P12: extract `characters` and `artifactInstances` to locals BEFORE the
-// return literal so `bootstrapNpcMountFamily` can mutate them in place. The
-// helper is idempotent — second loads of a save already containing NPC
-// mounts are no-ops, so the load-resave-reload chain is stable.
-export function fromSaveV12(save: SaveV12): GameState {
+// P13 live loader. Mirrors fromSaveV12's extract-locals-then-mutate pattern
+// so bootstrapNpcMountFamily (void-mutating) composes cleanly without an
+// extra Bare/wrap split (V13 has no migration target yet — that comes at P14).
+export function fromSaveV13(save: SaveV13): GameState {
   const characters = deserializeRegistry(save.characters) as GameState["characters"];
   const artifactInstances = deserializeRegistry(
     save.artifactInstances,
@@ -1811,6 +2007,7 @@ export function fromSaveV12(save: SaveV12): GameState {
     artifactInstances,
     forgeries: deserializeRegistry(save.forgeries) as GameState["forgeries"],
     thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
+    globalEvents: deserializeRegistry(save.globalEvents) as GameState["globalEvents"],
   };
 }
 

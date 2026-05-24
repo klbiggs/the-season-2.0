@@ -8,6 +8,7 @@ import type {
   ElopementSprintState,
   ForgeryRecord,
   GameState,
+  GlobalEvent,
   House,
   MarriageRecord,
   PatronessRecord,
@@ -27,6 +28,7 @@ import type {
   DuelId,
   FactionPairKey,
   ForgeryId,
+  GlobalEventId,
   HouseId,
   MarriageId,
   PatronessId,
@@ -84,6 +86,10 @@ export function hashableState(state: GameState): {
   artifactInstances: Array<[ArtifactInstanceId, ArtifactInstance]>;
   forgeries: Array<[ForgeryId, ForgeryRecord]>;
   thiefAttempts: Array<[ThiefAttemptId, ThiefAttempt]>;
+  // P13: global events Map (the era flip itself is captured by the `era`
+  // field already; this projection captures the event lifecycle entries).
+  // Lex-sorted via serializeRegistry.
+  globalEvents: Array<[GlobalEventId, GlobalEvent]>;
 } {
   return {
     tick: state.tick,
@@ -122,6 +128,8 @@ export function hashableState(state: GameState): {
     artifactInstances: serializeRegistry(state.artifactInstances),
     forgeries: serializeRegistry(state.forgeries),
     thiefAttempts: serializeRegistry(state.thiefAttempts),
+    // P13: global events Map. Lex-sorted via serializeRegistry.
+    globalEvents: serializeRegistry(state.globalEvents),
   };
 }
 

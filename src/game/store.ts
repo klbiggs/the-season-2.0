@@ -25,6 +25,7 @@ import {
   type Duel,
   type GameState,
   GameStateSchema,
+  type GlobalEvent,
   type Grievance,
   type House,
   HouseSchema,
@@ -48,6 +49,7 @@ import {
   type DuelId,
   type FactionPairKey,
   type ForgeryId,
+  type GlobalEventId,
   type GrievanceId,
   type HouseId,
   INDEPENDENT_HOUSE_ID,
@@ -221,6 +223,9 @@ export function createInitialState(
     artifactInstances,
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    // P13: empty global events at fresh state. Events spawn via the slot-6
+    // global-event roll (5%/tick); no seeding helper.
+    globalEvents: new Map<GlobalEventId, GlobalEvent>(),
   };
 }
 
@@ -496,6 +501,10 @@ function overwriteFromGameState(draft: GameState, next: GameState): void {
   draft.artifactInstances = next.artifactInstances;
   draft.forgeries = next.forgeries;
   draft.thiefAttempts = next.thiefAttempts;
+  // P13 addition — global events Map. Without this line, every tick-advancing
+  // action silently CLEARS state.globalEvents (critical because slot 6's
+  // applyGlobalEventPhase mutates this Map every tick).
+  draft.globalEvents = next.globalEvents;
 }
 
 export function createStore({ seed }: { seed: string }): SeasonStore {
@@ -2091,5 +2100,7 @@ export function selectGameState(state: StoreState): GameState {
     artifactInstances: state.artifactInstances,
     forgeries: state.forgeries,
     thiefAttempts: state.thiefAttempts,
+    // P13 addition — global events Map. Quint-sync 3rd surface.
+    globalEvents: state.globalEvents,
   };
 }

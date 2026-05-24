@@ -590,5 +590,11 @@ export const GameStateSchema = z.object({
   artifactInstances: z.map(ArtifactInstanceIdSchema, ArtifactInstanceSchema),
   forgeries: z.map(ForgeryIdSchema, ForgeryRecordSchema),
   thiefAttempts: z.map(ThiefAttemptIdSchema, ThiefAttemptSchema),
+  // P13 addition — global events Map (WarEffort / MarketCrash / MonarchsMood).
+  // Empty Map on fresh state and every legacy lift (no event mid-flight at
+  // bootstrap). Quint-sync surfaces: GameStateSchema (here), hashableState
+  // (hash.ts), selectGameState (store.ts), overwriteFromGameState (store.ts),
+  // createInitialState (store.ts). Per CLAUDE.md non-negotiable.
+  globalEvents: z.map(GlobalEventIdSchema, GlobalEventSchema),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

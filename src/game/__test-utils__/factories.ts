@@ -9,6 +9,7 @@ import type {
   Character,
   ForgeryRecord,
   GameState,
+  GlobalEvent,
   House,
   MarriageRecord,
   ThiefAttempt,
@@ -18,6 +19,7 @@ import type {
   CharacterId,
   FactionId,
   ForgeryId,
+  GlobalEventId,
   HouseId,
   MarriageId,
   RngState,
@@ -55,6 +57,8 @@ export function makeGameState(overrides: Partial<GameState> = {}): GameState {
     artifactInstances: new Map<ArtifactInstanceId, ArtifactInstance>(),
     forgeries: new Map<ForgeryId, ForgeryRecord>(),
     thiefAttempts: new Map<ThiefAttemptId, ThiefAttempt>(),
+    // P13 default — empty global events at fresh state.
+    globalEvents: new Map<GlobalEventId, GlobalEvent>(),
     ...overrides,
   };
 }

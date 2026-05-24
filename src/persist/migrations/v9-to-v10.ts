@@ -27,6 +27,7 @@ export function migrate_v9_to_v10(save: SaveV9): SaveV10 {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    globalEvents: new Map(),
   };
   return toSaveV10(seeded);
 }
