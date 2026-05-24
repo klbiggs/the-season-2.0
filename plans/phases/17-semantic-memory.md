@@ -1,6 +1,6 @@
 # P17 (Optional) — Semantic Memory (Embedding Retrieval)
 
-> Part of [The Season Master Plan](../MASTER.md). Prior: [P16 — Polish](./16-polish.md). Next: [P18 — LLM Flavor Content (Optional)](./18-llm-flavor.md).
+> Part of [The Season Master Plan](../MASTER.md). Prior: [P16 — Procedural NPC Generation](./16-procedural-npcs.md). Next: [P18 — LLM Flavor Content (Optional)](./18-llm-flavor.md).
 
 **Goal.** Surface deep historical context in conversation prompts beyond the 3-exchange recency window.
 

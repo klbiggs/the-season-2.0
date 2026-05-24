@@ -1056,7 +1056,7 @@ P10 is the first phase that adds MULTIPLE new top-level Maps in a single bump (`
 
 **Bus events — new domain bus.** Per the P9 precedent (elopementBus diverging from whisperBus for per-domain partition), P10 ships `artifactBus` for `ForgerySurfaced` / `ThiefNoticeFired` / `TheftResolved`. Update CLAUDE.md's "Modal-state rule-layer gate principle" pin's "future modal-state Blocked events follow the per-domain pattern" — P10 is the first non-modal new domain bus (per-domain split for non-Blocked events).
 
-**Out of scope.** Procedural artifact generation (§3 Audio/Localization tier in P16); generated artifact backstories (P18); rival-owned artifact loops (v1.5); per-artifact-family wardrobe decay (§10 Q10 v1.5 candidate); Observant-trait-detected forgeries (§10 Q11 v1.5 candidate); NPC-initiated thefts (player-house is the only target at v1).
+**Out of scope.** Procedural artifact generation (v1.5 candidate; P16 covers NPC procedural generation only); generated artifact backstories (P18); rival-owned artifact loops (v1.5); per-artifact-family wardrobe decay (§10 Q10 v1.5 candidate); Observant-trait-detected forgeries (§10 Q11 v1.5 candidate); NPC-initiated thefts (player-house is the only target at v1).
 
 **Spec refs.** §3 "Wardrobe, Artifacts & Heirlooms", "Forgery & Theft", "Treason Framing", "Wardrobe Decay & Pre-Ball Composure Penalty", "Forgery Surfacing", "Thief Notice & Thwart"; §4 "Artifact Definition", "Forgery Record", "Thief Attempt"; §7 "Forgery surfacing cascade", "Theft against unequipped artifact", "Wardrobe refresh during bankruptcy", "Out-of-season artifact equipped mid-ball"; §10 Q#7, Q#10, Q#11 (resolved at P10).
 

@@ -1,6 +1,6 @@
 # P15 — Dynasty Legacies & Renown Perks
 
-> Part of [The Season Master Plan](../MASTER.md). Prior: [P14 — Ledger View & Social Web Visualization](./14-ledger-social-web.md). Next: [P16 — Polish](./16-polish.md).
+> Part of [The Season Master Plan](../MASTER.md). Prior: [P14 — Ledger View & Social Web Visualization](./14-ledger-social-web.md). Next: [P16 — Procedural NPC Generation](./16-procedural-npcs.md).
 
 **Goal.** Three permanent house-level perks awarded on cross-generational milestones.
 

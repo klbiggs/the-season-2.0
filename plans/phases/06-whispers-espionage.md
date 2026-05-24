@@ -1141,7 +1141,7 @@ The non-determinism boundary stays firm: the LLM's `generateWhisper` tool call i
   | Staff assignment → BribedByRival (auto) | `applyCourierAndStaffPhase` bribery roll | diff helper publishes `StaffBribed` |
   | Staff loyalty drift (per-tick) | `applyCourierAndStaffPhase` drift step | NO event — loyalty changes are too frequent to publish individually; UI reads loyalty directly via Zustand selector |
 
-  **Why no per-tick loyalty event:** unlike status transitions (rare, discrete), loyalty drift is per-tick continuous. Publishing on every drift would flood subscribers. The UI's Staff ledger renders loyalty via a Zustand selector and re-renders reactively without bus involvement. Future polish (P16 audio cues on loyalty-tier crossings: 70+ green → 30-69 yellow → <30 red) would publish a `StaffLoyaltyTierChanged` event (NOT shipped at P6).
+  **Why no per-tick loyalty event:** unlike status transitions (rare, discrete), loyalty drift is per-tick continuous. Publishing on every drift would flood subscribers. The UI's Staff ledger renders loyalty via a Zustand selector and re-renders reactively without bus involvement.
 
 - **`src/runtime/events/whispers.ts`** — NEW event bus module. Defines the typed-event discriminated union for whisper + courier + staff lifecycle events. Variants (CANONICAL DECLARATION — single source of truth; resolves B1 from C6 iter 2):
   ```ts
