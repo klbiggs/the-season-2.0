@@ -2,6 +2,50 @@
 
 Closeout notes per phase. Decisions made during implementation that aren't captured by the subplan or git history. Newest entry on top.
 
+## P13 — closed 2026-05-23
+
+**Decisions made:**
+- Save format bumped v12 → v13. Added `GameState.globalEvents: Map<GlobalEventId, GlobalEvent>` (discriminated union: WarEffort / MarketCrash / MonarchsMood) and `House.courierResearchEarned: z.boolean().default(false)`. New `MilitaryOfficer` trait widens `TRAITS` from 32 → 33 entries.
+- **MilitaryOfficer trait ships wired-but-inert at v1.** The trait exists in `TRAITS`, threads through every consumer (Character, persona, save round-trip), and gates the WarEffort officer-death + WarEffort × Seduction multiplier rule branches — BUT no v1 acquisition path produces an officer-tagged character (verified: not in `ARCHETYPE_MATURATION_TRAIT_POOL`, `FINISHING_SCHOOL_TRAIT_MAP`, conception / artifact / location paths). The mechanics fire ZERO times across a v1 campaign; tests seed officer-tagged characters via fixture literals to exercise the dormant branches. First acquisition path deferred to v1.5/P16+ procedural NPC widening.
+- **Publisher set widens 10/10/9 → 11/11/9.** `publishGlobalEventTransitions` rides on every tick-advancing wrapper EXCEPT `runYearPass` (year-pass STEPS doesn't include `applyGlobalEventPhase`, so the diff would emit zero events).
+- **Cultural-pivot favored-family mapping**: rolls directly over the 7-entry `ARTIFACT_FAMILIES` enum. No new `Culture` enum or per-family `culturalAffinity` tag at v1 — the artifact-family axis IS the cultural axis. `houseHasFamilyEquipped` is the per-house match check.
+- **All houses participate in WarEffort / MarketCrash / MonarchsMood** (player + rivals + Independent). `RIVAL_HOUSE_IDS_SET` intentionally NOT consulted in the per-tick handlers. Inline comments at each tick handler document this so a future "fix" doesn't add a rival-skip gate.
+- **Wealth UNCLAMPED throughout** the per-tick handlers (matches `economy.ts:60` precedent — bankruptcy tier "Ruined" requires wealth <= -500; clamping at a min would mask the tier transition). Reputation + scandal clamped at literal `0/100` per the existing codebase pattern (no WEALTH_MIN/REPUTATION_MAX constants exist).
+- **`expireFinishedEvents` predicate is `<=`, NOT `<`.** Combined with apply-before-expire ordering, this yields EXACTLY `DURATION_TICKS` effect applications per event. Worked example: WarEffort spawned at tick=100 with `endTick=110` fires effects at ticks 101-110 inclusive (10 applications), drops at tick=110 after the 10th apply.
+- **`transitTicks` signature widened** from `(from, to)` to `(state, originatorHouseId, from, to)` to read the per-house `courierResearchEarned` halving flag. Sole non-test caller at `whispers.ts:141`; at v1 only `PLAYER_HOUSE_ID` originates couriers so the constant is threaded directly (no closure-scope lookup).
+- **`SaveV12` demoted to legacy with literal `version: 12`** (was `SAVE_VERSION_CURRENT` pre-P13). Houses tuple uses new `HousePreV13Schema` (omits `courierResearchEarned`); emit applies `stripCourierResearchForLegacyEmit`; lift appends `courierResearchEarned: false` via `liftHousesFromPreV13`. Strip cascade also widened — `stripGrievancesForLegacyEmit`, `stripV6FieldsForLegacyEmit`, `stripExiledForLegacyEmit`, `stripP11FieldsForLegacyEmit` each destructure-out `courierResearchEarned`.
+- **Phase-internal ordering inside `applyGlobalEventPhase`**: era-flip → active-event effects → expiry → trigger roll. Load-bearing: era-flip-first is defensive forward-compat; apply-before-expire with `<=` predicate yields exactly DURATION_TICKS applications; trigger-roll-last so a spawn doesn't double-apply on the spawn tick.
+
+**Open questions hit:**
+- §10 Q21 ("Cultural-pivot before artifact registry ships?") — **Resolved at P13**. Updated MASTER.md §10 row to reference the live implementation. No new §10 OQs surfaced.
+
+**Deferred / next-up:**
+- v1.5 candidate: a `MilitaryOfficer` acquisition path (P16 procedural NPC widening; `OfficerCommission` scheme; `MilitaryAcademy` location). Activates the WarEffort officer-death + Seduction-multiplier branches by single-table edit (no `TRAITS` widening or save-version bump required).
+- v1.5 candidate: per-rival courier research (only player benefits at v1; `transitTicks` signature already supports per-house flag check).
+- v1.5 candidate: additional global event types beyond the three (royal funeral, ducal wedding, peasant revolt).
+- v1.5 candidate: cultural-pivot `Culture` enum if playtest reveals 7-family granularity too fine.
+- UI golden path not exercised in browser this session (test coverage substitutes; recommend exercising before ship: chip appearance/disappearance at endTick, era-flip silent observable, research button visibility/affordance).
+
+**Verification matrix exercised: 30/31 ✅ via Vitest** (item: UI golden path not run in browser — covered by component-level test for chip rendering). 807/807 vitest; biome lint clean; tsc clean across both tsconfigs. Replay-harness 30-run era-crossing determinism passes.
+
+**Files of note:**
+- `src/game/rules/globalEvents.ts` (NEW) — pure-rule layer: `applyGlobalEventPhase` composition + per-kind tick handlers + officer-death cascade + courier-research action
+- `src/game/rules/globalEvents.test.ts` (NEW) — 29 unit tests
+- `src/runtime/events/globalEvent.ts` (NEW) — `globalEventBus` with 4 variants + `publishGlobalEventTransitions` diff helper
+- `src/persist/migrations/v12-to-v13.ts` (NEW) — zero-draw migration `return toSaveV13(fromSaveV12Bare(save))`
+- `src/persist/migrations/v12-to-v13.test.ts` + `v1-to-v13-chain.test.ts` (NEW)
+- `src/game/p13-integration.test.ts` (NEW) — 10 cross-module verification-matrix tests (publish diff, publisher counts, era-crossing replay, Era + Smuggling)
+- `src/persist/schema.ts` — `SaveV13Schema` + `toSaveV13` + `fromSaveV13`; `SaveV12` demotion + Bare/wrap split; 4 strip helpers widened; new `stripCourierResearchForLegacyEmit` + `HousePreV13Schema`
+- `src/game/entities.ts` — `GlobalEventSchema` discriminated union + `House.courierResearchEarned` + `GameState.globalEvents`
+- `src/game/constants.ts` — 14 new P13 constants + existing `ERA_TRANSITION_TICK = 200` made live
+- `src/game/rules/courier.ts` — `transitTicks` signature widened
+- `src/game/rules/schemes.ts:567-573` — Seduction WarEffort × officer multiplier composition
+- `src/runtime/tickOrchestrator.ts:55` — slot 6 `identityPhase` stub replaced with `applyGlobalEventPhase`
+- `src/game/store.ts` — 8 new `publishGlobalEventTransitions` call sites + `researchFastCouriers` store action + globalEvents quint-sync at hash/select/overwrite/createInitialState
+- `src/ui/map/MapView.tsx` — active-event chip row (right-aligned, per-kind color)
+- `src/ui/map/LocationDetailsPanel.tsx` — "Research Fast Couriers" button at Capital (era==="Later" only)
+- `src/persist/dexie.ts` + `src/ui/shared/SettingsMenu.tsx` — live consumer V12 → V13 swap
+
 ## P12 — closed 2026-05-23
 
 **Decisions made:**

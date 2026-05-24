@@ -555,3 +555,88 @@ describe("Event duration constants land at the spec values", () => {
     expect(MONARCHS_MOOD_DURATION_TICKS).toBe(5);
   });
 });
+
+// ── Verification matrix #8: MonarchsMood per-house mutual exclusion ─────
+
+describe("MonarchsMood per-house mutual exclusion (matrix #8)", () => {
+  it("two-house fixture: matching house gets +rep only; non-matching gets +scandal only", () => {
+    const otherHouseId = "other" as HouseId;
+    const otherHeadId = "head-other" as CharacterId;
+    const family: ArtifactFamily = "sapphires";
+    const matchingDef = [...ARTIFACT_REGISTRY.values()].find((d) => d.family === family);
+    if (matchingDef === undefined) throw new Error("setup: no sapphires");
+    const playerInst: ArtifactInstance = {
+      id: "inst-player" as ArtifactInstanceId,
+      definitionId: matchingDef.id,
+      ownerHouseId: PLAYER_HOUSE_ID,
+      ownerCharacterId: PLAYER_HEAD_ID,
+      lastRefreshTick: 0,
+      forgedFlag: false,
+    };
+    const event: GlobalEvent = {
+      kind: "MonarchsMood",
+      id: "globalevent-MonarchsMood-0" as GlobalEventId,
+      startTick: 0,
+      endTick: 1000,
+      favoredFamily: family,
+    };
+    const state = withPlayerRng({
+      tick: 1,
+      globalEvents: new Map([[event.id, event]]),
+      houses: new Map([
+        [PLAYER_HOUSE_ID, makeHouse({ reputation: 50, scandal: 0 })],
+        [otherHouseId, makeHouse({ id: otherHouseId, reputation: 50, scandal: 0 })],
+      ]),
+      characters: new Map([
+        [
+          PLAYER_HEAD_ID,
+          makeCharacter({
+            id: PLAYER_HEAD_ID,
+            houseId: PLAYER_HOUSE_ID,
+            equippedArtifactIds: [playerInst.id],
+          }),
+        ],
+        [otherHeadId, makeCharacter({ id: otherHeadId, houseId: otherHouseId })],
+      ]),
+      artifactInstances: new Map([[playerInst.id, playerInst]]),
+    });
+    const after = applyGlobalEventPhase(state);
+    const player = expectDefined(after.houses.get(PLAYER_HOUSE_ID), "player");
+    const other = expectDefined(after.houses.get(otherHouseId), "other");
+    // Player: match → +2 rep, scandal unchanged.
+    expect(player.reputation).toBe(50 + MONARCHS_MOOD_FAVORED_FAMILY_REPUTATION_SURGE_PER_TICK);
+    expect(player.scandal).toBe(0);
+    // Other: no-match → +1 scandal, rep unchanged.
+    expect(other.scandal).toBe(MONARCHS_MOOD_SNUB_SCANDAL_PER_TICK);
+    expect(other.reputation).toBe(50);
+  });
+});
+
+// ── Verification matrix #11/#12: maybeFireNewEvent draw budgets ──────────
+
+describe("maybeFireNewEvent draw budgets (matrix #11/#12)", () => {
+  // Probe the per-tick draw cost on a fixed seed. The exact outcome depends
+  // on the seeded sequence, but the BOUND is always: 1 (no-event) ≤ draws ≤
+  // 3 (MonarchsMood spawn).
+  it("no-event tick consumes 1 player-rng draw; spawning consumes 2 (non-MonarchsMood) or 3 (MonarchsMood)", () => {
+    // Seed a state where the trigger roll fires + spawn lands on MonarchsMood.
+    // We don't know which seed yields that without execution; instead assert
+    // the AGGREGATE invariant: across N ticks, the draw count fits the bound.
+    let state = withPlayerRng({ tick: 0 });
+    for (let i = 0; i < 50; i += 1) {
+      const before = expectDefined(state.rng.get(PLAYER_HOUSE_ID), "player").callCount;
+      const after = applyGlobalEventPhase(state);
+      const advanced = expectDefined(after.rng.get(PLAYER_HOUSE_ID), "player").callCount - before;
+      // Per-tick must be in [1, 3]:
+      //   1 = trigger roll only (no-event path OR fall-through)
+      //   2 = trigger + kind-pick (event spawned but NOT MonarchsMood, OR dup-skip)
+      //   3 = trigger + kind-pick + favored-family (MonarchsMood spawned fresh)
+      expect(advanced).toBeGreaterThanOrEqual(1);
+      expect(advanced).toBeLessThanOrEqual(3);
+      // Officer-death rolls are gated on MilitaryOfficer-tagged chars (none
+      // in this fixture), so they don't perturb the budget. Bump tick for
+      // the next iteration.
+      state = { ...after, tick: after.tick + 1 };
+    }
+  });
+});

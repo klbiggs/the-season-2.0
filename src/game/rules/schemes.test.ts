@@ -409,6 +409,131 @@ describe("Seduction discovery", () => {
   });
 });
 
+// ── P13 verification matrix #14: WarEffort × officer Seduction multiplier
+
+describe("Seduction WarEffort × MilitaryOfficer multiplier (P13 matrix #14)", () => {
+  // Find a seed where the Seduction discovery roll returns >= 0.2 (success
+  // branch). The multiplier only kicks in on the success path; if the seed
+  // discovers, the test path is vacuous.
+  function findSuccessSeed(): string {
+    // Sweep a small set; SEDUCTION_DISCOVERY_PROBABILITY = 0.2, so ~80% of
+    // seeds land in success. Test fails loudly if 100 seeds all discover.
+    for (let i = 0; i < 100; i += 1) {
+      const seed = `multiplier-probe-${i}`;
+      const initial = synthStateWith({
+        rng: new Map([
+          [PLAYER_HOUSE_ID, createRngState(seed)],
+          [INDEPENDENT_HOUSE_ID, createRngState("indy")],
+        ]),
+      });
+      const start = tryStartScheme(initial, PLAYER_HOUSE_ID, {
+        kind: "Seduction",
+        targetCharacterId: TARGET_ID,
+      });
+      if (!start.ok) continue;
+      const { scheme } = advanceSchemeToEndTick(start.state, start.schemeId);
+      if (scheme.status === "Completed") return seed;
+    }
+    throw new Error("no success-branch seed found in 100 tries");
+  }
+
+  it("officer aggressor + active WarEffort → affection delta uses 1.5× multiplier (post-clamp at 100)", () => {
+    const successSeed = findSuccessSeed();
+    const baseRng = new Map([
+      [PLAYER_HOUSE_ID, createRngState(successSeed)],
+      [INDEPENDENT_HOUSE_ID, createRngState("indy")],
+    ]);
+
+    // Baseline: no officer, no WarEffort. Affection delta = baseline 80.
+    const baselineState = synthStateWith({ rng: baseRng });
+    const baselineStart = tryStartScheme(baselineState, PLAYER_HOUSE_ID, {
+      kind: "Seduction",
+      targetCharacterId: TARGET_ID,
+    });
+    if (!baselineStart.ok) throw new Error("baseline start failed");
+    const { state: baselineResolved } = advanceSchemeToEndTick(
+      baselineStart.state,
+      baselineStart.schemeId,
+    );
+    const baselineKey = [...baselineResolved.affectionMap.keys()].find((k) =>
+      k.includes(TARGET_ID),
+    );
+    if (baselineKey === undefined) throw new Error("baseline missing affection key");
+    const baselineDelta = baselineResolved.affectionMap.get(baselineKey) ?? 0;
+
+    // With multiplier: officer-tagged aggressor + active WarEffort.
+    // The aggressor for Seduction is gated by archetype (BohemianRake). The
+    // existing synthStateWith's player-head doesn't have that archetype, so
+    // tryStartScheme rejects with MissingArchetype unless we override. Look
+    // up what selectAggressor would do: synthStateWith's player-head defaults
+    // to archetype "None" — so we must override with BohemianRake AND tag
+    // with MilitaryOfficer.
+    const playerHeadOfficer = makeCharacter({
+      id: "player-head" as CharacterId,
+      houseId: PLAYER_HOUSE_ID,
+      name: "Officer Head",
+      archetype: "BohemianRake",
+      traits: ["MilitaryOfficer" as import("../rng").TraitId],
+    });
+    const officerWarState = synthStateWith({
+      rng: baseRng,
+      characters: new Map([
+        [playerHeadOfficer.id, playerHeadOfficer],
+        [
+          TARGET_ID,
+          makeCharacter({ id: TARGET_ID, houseId: INDEPENDENT_HOUSE_ID, name: "Target" }),
+        ],
+      ]),
+      globalEvents: new Map([
+        [
+          "globalevent-WarEffort-0" as import("../rng").GlobalEventId,
+          {
+            kind: "WarEffort",
+            id: "globalevent-WarEffort-0" as import("../rng").GlobalEventId,
+            startTick: 0,
+            endTick: 100,
+          },
+        ],
+      ]),
+    });
+    // Baseline player head doesn't have BohemianRake archetype either; if
+    // baselineStart succeeded, that means Seduction's selectAggressor
+    // accepts headOfHouse for an empty-prereq scheme. Actually Seduction
+    // DOES require an archetype — if baseline succeeded, the test fixture
+    // setup is different than expected. Sanity-check: baseline.ok was true.
+    // Re-check by retrying with the officer state.
+    const officerStart = tryStartScheme(officerWarState, PLAYER_HOUSE_ID, {
+      kind: "Seduction",
+      targetCharacterId: TARGET_ID,
+    });
+    if (!officerStart.ok) {
+      // If the rule rejects, document why and skip the assertion. Likely
+      // baseline succeeded because synthStateWith's player-head has a
+      // default archetype that Seduction accepts.
+      throw new Error(
+        `officerStart rejected: ${JSON.stringify(officerStart.reason)} — fixture archetype mismatch`,
+      );
+    }
+    const { state: officerResolved, scheme: officerScheme } = advanceSchemeToEndTick(
+      officerStart.state,
+      officerStart.schemeId,
+    );
+    expect(officerScheme.status).toBe("Completed");
+    const officerKey = [...officerResolved.affectionMap.keys()].find((k) => k.includes(TARGET_ID));
+    if (officerKey === undefined) throw new Error("officer missing affection key");
+    const officerDelta = officerResolved.affectionMap.get(officerKey) ?? 0;
+
+    // Both paths complete; affection deltas are post-clamp. Baseline is at
+    // most 80 (since starting affection is 0). Officer-with-multiplier path
+    // post-clamps to 100 (Math.round(80 × 1.5) = 120, clamped to 100).
+    // So officerDelta > baselineDelta IFF the multiplier fired AND the
+    // resulting value exceeded the baseline (true when baseline < 100).
+    expect(baselineDelta).toBeLessThanOrEqual(100);
+    expect(officerDelta).toBe(100); // pre-clamp 120 → post-clamp 100
+    expect(officerDelta).toBeGreaterThan(baselineDelta);
+  });
+});
+
 // ── Two-pass resolver — Chaperone preempts Seduction ─────────────────────
 
 describe("two-pass resolver — Chaperone preempts Seduction", () => {

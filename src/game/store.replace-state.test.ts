@@ -156,3 +156,47 @@ describe("P9 quint-sync: state.elopement (overwriteFromGameState 5th surface)", 
     expect(store.getState().elopement).toBeNull();
   });
 });
+
+describe("P13 quint-sync: state.globalEvents (overwriteFromGameState 6th surface)", () => {
+  // applyGlobalEventPhase mutates state.globalEvents every tick (the 5%/tick
+  // trigger roll may spawn an event; ongoing events expire at their endTick).
+  // overwriteFromGameState must mirror the field on every set call. Forgetting
+  // the `draft.globalEvents = next.globalEvents` line would silently CLEAR
+  // every spawn on the very next tick-advancing action.
+  it("replaceState carries a non-empty globalEvents Map through", () => {
+    const store = createStore({ seed: "p13-quint-A" });
+    const event = {
+      kind: "WarEffort" as const,
+      id: "globalevent-WarEffort-0" as import("./rng").GlobalEventId,
+      startTick: 0,
+      endTick: 100,
+    };
+    const synth = {
+      ...createInitialState("p13-quint-A"),
+      globalEvents: new Map([[event.id, event]]),
+    };
+    store.getState().replaceState(synth);
+    expect(store.getState().globalEvents.size).toBe(1);
+    expect(store.getState().globalEvents.get(event.id)).toEqual(event);
+  });
+
+  it("advanceTick preserves seeded globalEvents through overwriteFromGameState mirror writes", () => {
+    const store = createStore({ seed: "p13-quint-B" });
+    const event = {
+      kind: "MarketCrash" as const,
+      id: "globalevent-MarketCrash-0" as import("./rng").GlobalEventId,
+      startTick: 0,
+      endTick: 1000, // far future so expiry doesn't drop it
+    };
+    const synth = {
+      ...createInitialState("p13-quint-B"),
+      globalEvents: new Map([[event.id, event]]),
+    };
+    store.getState().replaceState(synth);
+    store.getState().advanceTick();
+    // Without draft.globalEvents = next.globalEvents in overwriteFromGameState,
+    // the tick advance would silently clear the Map.
+    expect(store.getState().globalEvents.size).toBeGreaterThanOrEqual(1);
+    expect(store.getState().globalEvents.has(event.id)).toBe(true);
+  });
+});
