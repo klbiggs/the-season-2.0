@@ -36,13 +36,14 @@ export const TRAITS: ReadonlyArray<{ id: TraitId; label: string }> = [
   { id: "Reclusive" as TraitId, label: "Reclusive" },
   { id: "Hedonistic" as TraitId, label: "Hedonistic" },
   { id: "Ascetic" as TraitId, label: "Ascetic" },
-  // P13: wired-but-inert at v1. No acquisition path produces an officer-tagged
-  // character (not in ARCHETYPE_MATURATION_TRAIT_POOL, not in
-  // FINISHING_SCHOOL_TRAIT_MAP, not in conception/artifact paths). The trait
-  // gates WarEffort officer-death + WarEffort × Seduction multiplier rule
-  // branches; tests seed officer-tagged characters via fixture literals.
-  // First acquisition path deferred to v1.5/P16+. See CLAUDE.md
-  // "MilitaryOfficer trait ships wired-but-inert at v1 (P13)" pin.
+  // P13 introduced this trait to gate the WarEffort officer-death + WarEffort ×
+  // Seduction multiplier rule branches. P16 adds its first DESIGNED acquisition
+  // path: the BohemianRake society generation profile guarantees it (see
+  // src/game/fixtures/proceduralProfiles.ts), so society officers reliably trip
+  // the WarEffort branch. (Note: the conception novelty slot can ALSO reach it
+  // incidentally — `noveltyPool = TRAITS_ALL.filter(...)` and TRAITS_ALL below
+  // includes MilitaryOfficer — so the trait was never strictly inert. Not in
+  // ARCHETYPE_MATURATION_TRAIT_POOL or FINISHING_SCHOOL_TRAIT_MAP.)
   { id: "MilitaryOfficer" as TraitId, label: "Military Officer" },
 ];
 

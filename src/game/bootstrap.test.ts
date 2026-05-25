@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { seedStartingFamily } from "./bootstrap";
-import { LIFESPAN_RANGE } from "./constants";
+import { LIFESPAN_RANGE, PROCEDURAL_NPC_COUNT } from "./constants";
 import { STARTING_HEAD_CHARACTER_ID, STARTING_HEAD_NAME } from "./fixtures/names";
 import { BASELINE_NPCS } from "./fixtures/npcs";
 import { INDEPENDENT_HOUSE_ID, createRngState } from "./rng";
@@ -54,10 +54,22 @@ describe("seedStartingFamily", () => {
     expect(indy).toBeDefined();
     expect(indy?.heirless).toBe(false);
   });
-  it("seeds 5 baseline NPCs assigned to INDEPENDENT_HOUSE_ID (P4)", () => {
+  it("seeds the 5 baseline NPCs into INDEPENDENT_HOUSE_ID (P4)", () => {
     const seeded = seedStartingFamily(createRngState("alpha"), "alpha");
-    const npcs = seeded.characters.filter((c) => c.houseId === INDEPENDENT_HOUSE_ID);
-    expect(npcs).toHaveLength(BASELINE_NPCS.length);
+    const indyIds = new Set(
+      seeded.characters.filter((c) => c.houseId === INDEPENDENT_HOUSE_ID).map((c) => c.id),
+    );
+    // P16: the Independent house also holds the procedural society batch, so the
+    // baseline NPCs are a SUBSET now (not the full membership). Assert each
+    // baseline NPC is present.
+    for (const npc of BASELINE_NPCS) expect(indyIds.has(npc.id)).toBe(true);
+  });
+
+  it("seeds PROCEDURAL_NPC_COUNT society NPCs into INDEPENDENT_HOUSE_ID (P16)", () => {
+    const seeded = seedStartingFamily(createRngState("alpha"), "alpha");
+    const society = seeded.characters.filter((c) => c.id.startsWith("proc-npc-"));
+    expect(society).toHaveLength(PROCEDURAL_NPC_COUNT);
+    for (const c of society) expect(c.houseId).toBe(INDEPENDENT_HOUSE_ID);
   });
 });
 

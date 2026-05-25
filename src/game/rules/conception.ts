@@ -20,7 +20,8 @@ import {
   YEARS_PER_CONCEPTION_CYCLE,
 } from "../constants";
 import type { Character, GameState } from "../entities";
-import { childCharacterId, childName } from "../fixtures/names";
+import { GIVEN_NAMES, dynastySurnameForHouse } from "../fixtures/nameBanks";
+import { childCharacterId } from "../fixtures/names";
 import { TRAITS_ALL } from "../fixtures/traits";
 import { type CharacterId, type RngState, type TraitId, drawInt, drawNext } from "../rng";
 import { getCharacterOrThrow } from "../util/lookups";
@@ -146,6 +147,15 @@ export function applyConceptionStep(state: GameState): GameState {
     rngState = postGender;
     const gender: "Female" | "Male" = genderRoll < 0.5 ? "Female" : "Male";
 
+    // P16 7th draw: given name from the LIVE-era bank by gender, appended at the
+    // tail so the P1/P7 6-draw prefix (traits + deathAge + gender) is unchanged.
+    // Surname is the deterministic per-house dynasty surname (no draw). Unlike
+    // the society batch (pinned "Earlier"), newborns correctly use state.era.
+    const givenBank = GIVEN_NAMES[state.era][gender];
+    const { next: givenIdx, rngState: postName } = drawInt(rngState, givenBank.length);
+    rngState = postName;
+    const givenName = givenBank[givenIdx] as string;
+
     // P7: parent edges. Lex-sort matches MarriageRecordSchema spouseAId/spouseBId
     // invariant (spouseAId < spouseBId at marriage creation) — passing them
     // verbatim preserves the sort.
@@ -155,7 +165,7 @@ export function applyConceptionStep(state: GameState): GameState {
     const child: Character = {
       id: newCharId,
       houseId: childHouseId,
-      name: childName(marriageId, state.tick),
+      name: `${givenName} ${dynastySurnameForHouse(childHouseId)}`,
       birthTick: state.tick,
       age: 0,
       deathAge,

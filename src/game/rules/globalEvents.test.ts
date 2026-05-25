@@ -534,14 +534,25 @@ describe("ARTIFACT_FAMILIES length parity (verification matrix #31)", () => {
   });
 });
 
-// ── No-officer bootstrap (verification matrix #30) ──────────────────────
+// ── Officers at bootstrap (P16 supersedes verification matrix #30) ──────────
+// Pre-P16 this asserted ZERO officers at bootstrap (the wired-but-inert claim).
+// P16 adds the first designed acquisition path: the BohemianRake society profile
+// guarantees MilitaryOfficer, so bootstrap now produces officers — confined to
+// the Independent-house society batch (the player head, baseline NPCs, and
+// rivals still acquire no officer trait at bootstrap).
 
-describe("No MilitaryOfficer at bootstrap (verification matrix #30)", () => {
-  it("createInitialState produces zero MilitaryOfficer-tagged characters", async () => {
+describe("MilitaryOfficer at bootstrap (P16 supersedes verification matrix #30)", () => {
+  it("produces officers, all confined to Independent-house society NPCs", async () => {
     const { createInitialState } = await import("../store");
+    const { INDEPENDENT_HOUSE_ID } = await import("../rng");
     const state = createInitialState("seed-check-officers");
-    for (const c of state.characters.values()) {
-      expect(c.traits.includes(MILITARY_OFFICER)).toBe(false);
+    const officers = [...state.characters.values()].filter((c) =>
+      c.traits.includes(MILITARY_OFFICER),
+    );
+    expect(officers.length).toBeGreaterThan(0);
+    for (const o of officers) {
+      expect(o.houseId).toBe(INDEPENDENT_HOUSE_ID);
+      expect(o.id.startsWith("proc-npc-")).toBe(true);
     }
   });
 });

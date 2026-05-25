@@ -23,13 +23,23 @@ import type { CharacterId } from "../rng";
 const FNV_OFFSET_BASIS_32 = 0x811c9dc5;
 const FNV_PRIME_32 = 0x01000193;
 
-export function hashCharIdToGender(id: CharacterId): "Female" | "Male" {
+// Shared FNV-1a 32-bit hash, returned UNSIGNED (`>>> 0`). P16 extracted this
+// from hashCharIdToGender so dynastySurnameForHouse (nameBanks.ts) can index a
+// bank via `% length` — which needs the unsigned value. The gender derivation
+// below reads only bit 0 (`& 1`), which is sign-insensitive, so this extraction
+// is byte-identical to the prior inline computation — the FROZEN guarantee
+// holds and hashCharIdToGender.test.ts golden pairs stay green.
+export function fnv1a32(s: string): number {
   let hash = FNV_OFFSET_BASIS_32;
-  for (let i = 0; i < id.length; i++) {
-    hash ^= id.charCodeAt(i);
+  for (let i = 0; i < s.length; i++) {
+    hash ^= s.charCodeAt(i);
     // Math.imul keeps the multiplication in signed-32-bit semantics; required
     // for cross-platform determinism.
     hash = Math.imul(hash, FNV_PRIME_32);
   }
-  return (hash & 1) === 0 ? "Female" : "Male";
+  return hash >>> 0;
+}
+
+export function hashCharIdToGender(id: CharacterId): "Female" | "Male" {
+  return (fnv1a32(id) & 1) === 0 ? "Female" : "Male";
 }

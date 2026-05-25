@@ -253,7 +253,7 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P13 | Global Events & Era Progression | [`phases/13-global-events-era.md`](./phases/13-global-events-era.md) | P1, P10 | ✅ done |
 | P14 | Ledger View & Social Web Visualization | [`phases/14-ledger-social-web.md`](./phases/14-ledger-social-web.md) | most prior | ✅ done |
 | P15 | Dynasty Legacies & Renown Perks | [`phases/15-dynasty-legacies.md`](./phases/15-dynasty-legacies.md) | P7, P5, P6 | ✅ done |
-| P16 | Procedural NPC Generation | [`phases/16-procedural-npcs.md`](./phases/16-procedural-npcs.md) | P0, P1, P7 | — |
+| P16 | Procedural NPC Generation | [`phases/16-procedural-npcs.md`](./phases/16-procedural-npcs.md) | P0, P1, P7 | ✅ done |
 | P17 | (Optional) Semantic Memory | [`phases/17-semantic-memory.md`](./phases/17-semantic-memory.md) | P4, P6, P5 | — |
 | P18 | (Optional) LLM Flavor Content | [`phases/18-llm-flavor.md`](./phases/18-llm-flavor.md) | P4, P10 | — |
 | P19 | Pre-ship cleanup: delete migration ladder | [`phases/19-migration-ladder-cleanup.md`](./phases/19-migration-ladder-cleanup.md) | all prior | — |

@@ -15,7 +15,3 @@ export const STARTING_HEAD_CHARACTER_ID = "player-head" as CharacterId;
 export function childCharacterId(marriageId: MarriageId, tick: number, nth: number): CharacterId {
   return `${marriageId}-child${tick}-${nth}` as CharacterId;
 }
-
-export function childName(marriageId: MarriageId, tick: number): string {
-  return `Child of ${marriageId} @${tick}`;
-}

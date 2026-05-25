@@ -17,7 +17,7 @@
 // draws for NPC construction. The bootstrap draw budget stays at 1
 // (player head's deathAge only), unchanged from P3.
 
-import { HAPPINESS_INITIAL, LIFESPAN_RANGE } from "./constants";
+import { HAPPINESS_INITIAL, LIFESPAN_RANGE, PROCEDURAL_NPC_COUNT } from "./constants";
 import type {
   ArtifactInstance,
   Character,
@@ -49,9 +49,11 @@ import {
   type FactionId,
   type HouseId,
   type RngState,
+  createRngState,
   drawInt,
 } from "./rng";
 import { PLAYER_HOUSE_ID } from "./rng";
+import { generateSocietyNpcs } from "./rules/proceduralNpcs";
 import { MOUNT_FAMILY } from "./rules/promenade";
 
 export function seedStartingFamily(
@@ -176,10 +178,23 @@ export function seedStartingFamily(
     rivalRngEntries.push([seed.houseId, buildRivalRngState(campaignSeed, seed.houseId)]);
   }
 
+  // P16: procedural society batch. Drawn from a TRANSIENT sub-stream
+  // (`${campaignSeed}|procedural-npcs`) that is consumed here and discarded —
+  // never added to state.rng, so the player rngState return is unchanged. Era
+  // is pinned to "Earlier" (founding era) on BOTH this path and the legacy-seed
+  // path (seedProceduralSocietyIntoLegacyState) so the two produce byte-identical
+  // society. migrate_v1_to_v2 reads only the player char/house, so these
+  // Independent-house NPCs are ignored there (V2 predates society).
+  const societyNpcs = generateSocietyNpcs(
+    createRngState(`${campaignSeed}|procedural-npcs`),
+    "Earlier",
+    PROCEDURAL_NPC_COUNT,
+  ).characters;
+
   return {
     rngState: postDeathRoll,
     houses: [playerHouse, independentHouse, ...rivalHouses],
-    characters: [playerCharacter, ...npcs, ...rivalCharacters],
+    characters: [playerCharacter, ...npcs, ...rivalCharacters, ...societyNpcs],
     staff,
     rivalActors,
     rivalRngEntries,

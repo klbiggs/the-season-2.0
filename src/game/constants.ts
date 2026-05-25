@@ -976,3 +976,44 @@ if (
 ) {
   throw new Error("WHISPERS_PERK_INBOUND_INTERCEPT_PROBABILITY must be in (0, 1)");
 }
+
+// ─── P16: Procedural NPC generation ──────────────────────────────────────
+// Society-batch size seeded at campaign start into INDEPENDENT_HOUSE_ID, and
+// the adult age band for generated society NPCs. Age max stays < LIFESPAN_RANGE
+// minimum (70) so a generated NPC's drawn deathAge always exceeds its age.
+export const PROCEDURAL_NPC_COUNT = 20;
+export const PROCEDURAL_NPC_MIN_AGE = 20;
+export const PROCEDURAL_NPC_MAX_AGE = 55;
+// Fixed pooled-trait draws per generated NPC (beyond each profile's guaranteed
+// traits). Part of the fixed 8-draw-per-NPC determinism budget.
+export const PROCEDURAL_NPC_TRAIT_DRAWS = 2;
+// Weighted generation-profile distribution (keys align to PROCEDURAL_PROFILES
+// in src/game/fixtures/proceduralProfiles.ts; the integer cumulative-sum pick
+// requires the weights to sum to exactly 100).
+export const PROCEDURAL_PROFILE_WEIGHTS = {
+  None: 40,
+  BohemianRake: 20,
+  Tutor: 15,
+  Spymaster: 15,
+  CountryExile: 10,
+} as const;
+
+if (PROCEDURAL_NPC_COUNT <= 0) throw new Error("PROCEDURAL_NPC_COUNT must be positive");
+if (PROCEDURAL_NPC_MIN_AGE < ADULTHOOD_AGE_IN_YEARS)
+  throw new Error(
+    "PROCEDURAL_NPC_MIN_AGE must be >= ADULTHOOD_AGE_IN_YEARS (society NPCs are adults)",
+  );
+if (PROCEDURAL_NPC_MAX_AGE < PROCEDURAL_NPC_MIN_AGE)
+  throw new Error("PROCEDURAL_NPC_MAX_AGE must be >= PROCEDURAL_NPC_MIN_AGE");
+if (PROCEDURAL_NPC_MAX_AGE >= LIFESPAN_RANGE[0])
+  throw new Error(
+    "PROCEDURAL_NPC_MAX_AGE must be < LIFESPAN_RANGE[0] so deathAge always exceeds age",
+  );
+{
+  let _sum = 0;
+  for (const w of Object.values(PROCEDURAL_PROFILE_WEIGHTS)) _sum += w;
+  if (_sum !== 100)
+    throw new Error(
+      `PROCEDURAL_PROFILE_WEIGHTS must sum to 100 (got ${_sum}) for the integer cumulative-sum pick`,
+    );
+}

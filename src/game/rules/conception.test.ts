@@ -8,6 +8,7 @@ import {
   makeMarriagesMap,
 } from "../__test-utils__/factories";
 import type { Character, GameState, MarriageRecord } from "../entities";
+import { GIVEN_NAMES, dynastySurnameForHouse } from "../fixtures/nameBanks";
 import { TRAITS_ALL } from "../fixtures/traits";
 import { hashState } from "../hash";
 import {
@@ -147,7 +148,7 @@ describe("applyConceptionStep — P7 child shape (parent edges + gender + 6-draw
     expect(["Female", "Male"]).toContain(child.gender);
   });
 
-  it("consumes exactly 6 draws per child (4 trait + 1 deathAge + 1 gender)", () => {
+  it("consumes exactly 7 draws per child (4 trait + 1 deathAge + 1 gender + 1 given-name)", () => {
     const spouseA = makeCharacter({ id: "sa" as CharacterId, age: 25 });
     const spouseB = makeCharacter({ id: "sb" as CharacterId, age: 25 });
     const marriage = makeMarriage({
@@ -165,7 +166,33 @@ describe("applyConceptionStep — P7 child shape (parent edges + gender + 6-draw
     const before = state.rng.get(PLAYER_HOUSE_ID)?.callCount ?? 0;
     const next = applyConceptionStep(state);
     const after = next.rng.get(PLAYER_HOUSE_ID)?.callCount ?? 0;
-    expect(after - before).toBe(6);
+    expect(after - before).toBe(7);
+  });
+
+  it("names the child '<GivenName> <DynastySurname>' from the era/gender bank", () => {
+    const spouseA = makeCharacter({ id: "sa" as CharacterId, age: 25 });
+    const spouseB = makeCharacter({ id: "sb" as CharacterId, age: 25 });
+    const marriage = makeMarriage({
+      id: "m1" as MarriageId,
+      spouseAId: spouseA.id,
+      spouseBId: spouseB.id,
+      marriedAtTick: 100,
+    });
+    const state = makeState({
+      tick: 102,
+      houses: makeHousesMap([makeHouse()]),
+      characters: makeCharactersMap([spouseA, spouseB]),
+      marriages: makeMarriagesMap([marriage]),
+    });
+    const next = applyConceptionStep(state);
+    const child = [...next.characters.values()].find((c) => c.parentCharacterIds !== null);
+    expect(child).toBeDefined();
+    if (child === undefined) throw new Error("test invariant");
+    // No longer the "Child of <marriage> @<tick>" placeholder.
+    expect(child.name).not.toContain("Child of");
+    const [given, surname] = child.name.split(" ");
+    expect(GIVEN_NAMES[state.era][child.gender]).toContain(given);
+    expect(surname).toBe(dynastySurnameForHouse(child.houseId));
   });
 
   it("emits default V8 character fields (happiness=100, latch=false, etc.)", () => {

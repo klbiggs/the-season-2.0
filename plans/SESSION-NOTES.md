@@ -842,3 +842,32 @@ Items 6 and 8 remain partial:
 **Files of note:**
 - `plans/phases/19-migration-ladder-cleanup.md` — new stub subplan
 - `plans/MASTER.md` §6 — P19 row added + explanatory note
+
+## P16 — Procedural NPC Generation — closed 2026-05-24
+
+**Decisions made:**
+- Two generation hooks: one-time society batch (~20 NPCs) at bootstrap into INDEPENDENT_HOUSE_ID + procedural naming for conception newborns. No ongoing society replenishment (v1.5 candidate).
+- Dedicated TRANSIENT RNG sub-stream `${campaignSeed}|procedural-npcs` (consumed at generation, NOT added to state.rng) — fixed 8-draw budget per NPC; gender drawn (not hashed).
+- 5 archetype-locked generation profiles (None/BohemianRake/Tutor/Spymaster/CountryExile); BohemianRake guarantees MilitaryOfficer → first DESIGNED officer acquisition path (activates P13 WarEffort branches).
+- SaveV15 (structurally identical to V14; bump marks "society guaranteed present"); idempotent `seedProceduralSocietyIntoLegacyState` threaded into ALL public fromSaveV1..V14 lifters + migrate_v14_to_v15; proc-npc prefix filter at every toSaveV2..V14 legacy emitter (V14 gets proc-filter ONLY, never a rival filter).
+- Conception newborns named `"<Given> <dynastySurnameForHouse(houseId)>"` (7th tail draw from era/gender bank); founder stays "Player I".
+
+**Findings (verification caught a plan error):**
+- Social Web + Family Tree are PLAYER-HOUSE-ONLY by P14 design — society NPCs do NOT appear there (verified in-app: 1 node / 1 row on fresh game). The plan's "social web ~35 nodes" claim was wrong; corrected in subplan D2/D4/§8. Society's "populated world" payoff is the BALLROOM roster (5→25 targets, verified rendering as a clean 5×5 PortraitRing grid).
+- The P13 traits.ts "MilitaryOfficer has no acquisition path / not in conception" comment was inaccurate — conception's novelty pool (`TRAITS_ALL`) already reached it incidentally. Comment corrected.
+
+**Open questions hit:**
+- None from MASTER §10 owned by P16. All §11 sub-decisions were settled pre-implementation (founder naming, officer prevalence, save-bump, count).
+- New v1.5 candidate surfaced: a "society/ton" view that shows non-player NPCs (the current Social Web is player-perspective only).
+
+**Deferred / next-up:**
+- Newborn naming verified by unit test (`conception.test.ts`), NOT by in-browser walkthrough (requires a marriage + multi-year conception flow — impractical to click through). Sole non-UI-exercised verification item.
+- Ongoing society replenishment (death-driven / yearly trickle); founder procedural naming (needs a content migration); rival-house procedural associates — all v1.5.
+
+**Files of note:**
+- src/game/fixtures/nameBanks.ts, src/game/fixtures/proceduralProfiles.ts — name banks + archetype-locked profiles
+- src/game/rules/proceduralNpcs.ts — pure generator (8-draw budget, PROCEDURAL_NPC_ID_PREFIX)
+- src/game/bootstrap.ts:179 — society batch seam in seedStartingFamily
+- src/game/rules/conception.ts:141 — newborn naming (7th tail draw)
+- src/persist/schema.ts — SaveV15 + fromSaveV14Bare + seedProceduralSocietyIntoLegacyState + filterProceduralNpcsForLegacyEmit
+- src/persist/migrations/v14-to-v15.ts

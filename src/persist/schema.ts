@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { bootstrapNpcMountFamily, bootstrapPlayerArtifactsForMigration } from "../game/bootstrap";
+import { PROCEDURAL_NPC_COUNT } from "../game/constants";
 import { ConversationPairKeySchema, ExchangeSchema } from "../game/conversation/types";
 import {
   ArtifactInstanceSchema,
@@ -66,6 +67,7 @@ import {
   serializeRegistry,
 } from "../game/rng";
 import { PLAYER_HOUSE_ID } from "../game/rng";
+import { PROCEDURAL_NPC_ID_PREFIX, generateSocietyNpcs } from "../game/rules/proceduralNpcs";
 import { DEFAULT_CAMPAIGN_NAME } from "../game/store";
 
 // Live save-format version. P11 bumps to 12 with 3 new House ledger fields
@@ -75,7 +77,7 @@ import { DEFAULT_CAMPAIGN_NAME } from "../game/store";
 // P15 bumps from 13 → 14 (adds 4 new House fields: awardedDynastyPerks +
 // 3 progress counters — see SaveV14Schema). Legacy toSaveV1..V13 retain their
 // literal `version: N` writes; only toSaveV14 references SAVE_VERSION_CURRENT.
-export const SAVE_VERSION_CURRENT = 14 as const;
+export const SAVE_VERSION_CURRENT = 15 as const;
 
 // ── HousePreV4 (legacy on-disk House shape for V1/V2/V3 saves) ────────────
 // Omits the 5 P3-added fields (currentLocation, etc.) AND the P5 grievances
@@ -573,6 +575,21 @@ function stripEquippedArtifactsForLegacyEmit<T extends { equippedArtifactIds: un
   });
 }
 
+// P16: drop procedural-society NPCs from any pre-V15 legacy emit by id prefix
+// (mirrors the RIVAL_CHARACTER_IDS_SET filter). Procedural NPCs were introduced
+// at V15; older formats must not carry them (the legacy lifter re-seeds them
+// idempotently via seedProceduralSocietyIntoLegacyState). Applied at EVERY
+// toSaveV{2..14} character emit. NOTE: toSaveV14 (demoted to legacy at P16)
+// gets ONLY this filter — NOT a rival filter — because rival characters were
+// legitimate in the live V14 format and a real on-disk V14 save contains them.
+function filterProceduralNpcsForLegacyEmit<V>(
+  characters: ReadonlyArray<readonly [string, V]>,
+): Array<[string, V]> {
+  return characters
+    .filter(([id]) => !id.startsWith(PROCEDURAL_NPC_ID_PREFIX))
+    .map(([id, v]) => [id, v] as [string, V]);
+}
+
 function defaultCharacterV5Fields(c: CharacterPreV5): Character {
   return {
     ...c,
@@ -822,7 +839,10 @@ export function fromSaveV1(save: SaveV1): GameState {
   // P9: elopement field defaults to null on every legacy lift (no active
   // sprint can exist in a pre-P9 save format).
   // P10: bootstrap player artifact inventory symmetric with createInitialState.
-  return bootstrapPlayerArtifactsForMigration({ ...result, elopement: null });
+  return seedProceduralSocietyIntoLegacyState(
+    bootstrapPlayerArtifactsForMigration({ ...result, elopement: null }),
+    extractPlayerSeed(save.rng),
+  );
 }
 
 // ── SaveV2 (P1 on-disk format — legacy at P3+) ────────────────────────────
@@ -856,7 +876,7 @@ export function toSaveV2(state: GameState): SaveV2 {
     tick: state.tick,
     rng: rngLegacy,
     houses: housesLegacy,
-    characters: charsLegacy,
+    characters: filterProceduralNpcsForLegacyEmit(charsLegacy),
     marriages: serializeRegistry(state.marriages),
   });
 }
@@ -906,7 +926,10 @@ export function fromSaveV2(save: SaveV2): GameState {
     playerSeed,
   );
   // P10: bootstrap player artifact inventory symmetric with createInitialState.
-  return bootstrapPlayerArtifactsForMigration({ ...result, elopement: null });
+  return seedProceduralSocietyIntoLegacyState(
+    bootstrapPlayerArtifactsForMigration({ ...result, elopement: null }),
+    extractPlayerSeed(save.rng),
+  );
 }
 
 // ── SaveV3 (P2 on-disk format — legacy at P3+) ────────────────────────────
@@ -936,7 +959,7 @@ export function toSaveV3(state: GameState): SaveV3 {
     tick: state.tick,
     rng: rngLegacy,
     houses: housesLegacy,
-    characters: charsLegacy,
+    characters: filterProceduralNpcsForLegacyEmit(charsLegacy),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
   });
@@ -987,7 +1010,10 @@ export function fromSaveV3(save: SaveV3): GameState {
     playerSeed,
   );
   // P10: bootstrap player artifact inventory symmetric with createInitialState.
-  return bootstrapPlayerArtifactsForMigration({ ...result, elopement: null });
+  return seedProceduralSocietyIntoLegacyState(
+    bootstrapPlayerArtifactsForMigration({ ...result, elopement: null }),
+    extractPlayerSeed(save.rng),
+  );
 }
 
 // ── SaveV4 (P3 on-disk format — legacy at P4+) ────────────────────────────
@@ -1019,7 +1045,7 @@ export function toSaveV4(state: GameState): SaveV4 {
     tick: state.tick,
     rng: rngLegacy,
     houses: housesLegacy,
-    characters: charsLegacy,
+    characters: filterProceduralNpcsForLegacyEmit(charsLegacy),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -1074,7 +1100,10 @@ export function fromSaveV4(save: SaveV4): GameState {
     playerSeed,
   );
   // P10: bootstrap player artifact inventory symmetric with createInitialState.
-  return bootstrapPlayerArtifactsForMigration({ ...result, elopement: null });
+  return seedProceduralSocietyIntoLegacyState(
+    bootstrapPlayerArtifactsForMigration({ ...result, elopement: null }),
+    extractPlayerSeed(save.rng),
+  );
 }
 
 // ── SaveV5 (P4 on-disk format — legacy at P5+) ────────────────────────────
@@ -1106,7 +1135,7 @@ export function toSaveV5(state: GameState): SaveV5 {
     tick: state.tick,
     rng: rngLegacy,
     houses: housesLegacy,
-    characters: charsLegacy,
+    characters: filterProceduralNpcsForLegacyEmit(charsLegacy),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -1163,7 +1192,10 @@ export function fromSaveV5(save: SaveV5): GameState {
     playerSeed,
   );
   // P10: bootstrap player artifact inventory symmetric with createInitialState.
-  return bootstrapPlayerArtifactsForMigration(result);
+  return seedProceduralSocietyIntoLegacyState(
+    bootstrapPlayerArtifactsForMigration(result),
+    extractPlayerSeed(save.rng),
+  );
 }
 
 // ── SaveV6 (P5 on-disk format — legacy at P6+) ────────────────────────────
@@ -1200,7 +1232,7 @@ export function toSaveV6(state: GameState): SaveV6 {
     tick: state.tick,
     rng: rngLegacy,
     houses: housesLegacy,
-    characters: charsLegacy,
+    characters: filterProceduralNpcsForLegacyEmit(charsLegacy),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -1254,11 +1286,14 @@ export function fromSaveV6(save: SaveV6): GameState {
   // fresh-state hash post-P6.
   const playerSeed = extractPlayerSeed(save.rng);
   // P10: bootstrap player artifact inventory symmetric with createInitialState.
-  return bootstrapPlayerArtifactsForMigration(
-    seedRivalsAndPatronessesIntoLegacyState(
-      seedWhispersCouriersStaffIntoLegacyState(fromSaveV6Bare(save)),
-      playerSeed,
+  return seedProceduralSocietyIntoLegacyState(
+    bootstrapPlayerArtifactsForMigration(
+      seedRivalsAndPatronessesIntoLegacyState(
+        seedWhispersCouriersStaffIntoLegacyState(fromSaveV6Bare(save)),
+        playerSeed,
+      ),
     ),
+    playerSeed,
   );
 }
 
@@ -1325,7 +1360,7 @@ export function toSaveV7(state: GameState): SaveV7 {
     tick: state.tick,
     rng: rngLegacy,
     houses: housesLegacy,
-    characters: charsLegacy,
+    characters: filterProceduralNpcsForLegacyEmit(charsLegacy),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -1381,8 +1416,11 @@ export function fromSaveV7(save: SaveV7): GameState {
   // V7 already contains Independent NPCs + schemes + grievances + whispers/
   // couriers/staff by schema. P8 adds the V9 seeder for rivals + patronesses.
   // P10: bootstrap player artifact inventory symmetric with createInitialState.
-  return bootstrapPlayerArtifactsForMigration(
-    seedRivalsAndPatronessesIntoLegacyState(fromSaveV7Bare(save), extractPlayerSeed(save.rng)),
+  return seedProceduralSocietyIntoLegacyState(
+    bootstrapPlayerArtifactsForMigration(
+      seedRivalsAndPatronessesIntoLegacyState(fromSaveV7Bare(save), extractPlayerSeed(save.rng)),
+    ),
+    extractPlayerSeed(save.rng),
   );
 }
 
@@ -1432,7 +1470,7 @@ export function toSaveV8(state: GameState): SaveV8 {
     tick: state.tick,
     rng: rngLegacy,
     houses: housesLegacy,
-    characters: charsLegacy,
+    characters: filterProceduralNpcsForLegacyEmit(charsLegacy),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -1525,8 +1563,11 @@ export function fromSaveV8(save: SaveV8): GameState {
     globalEvents: new Map(),
   };
   // P10: bootstrap player artifact inventory symmetric with createInitialState.
-  return bootstrapPlayerArtifactsForMigration(
-    seedRivalsAndPatronessesIntoLegacyState(withP9AndP10, playerSeed),
+  return seedProceduralSocietyIntoLegacyState(
+    bootstrapPlayerArtifactsForMigration(
+      seedRivalsAndPatronessesIntoLegacyState(withP9AndP10, playerSeed),
+    ),
+    playerSeed,
   );
 }
 
@@ -1572,7 +1613,9 @@ export function toSaveV9(state: GameState): SaveV9 {
     houses: stripP11FieldsForLegacyEmit(
       stripBloodFeudGrievancesForLegacyEmit(serializeRegistry(state.houses)),
     ),
-    characters: stripEquippedArtifactsForLegacyEmit(serializeRegistry(state.characters)),
+    characters: filterProceduralNpcsForLegacyEmit(
+      stripEquippedArtifactsForLegacyEmit(serializeRegistry(state.characters)),
+    ),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -1635,14 +1678,17 @@ export function fromSaveV9(save: SaveV9): GameState {
   // Wrap the Bare core with `elopement: null` (V9 saves predate the field)
   // and the three P10 Maps empty (V9 saves predate them too). P10 then
   // bootstraps player starting inventory symmetric with createInitialState.
-  return bootstrapPlayerArtifactsForMigration({
-    ...fromSaveV9Bare(save),
-    elopement: null,
-    artifactInstances: new Map(),
-    forgeries: new Map(),
-    thiefAttempts: new Map(),
-    globalEvents: new Map(),
-  });
+  return seedProceduralSocietyIntoLegacyState(
+    bootstrapPlayerArtifactsForMigration({
+      ...fromSaveV9Bare(save),
+      elopement: null,
+      artifactInstances: new Map(),
+      forgeries: new Map(),
+      thiefAttempts: new Map(),
+      globalEvents: new Map(),
+    }),
+    extractPlayerSeed(save.rng),
+  );
 }
 
 // ── SaveV10 (P9 live format) ──────────────────────────────────────────────
@@ -1689,7 +1735,9 @@ export function toSaveV10(state: GameState): SaveV10 {
     houses: stripP11FieldsForLegacyEmit(
       stripBloodFeudGrievancesForLegacyEmit(serializeRegistry(state.houses)),
     ),
-    characters: stripEquippedArtifactsForLegacyEmit(serializeRegistry(state.characters)),
+    characters: filterProceduralNpcsForLegacyEmit(
+      stripEquippedArtifactsForLegacyEmit(serializeRegistry(state.characters)),
+    ),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -1759,7 +1807,10 @@ export function fromSaveV10(save: SaveV10): GameState {
   // V10 demoted from live → legacy at P10. Wrap the Bare core with
   // bootstrapPlayerArtifactsForMigration so the load-path produces
   // post-P10 GameStates with starting inventory seeded.
-  return bootstrapPlayerArtifactsForMigration(fromSaveV10Bare(save));
+  return seedProceduralSocietyIntoLegacyState(
+    bootstrapPlayerArtifactsForMigration(fromSaveV10Bare(save)),
+    extractPlayerSeed(save.rng),
+  );
 }
 
 // ── SaveV11 (P10 live format) ─────────────────────────────────────────────
@@ -1810,7 +1861,7 @@ export function toSaveV11(state: GameState): SaveV11 {
     houses: stripP11FieldsForLegacyEmit(
       stripBloodFeudGrievancesForLegacyEmit(serializeRegistry(state.houses)),
     ),
-    characters: serializeRegistry(state.characters),
+    characters: filterProceduralNpcsForLegacyEmit(serializeRegistry(state.characters)),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -1877,7 +1928,7 @@ export function fromSaveV11Bare(save: SaveV11): GameState {
 // Public wrapper. P11 has no bootstrap seeding (3 new House fields default empty),
 // so the wrapper just delegates to Bare. Symmetric with v10-to-v11's bootstrapArtifacts.
 export function fromSaveV11(save: SaveV11): GameState {
-  return fromSaveV11Bare(save);
+  return seedProceduralSocietyIntoLegacyState(fromSaveV11Bare(save), extractPlayerSeed(save.rng));
 }
 
 // ── SaveV12 (P11 live format — demoted to legacy at P13) ─────────────────
@@ -1928,7 +1979,7 @@ export function toSaveV12(state: GameState): SaveV12 {
     tick: state.tick,
     rng: serializeRegistry(state.rng),
     houses: stripCourierResearchForLegacyEmit(serializeRegistry(state.houses)), // P13 strip
-    characters: serializeRegistry(state.characters),
+    characters: filterProceduralNpcsForLegacyEmit(serializeRegistry(state.characters)),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -2021,7 +2072,7 @@ export function fromSaveV12Bare(save: SaveV12): GameState {
 export function fromSaveV12(save: SaveV12): GameState {
   const bare = fromSaveV12Bare(save);
   bootstrapNpcMountFamily(bare.characters, bare.artifactInstances, save.tick);
-  return bare;
+  return seedProceduralSocietyIntoLegacyState(bare, extractPlayerSeed(save.rng));
 }
 
 // ── SaveV13 (P13 format — demoted to legacy at P15) ──────────────────────
@@ -2075,7 +2126,7 @@ export function toSaveV13(state: GameState): SaveV13 {
     tick: state.tick,
     rng: serializeRegistry(state.rng),
     houses: stripP15FieldsForLegacyEmit(serializeRegistry(state.houses)), // P15 strip
-    characters: serializeRegistry(state.characters),
+    characters: filterProceduralNpcsForLegacyEmit(serializeRegistry(state.characters)),
     marriages: serializeRegistry(state.marriages),
     campaignName: state.campaignName,
     era: state.era,
@@ -2148,7 +2199,7 @@ export function fromSaveV13Bare(save: SaveV13): GameState {
 export function fromSaveV13(save: SaveV13): GameState {
   const bare = fromSaveV13Bare(save);
   bootstrapNpcMountFamily(bare.characters, bare.artifactInstances, save.tick);
-  return bare;
+  return seedProceduralSocietyIntoLegacyState(bare, extractPlayerSeed(save.rng));
 }
 
 // ── SaveV14 (P15 live format) ────────────────────────────────────────────
@@ -2187,11 +2238,133 @@ export const SaveV14Schema = z.object({
 });
 export type SaveV14 = z.infer<typeof SaveV14Schema>;
 
-// P15 live emitter. ONLY emitter to reference SAVE_VERSION_CURRENT (every
-// other emitter pins its literal version). No strip helper — live HouseSchema
-// already includes the 4 dynasty-legacy fields.
+// P16: V14 demoted from live emitter to legacy. Version pinned to literal 14
+// (was SAVE_VERSION_CURRENT pre-P16). Characters gain the proc-npc filter ONLY
+// (NOT a rival filter — rivals were legitimate in the live V14 format).
 export function toSaveV14(state: GameState): SaveV14 {
   return SaveV14Schema.parse({
+    version: 14,
+    tick: state.tick,
+    rng: serializeRegistry(state.rng),
+    houses: serializeRegistry(state.houses),
+    characters: filterProceduralNpcsForLegacyEmit(serializeRegistry(state.characters)),
+    marriages: serializeRegistry(state.marriages),
+    campaignName: state.campaignName,
+    era: state.era,
+    conversationHistory: serializeRegistry(state.conversationHistory),
+    affectionMap: serializeRegistry(state.affectionMap),
+    schemes: serializeRegistry(state.schemes),
+    whispers: serializeRegistry(state.whispers),
+    couriers: serializeRegistry(state.couriers),
+    staff: serializeRegistry(state.staff),
+    proposalsLog: serializeRegistry(state.proposalsLog),
+    tutorAssignmentsLog: serializeRegistry(state.tutorAssignmentsLog),
+    pendingTutorTraitChoices: serializeRegistry(state.pendingTutorTraitChoices),
+    patronesses: serializeRegistry(state.patronesses),
+    rivalActors: serializeRegistry(state.rivalActors),
+    factionTensions: serializeRegistry(state.factionTensions),
+    duels: serializeRegistry(state.duels),
+    elopement: state.elopement,
+    artifactInstances: serializeRegistry(state.artifactInstances),
+    forgeries: serializeRegistry(state.forgeries),
+    thiefAttempts: serializeRegistry(state.thiefAttempts),
+    globalEvents: serializeRegistry(state.globalEvents),
+  });
+}
+
+// P16: V14 Bare lifter — pure deserialization, NO NPC-mount seeding and NO
+// society seeding. Used by migrate_v14_to_v15 so society can be added before
+// re-emitting as V15. Exported to mirror fromSaveV13Bare.
+export function fromSaveV14Bare(save: SaveV14): GameState {
+  return {
+    tick: save.tick,
+    rng: deserializeRegistry(save.rng) as GameState["rng"],
+    houses: deserializeRegistry(save.houses) as GameState["houses"],
+    characters: deserializeRegistry(save.characters) as GameState["characters"],
+    marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
+    campaignName: save.campaignName,
+    era: save.era,
+    conversationHistory: deserializeRegistry(
+      save.conversationHistory,
+    ) as GameState["conversationHistory"],
+    affectionMap: deserializeRegistry(save.affectionMap) as GameState["affectionMap"],
+    schemes: deserializeRegistry(save.schemes) as GameState["schemes"],
+    whispers: deserializeRegistry(save.whispers) as GameState["whispers"],
+    couriers: deserializeRegistry(save.couriers) as GameState["couriers"],
+    staff: deserializeRegistry(save.staff) as GameState["staff"],
+    proposalsLog: deserializeRegistry(save.proposalsLog) as GameState["proposalsLog"],
+    tutorAssignmentsLog: deserializeRegistry(
+      save.tutorAssignmentsLog,
+    ) as GameState["tutorAssignmentsLog"],
+    pendingTutorTraitChoices: deserializeRegistry(
+      save.pendingTutorTraitChoices,
+    ) as GameState["pendingTutorTraitChoices"],
+    patronesses: deserializeRegistry(save.patronesses) as GameState["patronesses"],
+    rivalActors: deserializeRegistry(save.rivalActors) as GameState["rivalActors"],
+    factionTensions: deserializeRegistry(save.factionTensions) as GameState["factionTensions"],
+    duels: deserializeRegistry(save.duels) as GameState["duels"],
+    elopement: save.elopement,
+    artifactInstances: deserializeRegistry(
+      save.artifactInstances,
+    ) as GameState["artifactInstances"],
+    forgeries: deserializeRegistry(save.forgeries) as GameState["forgeries"],
+    thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
+    globalEvents: deserializeRegistry(save.globalEvents) as GameState["globalEvents"],
+  };
+}
+
+// P16: V14 demoted to a legacy lifter. Composes the Bare deserialize + the
+// NPC-mount seed (mutates characters + artifactInstances) + the idempotent
+// society seed (so a migrated/loaded V14 matches the fresh-bootstrap society —
+// the ten fresh-parity chain tests depend on this).
+export function fromSaveV14(save: SaveV14): GameState {
+  const bare = fromSaveV14Bare(save);
+  const characters = new Map(bare.characters);
+  const artifactInstances = new Map(bare.artifactInstances);
+  bootstrapNpcMountFamily(characters, artifactInstances, save.tick);
+  const withMounts: GameState = { ...bare, characters, artifactInstances };
+  return seedProceduralSocietyIntoLegacyState(withMounts, extractPlayerSeed(save.rng));
+}
+
+// ── SaveV15 (P16: procedural society) ─────────────────────────────────────
+// Structurally identical to SaveV14 (P16 adds no new field — society NPCs are
+// plain Character rows). The version bump marks the "society guaranteed present"
+// boundary and gives the chain test a clean step (the disciplined analogue of
+// the P8 rival seeding).
+export const SaveV15Schema = z.object({
+  version: z.literal(15),
+  tick: z.number().int().nonnegative(),
+  rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
+  characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
+  marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
+  campaignName: z.string(),
+  era: z.enum(["Earlier", "Later"]),
+  conversationHistory: z.array(z.tuple([ConversationPairKeySchema, z.array(ExchangeSchema)])),
+  affectionMap: z.array(z.tuple([ConversationPairKeySchema, z.number().int().min(0).max(100)])),
+  schemes: z.array(z.tuple([SchemeIdSchema, SchemeSchema])),
+  whispers: z.array(z.tuple([WhisperIdSchema, WhisperSchema])),
+  couriers: z.array(z.tuple([CourierPayloadIdSchema, CourierPayloadSchema])),
+  staff: z.array(z.tuple([StaffIdSchema, StaffMemberSchema])),
+  proposalsLog: z.array(z.tuple([CharacterIdSchema, ProposalLogEntrySchema])),
+  tutorAssignmentsLog: z.array(z.tuple([CharacterIdSchema, TutorAssignmentLogEntrySchema])),
+  pendingTutorTraitChoices: z.array(z.tuple([CharacterIdSchema, PendingTutorTraitChoiceSchema])),
+  patronesses: z.array(z.tuple([PatronessIdSchema, PatronessRecordSchema])),
+  rivalActors: z.array(z.tuple([HouseIdSchema, RivalActorStateSchema])),
+  factionTensions: z.array(z.tuple([FactionPairKeySchema, z.number().int().min(0).max(100)])),
+  duels: z.array(z.tuple([DuelIdSchema, DuelSchema])),
+  elopement: ElopementSprintStateSchema.nullable(),
+  artifactInstances: z.array(z.tuple([ArtifactInstanceIdSchema, ArtifactInstanceSchema])),
+  forgeries: z.array(z.tuple([ForgeryIdSchema, ForgeryRecordSchema])),
+  thiefAttempts: z.array(z.tuple([ThiefAttemptIdSchema, ThiefAttemptSchema])),
+  globalEvents: z.array(z.tuple([GlobalEventIdSchema, GlobalEventSchema])),
+});
+export type SaveV15 = z.infer<typeof SaveV15Schema>;
+
+// P16 live emitter. ONLY emitter to reference SAVE_VERSION_CURRENT. NO proc-npc
+// filter — society NPCs are a first-class part of the live V15 format.
+export function toSaveV15(state: GameState): SaveV15 {
+  return SaveV15Schema.parse({
     version: SAVE_VERSION_CURRENT,
     tick: state.tick,
     rng: serializeRegistry(state.rng),
@@ -2221,10 +2394,10 @@ export function toSaveV14(state: GameState): SaveV14 {
   });
 }
 
-// P15 live loader. Mirrors fromSaveV13 — the 4 new House fields deserialize
-// directly via the live HouseSchema; the NPC-mount-equip seed step composes
-// after deserialization.
-export function fromSaveV14(save: SaveV14): GameState {
+// P16 live loader. V15 already carries society inline (toSaveV15 doesn't filter),
+// so NO society seed here — only the idempotent NPC-mount seed (mirrors the
+// established live-loader shape).
+export function fromSaveV15(save: SaveV15): GameState {
   const characters = deserializeRegistry(save.characters) as GameState["characters"];
   const artifactInstances = deserializeRegistry(
     save.artifactInstances,
@@ -2263,6 +2436,30 @@ export function fromSaveV14(save: SaveV14): GameState {
     thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
     globalEvents: deserializeRegistry(save.globalEvents) as GameState["globalEvents"],
   };
+}
+
+// ── seedProceduralSocietyIntoLegacyState (P16) ────────────────────────────
+// Idempotent: if any proc-npc-* character is already present, returns state
+// unchanged (society present); otherwise generates the society batch from the
+// `${playerSeed}|procedural-npcs` transient stream (era pinned "Earlier" — the
+// founding era — to match the bootstrap path) and adds it to state.characters.
+// Threaded into EVERY public fromSaveV1..V14 lifter (wrapping the outermost
+// GameState-returning expression) + migrate_v14_to_v15.
+export function seedProceduralSocietyIntoLegacyState(
+  state: GameState,
+  playerSeed: string,
+): GameState {
+  for (const id of state.characters.keys()) {
+    if ((id as string).startsWith(PROCEDURAL_NPC_ID_PREFIX)) return state;
+  }
+  const { characters: society } = generateSocietyNpcs(
+    createRngState(`${playerSeed}|procedural-npcs`),
+    "Earlier",
+    PROCEDURAL_NPC_COUNT,
+  );
+  const characters = new Map(state.characters);
+  for (const c of society) characters.set(c.id, c);
+  return { ...state, characters };
 }
 
 // ── seedRivalsAndPatronessesIntoLegacyState (P8) ──────────────────────────

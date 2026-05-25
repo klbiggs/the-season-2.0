@@ -2,7 +2,7 @@ import { useState } from "react";
 import { type SeasonStore, selectGameState } from "../../game/store";
 import { DEV_SLOT, load, save } from "../../persist/dexie";
 import { SaveLoadError } from "../../persist/errors";
-import { fromSaveV14 } from "../../persist/schema";
+import { fromSaveV15 } from "../../persist/schema";
 
 // Settings menu dropdown. Houses Save / Load / Pass Year affordances that
 // were free-floating in the dev shell. Year-pass becomes an in-menu action
@@ -42,7 +42,7 @@ export function SettingsMenu({ store, onStatus, onLoadError }: Props) {
         onStatus("No save in slot 'dev'.");
         return;
       }
-      store.getState().replaceState(fromSaveV14(saved));
+      store.getState().replaceState(fromSaveV15(saved));
       onLoadError(null);
       onStatus("Loaded.");
     } catch (err) {
