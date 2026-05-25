@@ -115,8 +115,31 @@ export const ProxyConversationRequestSchema = z.object({
   // buildContents (NOT systemInstruction — cachedContent + systemInstruction
   // are mutually exclusive per the Gemini SDK contract).
   mode: z.enum(["Ballroom", "Promenade"]).default("Ballroom"),
+  // P17: semantic-memory hits retrieved client-side at conversation start and
+  // rendered as a separate `[Relevant past events:]` section in buildContents
+  // (on per-turn `contents`, NOT systemInstruction — P12 cache mutual-exclusion).
+  // `.default([])` is the backward-compat shortcut — pre-P17 clients omit it.
+  semanticContext: z.array(z.string()).default([]),
 });
 export type ProxyConversationRequest = z.infer<typeof ProxyConversationRequestSchema>;
+
+// ── P17 embed wire-format (shared client/server) ─────────────────────────
+// The client posts texts to the localhost proxy's /api/llm/embed; the server
+// relays to ai.models.embedContent with the pinned EMBEDDING_MODEL and returns
+// raw float arrays. The client L2-normalizes before storing/querying. taskType
+// improves retrieval quality (RETRIEVAL_DOCUMENT at index, RETRIEVAL_QUERY at
+// retrieval) and is NOT a model alias — pinning stays on EMBEDDING_MODEL.
+export const EmbedRequestSchema = z.object({
+  texts: z.array(z.string()).min(1),
+  taskType: z.enum(["RETRIEVAL_DOCUMENT", "RETRIEVAL_QUERY"]),
+});
+export type EmbedRequest = z.infer<typeof EmbedRequestSchema>;
+
+export const EmbedResponseSchema = z.object({
+  // One vector per input text, in input order. Raw (un-normalized) values.
+  embeddings: z.array(z.array(z.number())),
+});
+export type EmbedResponse = z.infer<typeof EmbedResponseSchema>;
 
 // Widen-and-validate: enum fields parsed as z.string() so unknown values
 // don't trigger SchemaError. Post-parse resolvers (resolveTactic /

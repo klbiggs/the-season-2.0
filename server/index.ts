@@ -6,6 +6,7 @@
 
 import { createServer } from "node:http";
 import { handleConversation } from "./conversation";
+import { handleEmbed } from "./embeddings";
 import { validateEnv } from "./env";
 import { handleInvalidate } from "./invalidate";
 
@@ -24,6 +25,15 @@ const server = createServer(async (req, res) => {
       await handleConversation(req, res);
     } catch (err) {
       console.error("[server] conversation handler error:", err);
+      if (!res.headersSent) res.writeHead(500).end();
+    }
+    return;
+  }
+  if (req.url === "/api/llm/embed" && req.method === "POST") {
+    try {
+      await handleEmbed(req, res);
+    } catch (err) {
+      console.error("[server] embed handler error:", err);
       if (!res.headersSent) res.writeHead(500).end();
     }
     return;

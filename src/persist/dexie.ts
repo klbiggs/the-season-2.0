@@ -29,15 +29,18 @@ import {
   SaveV15Schema,
   toSaveV15,
 } from "./schema";
+import type { VectorIndexRecord } from "./vectorIndex";
 
 // Slot for dev/scaffold UI. UI components and the round-trip test reference
 // this constant, not the literal "dev" string.
 export const DEV_SLOT = "dev";
 
-// Dexie schema version 1. Separate concept from save-format version: Dexie
+// Dexie schema version. Separate concept from save-format version: Dexie
 // versions the object-store layout; save-format versions the JSON shape.
+// P17 bumps 1 → 2 to add the `vectorIndex` sidecar store (semantic memory).
+// The save format does NOT change — the vector index is out-of-hash sidecar.
 const DB_NAME = "the-season";
-const DEXIE_SCHEMA_VERSION = 1;
+const DEXIE_SCHEMA_VERSION = 2;
 
 // P16: data widens to include SaveV15.
 type SaveRecord = {
@@ -62,12 +65,17 @@ type SaveRecord = {
 
 class SeasonDB extends Dexie {
   saves!: EntityTable<SaveRecord, "slot">;
+  // P17: semantic-memory vector index, keyed by save slot. Sidecar — NOT part
+  // of the JSON save / replay hash.
+  vectorIndex!: EntityTable<VectorIndexRecord, "slot">;
 
   constructor() {
     super(DB_NAME);
-    this.version(DEXIE_SCHEMA_VERSION).stores({
-      saves: "slot",
-    });
+    // Additive version ladder: v1 keeps the original `saves` store; v2 adds
+    // `vectorIndex`. Dexie needs the full ladder to upgrade existing DBs — do
+    // NOT collapse these into a single .version(2) declaration.
+    this.version(1).stores({ saves: "slot" });
+    this.version(DEXIE_SCHEMA_VERSION).stores({ saves: "slot", vectorIndex: "slot" });
   }
 }
 
@@ -76,6 +84,13 @@ let dbInstance: SeasonDB | null = null;
 function db(): SeasonDB {
   if (dbInstance === null) dbInstance = new SeasonDB();
   return dbInstance;
+}
+
+// P17: accessor for the vector-index sidecar table, consumed by
+// src/persist/vectorIndex.ts (which owns the CRUD/eviction logic). Exported
+// (not the raw db()) so vectorIndex.ts stays decoupled from the SaveRecord side.
+export function vectorIndexTable(): EntityTable<VectorIndexRecord, "slot"> {
+  return db().vectorIndex;
 }
 
 export async function save(slot: string, state: GameState): Promise<void> {

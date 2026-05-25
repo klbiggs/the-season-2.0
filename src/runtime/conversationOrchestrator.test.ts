@@ -24,6 +24,7 @@ const baseRequest = (): ProxyConversationRequest => {
       spouse: null,
     },
     mode: "Ballroom",
+    semanticContext: [],
   };
 };
 

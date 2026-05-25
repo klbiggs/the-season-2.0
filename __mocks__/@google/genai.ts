@@ -10,6 +10,7 @@
 // Per-test factory overrides via vi.mock("@google/genai", () => ({...}))
 // shadow this default for that file's scope only.
 
+import { EMBEDDING_DIMENSIONS } from "../../src/game/constants";
 import { canonicalJSON } from "../../src/game/hash";
 
 const tactics = ["Flattery", "WittyBanter", "SlyGossip", "DeepEmpathy"] as const;
@@ -30,6 +31,14 @@ export class GoogleGenAI {
     },
     generateContentStream: async () => {
       throw new Error("Stream API is not used at P4 — bare vi.mock should not hit this branch.");
+    },
+    // P17: deterministic embeddings. Returns one EMBEDDING_DIMENSIONS-length
+    // vector per input text, derived from the text hash so identical inputs
+    // produce identical vectors (replay-harness-compatible). Shape mirrors the
+    // real SDK: response.embeddings[i].values.
+    embedContent: async (params: { contents: string[] | string }) => {
+      const texts = Array.isArray(params.contents) ? params.contents : [params.contents];
+      return { embeddings: texts.map((t) => ({ values: deterministicEmbedding(t) })) };
     },
   };
   caches = {
@@ -95,4 +104,16 @@ function createHashFromString(input: string): string {
     h = ((h ^ input.charCodeAt(i)) * 16777619) >>> 0;
   }
   return h.toString(16).padStart(8, "0");
+}
+
+// P17: deterministic EMBEDDING_DIMENSIONS-length vector seeded by the text
+// hash (LCG fill in [-1, 1]). Stable per text → stable cosine for tests.
+function deterministicEmbedding(text: string): number[] {
+  let seed = Number.parseInt(createHashFromString(text), 16) >>> 0;
+  const out: number[] = new Array(EMBEDDING_DIMENSIONS);
+  for (let i = 0; i < EMBEDDING_DIMENSIONS; i++) {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    out[i] = (seed / 0xffffffff) * 2 - 1;
+  }
+  return out;
 }

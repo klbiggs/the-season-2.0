@@ -102,17 +102,28 @@ const PROMENADE_MODE_FRAMING_PREFIX =
   "Available tactics: WittyBanter, DeepEmpathy, ComplimentMount " +
   "(the last is meaningful only when the partner owns a horse).]\n\n";
 
-function buildContents(req: {
+// Exported for unit testing of the section ordering (semantic + mode-frame).
+export function buildContents(req: {
   history: ReadonlyArray<{ speaker: "house-head" | "other"; text: string }>;
   freeformMessage: string;
   mode: "Ballroom" | "Promenade";
+  semanticContext: ReadonlyArray<string>;
 }): string {
   const modeFramingPrefix = req.mode === "Promenade" ? PROMENADE_MODE_FRAMING_PREFIX : "";
+  // P17: semantic-memory hits as a separate section. Rides on per-turn
+  // `contents`, NOT systemInstruction (cachedContent + systemInstruction are
+  // mutually exclusive — see PROMENADE_MODE_FRAMING_PREFIX note above). Ordering:
+  // [Setting:] mode-frame → [Relevant past events:] → transcript → message.
+  // Empty array → section omitted.
+  const semanticSection =
+    req.semanticContext.length > 0
+      ? `[Relevant past events:]\n${req.semanticContext.map((s) => `- ${s}`).join("\n")}\n\n`
+      : "";
   const transcript = req.history
     .map((ex) => (ex.speaker === "house-head" ? `Player: ${ex.text}` : `NPC: ${ex.text}`))
     .join("\n");
   const body = transcript === "" ? req.freeformMessage : `${transcript}\n${req.freeformMessage}`;
-  return modeFramingPrefix + body;
+  return modeFramingPrefix + semanticSection + body;
 }
 
 function mapSdkErrorToHttpStatus(err: unknown): number {

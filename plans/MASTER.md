@@ -44,7 +44,7 @@
 | Persistence | **Dexie (IndexedDB) + Zod-validated migrations** | Saves can grow large with embeddings; IndexedDB handles it; migrations are named pure functions per §9 |
 | LLM | **`@google/genai` on a localhost Node proxy; key in `server/.env`; persona context-cached server-side; function-calling for structured output via `/api/llm/conversation`** | Forces structured outputs via function-calling (validated by Zod), caches per-character persona via explicit `caches.create` resources between turns; the key never reaches the browser bundle |
 | Local LLM proxy | **Node 22+ http (no framework), bound to 127.0.0.1:8787** | Single endpoint; holds Gemini key out of the bundle without adding a hosted backend |
-| Embeddings (optional, deferred) | **Voyage AI** | Best-in-class retrieval quality; cheap; in-browser cosine similarity over a bounded array — no vector DB needed at this scale |
+| Embeddings (shipped at P17) | **Gemini `gemini-embedding-001` (768-dim) via the localhost proxy** | Reuses the existing `GEMINI_API_KEY` — no second credential/SDK; in-browser cosine over a bounded sidecar index, no vector DB at this scale. (Supersedes the original Voyage AI pick — see §10 #12 / P17.) |
 | Animations | **Framer Motion** | DOM-native, perfect for portrait slides on faux-pas/sabotage/scheme completion |
 | Social web visualization | **react-force-graph-2d** (canvas-backed, D3-force under the hood, custom node sprites for portraits) | The one spatial surface in the app |
 | All other rendering | **DOM + CSS + SVG** | Strategy map = 7 location pins. Ballroom = 5 portrait cards. Elopement = 7-tile row. Ledger = tables. No game engine needed. |
@@ -134,12 +134,12 @@ the-season-2.0/
     │   ├── prompts/                   # Cacheable persona blocks per character
     │   ├── tools.ts                   # `respond` + `generateWhisper` tool schemas
     │   ├── routing.ts                 # Haiku default; Sonnet/Opus for first-meeting
-    │   └── embeddings.ts              # OPTIONAL — Voyage client (deferred)
+    │   └── embeddings.ts              # P17 — Gemini embed client (proxy fetch + L2-normalize + cosine)
     ├── persist/
     │   ├── schema.ts                  # Zod schemas per save version
     │   ├── migrations/                # Named pure functions vN → vN+1
     │   ├── dexie.ts                   # IndexedDB setup
-    │   └── vectorIndex.ts             # OPTIONAL — embedding sidecar
+    │   └── vectorIndex.ts             # P17 — embedding sidecar (Dexie store, out-of-hash)
     └── ui/
         ├── map/
         ├── ballroom/
@@ -254,7 +254,7 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P14 | Ledger View & Social Web Visualization | [`phases/14-ledger-social-web.md`](./phases/14-ledger-social-web.md) | most prior | ✅ done |
 | P15 | Dynasty Legacies & Renown Perks | [`phases/15-dynasty-legacies.md`](./phases/15-dynasty-legacies.md) | P7, P5, P6 | ✅ done |
 | P16 | Procedural NPC Generation | [`phases/16-procedural-npcs.md`](./phases/16-procedural-npcs.md) | P0, P1, P7 | ✅ done |
-| P17 | (Optional) Semantic Memory | [`phases/17-semantic-memory.md`](./phases/17-semantic-memory.md) | P4, P6, P5 | — |
+| P17 | (Optional) Semantic Memory | [`phases/17-semantic-memory.md`](./phases/17-semantic-memory.md) | P4, P6, P5 | ✅ done |
 | P18 | (Optional) LLM Flavor Content | [`phases/18-llm-flavor.md`](./phases/18-llm-flavor.md) | P4, P10 | — |
 | P19 | Pre-ship cleanup: delete migration ladder | [`phases/19-migration-ladder-cleanup.md`](./phases/19-migration-ladder-cleanup.md) | all prior | — |
 
@@ -371,7 +371,7 @@ Carrying forward all 24 open questions with a recommended default for each. Reso
 | 9 | Social Web replaces textual ledgers? | **Resolved: Coexist** at P14 ([phases/14-ledger-social-web.md](./phases/14-ledger-social-web.md)); Family Tree tab is text-first (scannable exact values + AT-accessible), the Social Web is a togglable spatial sub-view within the same tab (pill toggle; resets to text on tab-switch). Drop a tab in v1.5 if playtest proves redundancy. |
 | 10 | Wardrobe decay global tick or per-artifact-family? | **Global tick** (simpler; per-family in v1.5). **Resolved at P10** ([phases/10-artifacts.md](./phases/10-artifacts.md)); single `WARDROBE_REFRESH_INTERVAL_TICKS` constant in `src/game/constants.ts` applied uniformly across every artifact family. Per-family decay would add tuning surface (per-family `refreshIntervalTicks` field or designer table) without changing the wardrobe-refresh affordance (one wealth spend resets ALL equipped artifacts regardless of family). Per-family decay pairs naturally with P16's procedural artifact generation as a v1.5 candidate. |
 | 11 | Forged artifacts detectable by Observant NPCs? | **Hidden until per-tick surfacing roll** (simpler). **Resolved at P10** ([phases/10-artifacts.md](./phases/10-artifacts.md)); single surfacing mechanism via `FORGERY_SURFACING_PROBABILITY` per-tick roll. Parallel Observant-trait detection would fork the cascade semantics (Vain-NPC lock + affection delta vs. Observant-only knowledge), forcing dual cascade paths and per-NPC trait scans against the per-tick draw budget. Observant retains value elsewhere (P11 inherited-secrets detection, future hooks). `ForgeryRecord.surfaced` is a one-way latch flipped by `applyForgerySurfacingPhase` (roll) + the Treason Framing scheme-resolution branch (consumption). |
-| 12 | Semantic-memory subsystem in v1? | **Deferred to v1.5** (P17 optional) |
+| 12 | Semantic-memory subsystem in v1? | **Resolved: shipped in v1** at P17 ([phases/17-semantic-memory.md](./phases/17-semantic-memory.md)) — always-on, **Gemini-backed** (`gemini-embedding-001` / 768-dim, reusing `GEMINI_API_KEY` via the localhost `/api/llm/embed` proxy), with the vector index in a **Dexie sidecar out of the replay hash** (no `GameState`/schema/hash/migration change). Retrieval is additive to the 3-exchange recency window, filtered by `(houseId, npcId)`; per-call embed failures degrade to recency-only (spec §7 line 657). The **Voyage→Gemini** provider swap and **deferred→active** activation were explicit user decisions this session (supersedes the §2 locked Voyage pick). |
 | 13 | LLM tool surface beyond whisper-generation in v1? | **Whisper only** in v1. **Resolved at P4** ([phases/04-ballroom-llm.md](./phases/04-ballroom-llm.md)); P4 ships only the structured `respond` function-declaration. The `generateWhisper` function-declaration is wired at P6 once whispers exist (added alongside `respond` in the `tools[].functionDeclarations` array). No grievance/secret-sharing/mood-reveal tools in v1. |
 | 14 | NPC-initiated conversations in v1? | **Deferred**. **Resolved at P4** ([phases/04-ballroom-llm.md](./phases/04-ballroom-llm.md)); the conversation round-trip is strictly player-initiated. No "NPC speaks first" prompt path, no autonomous greeting machine. |
 | 15 | Streaming dialogue in v1? | **No** — single-shot "thinking..." pattern. **Resolved at P4** ([phases/04-ballroom-llm.md](./phases/04-ballroom-llm.md)); the SDK call is `ai.models.generateContent(...)` (non-streaming; the SDK's `generateContentStream` variant is NOT used), gated by a single 15s `AbortController.signal.timeout()` passed via `config.abortSignal`. No partial-token render path, no mid-stream cancellation. |

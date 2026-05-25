@@ -14,6 +14,7 @@
 // inherit this stub via vitest.config.ts's setupFiles entry.
 
 import { vi } from "vitest";
+import { EMBEDDING_DIMENSIONS } from "./src/game/constants";
 import { canonicalJSON } from "./src/game/hash";
 
 const tactics = ["Flattery", "WittyBanter", "SlyGossip", "DeepEmpathy"] as const;
@@ -31,6 +32,19 @@ function createHashFromString(input: string): string {
     h = ((h ^ input.charCodeAt(i)) * 16777619) >>> 0;
   }
   return h.toString(16).padStart(8, "0");
+}
+
+// P17: deterministic EMBEDDING_DIMENSIONS-length embedding per text (LCG seeded
+// by the text hash). The proxy response shape the client sees is the extracted
+// `{ embeddings: number[][] }` (server already pulled .values out).
+function deterministicEmbedding(text: string): number[] {
+  let seed = Number.parseInt(createHashFromString(text), 16) >>> 0;
+  const out: number[] = new Array(EMBEDDING_DIMENSIONS);
+  for (let i = 0; i < EMBEDDING_DIMENSIONS; i++) {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    out[i] = (seed / 0xffffffff) * 2 - 1;
+  }
+  return out;
 }
 
 function deterministicResponseFromHash(hash: string) {
@@ -61,6 +75,20 @@ vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit): Pro
     const hash = createHashFromString(canonicalJSON(rawBody));
     const response = deterministicResponseFromHash(hash);
     return new Response(JSON.stringify(response), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (path === "/api/llm/embed") {
+    let texts: string[] = [];
+    try {
+      const parsed = JSON.parse(rawBody) as { texts?: unknown };
+      if (Array.isArray(parsed.texts)) texts = parsed.texts.map((t) => String(t));
+    } catch {
+      texts = [];
+    }
+    const embeddings = texts.map(deterministicEmbedding);
+    return new Response(JSON.stringify({ embeddings }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });

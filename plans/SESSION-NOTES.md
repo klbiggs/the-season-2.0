@@ -871,3 +871,37 @@ Items 6 and 8 remain partial:
 - src/game/rules/conception.ts:141 — newborn naming (7th tail draw)
 - src/persist/schema.ts — SaveV15 + fromSaveV14Bare + seedProceduralSocietyIntoLegacyState + filterProceduralNpcsForLegacyEmit
 - src/persist/migrations/v14-to-v15.ts
+
+## P17 (Optional) — Semantic Memory — closed 2026-05-25
+
+**Decisions made:**
+- **Gemini embeddings, not Voyage AI.** Reuse the existing `GEMINI_API_KEY` via the localhost proxy (`POST /api/llm/embed` → `ai.models.embedContent`). No second credential/SDK. Pinned `EMBEDDING_MODEL = "gemini-embedding-001"`, `EMBEDDING_DIMENSIONS = 768` (`outputDimensionality`); vectors L2-normalized client-side so cosine = dot product. Supersedes the §2 locked Voyage pick — explicit user decision.
+- **Always-on**, not key-gated opt-in (the Gemini key is already required for conversation). Per-call embed failures degrade to recency-only (spec §7 line 657).
+- **Sidecar out of the replay hash.** Vector index is a new Dexie object-store keyed by slot (DB version 1→2, additive chain). NO `GameState`/`GameStateSchema`/`hashableState`/`selectGameState`/`overwriteFromGameState`/save-version/`PERSONA_CACHE_VERSION` change. Trip-wires + 30-run replay stayed green untouched — the proof the phase added zero gameplay state.
+- **Explicit `semanticMemoryEnabled` activation flag is the load-bearing inert-guard** (flipped only by `enableSemanticMemory()` from `src/main.tsx`). The replay harness DOES invoke the bus subscribers (via `advanceTick`/`runYearPass` publishers) — what keeps them inert is the flag, NOT absence-of-`fetch`/`indexedDB` (vitest stubs `fetch`; `fake-indexeddb` assigns `globalThis.indexedDB`). Subscribers guard-first + wrap synchronous passage-build in try/catch (bus.publish has no try/catch).
+- Player-perspective only: indexed events written under `PLAYER_HOUSE_ID`; retrieval filtered by `(houseId, npcId)` with null-filter (lore) eligible to any query. Cross-house retrieval stays out of scope (v1.5).
+
+**Converge-plan:** 3 fresh cycles, 6 review iterations, 2 clean fresh passes. Reviewers caught: the determinism rationale was wrong in plan v1 ("harness never reaches this code" — it does → corrected to the activation flag); lore was wired only to `replaceState` callers, missing the clean-launch `createStore` path (B6); and a factual error in the backlog (null-target scheme is Smuggling, not Sabotage — `schemes.ts:65`).
+
+**Live verification (Claude-in-Chrome, real Gemini):**
+- Lore seeds on load → IndexedDB `vectorIndex` = 16 Lore entries, `gemini-embedding-001`, 768-dim.
+- Conversation golden path: coherent in-character reply; all `/api/llm/{embed,conversation}` = 200; no console errors.
+- Indexing: Exchange + Whisper entries appended post-conversation (18 total).
+- Retrieval: captured conversation request carried `semanticContext` of 4 correctly-ranked hits (#1 an exact-match lore passage) with the 3-exchange recency `history` preserved alongside.
+
+**Open questions hit:**
+- §10 #12 resolved: shipped in v1 (Gemini-backed, sidecar). Recorded the Voyage→Gemini + deferred→active deviations.
+
+**Deferred / next-up:**
+- OpenAI/Voyage provider fallback (provider is abstracted behind `/api/llm/embed` — a later server-side swap).
+- Cross-house retrieval; re-embedding historical passages on model change (currently discard-on-mismatch).
+
+**Files of note:**
+- server/embeddings.ts — `/api/llm/embed` relay (reuses GEMINI_API_KEY); server/index.ts route
+- src/llm/embeddings.ts — client fetch wrapper + l2normalize + cosineSimilarity
+- src/persist/vectorIndex.ts — Dexie sidecar (per-slot serialized CRUD, FIFO evict, model-mismatch discard, id-dedup); src/persist/dexie.ts:vectorIndexTable
+- src/runtime/semanticIndex.ts — activation flag, bus-subscription indexing, retrieve, seedLoreCorpus, bindStore
+- src/game/fixtures/lore.ts — 16-passage lore corpus
+- src/game/store.ts — retrieve + semanticContext thread (sendBallroomMessage/sendPromenadeMessage) + bindStore at createStore
+- server/conversation.ts:buildContents — [Relevant past events:] section ([Setting:] → semantic → transcript)
+- src/main.tsx — enableSemanticMemory + setActiveSlot + seedLoreCorpus (load-bearing seed site)

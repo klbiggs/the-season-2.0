@@ -290,6 +290,33 @@ export const PERSONA_CACHE_TTL_MS = 3_600_000;
 // Prefix for the human-readable displayName of each persona cache.
 export const PERSONA_CACHE_DISPLAY_NAME_PREFIX = "season-persona-" as const;
 
+// ── P17: Semantic Memory (Embedding Retrieval) ───────────────────────────
+// Gemini embedding model, PINNED (spec §5 "not a 'latest' alias") so vectors
+// stay comparable across save/load; a change is detectable via the model id
+// stored in the vector-index sidecar metadata (discard-on-mismatch). Reuses
+// GEMINI_API_KEY via the localhost proxy — no separate credential. The model
+// id is consumed by server/embeddings.ts (the embed handler) AND by the
+// sidecar metadata pin; keep both in lockstep with this constant.
+export const EMBEDDING_MODEL = "gemini-embedding-001" as const;
+// outputDimensionality passed to embedContent. gemini-embedding-001 defaults
+// to 3072 and truncates from the end; reduced vectors are NOT pre-normalized,
+// so src/llm/embeddings.ts L2-normalizes after receiving values (cosine = dot
+// product). 768 keeps the sidecar compact (768 × 4 B ≈ 3 KB/vector).
+export const EMBEDDING_DIMENSIONS = 768;
+// Sidecar entry-count cap with FIFO eviction by tick (spec §8 line 687). The
+// fixed-dim vector makes this cap the byte bound: ~3.6 KB/entry × 500 ≈ 1.8 MB
+// per slot — large but bounded. Raise only with that product re-checked.
+export const VECTOR_INDEX_MAX_ENTRIES = 500;
+// Retrieval: top-K hits above the cosine threshold added to the prompt.
+export const SEMANTIC_RETRIEVAL_TOP_K = 4;
+export const SEMANTIC_SIMILARITY_THRESHOLD = 0.55;
+// Client-side retrieval embed timeout. SMALLER than LLM_TIMEOUT_MS and ADDITIVE
+// to the user-perceived wait (retrieval is awaited before the conversation
+// round-trip) — keep it short; on timeout retrieval degrades to recency-only.
+export const EMBED_RETRIEVAL_TIMEOUT_MS = 5_000;
+// Server-side embed composite-AbortController budget (embeddings are fast).
+export const EMBED_SERVER_TIMEOUT_MS = 8_000;
+
 // ── P5: Schemes & Multi-Tick Operations ──────────────────────────────────
 
 // Six scheme kinds per spec §3 "Schemes" line 79. Treason Framing (7th) is

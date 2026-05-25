@@ -3,14 +3,25 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { DEFAULT_SEED } from "./game/rng.seeds";
 import { createStore, selectGameState } from "./game/store";
-import { _putRawForTests } from "./persist/dexie";
+import { DEV_SLOT, _putRawForTests } from "./persist/dexie";
 import { toSaveV9 } from "./persist/schema";
+import { enableSemanticMemory, seedLoreCorpus, setActiveSlot } from "./runtime/semanticIndex";
 import "./index.css";
 
 // Bootstrap order (pinned per plan): store is constructed synchronously at
 // module load with the default seed. Save/Load swaps the entire state
 // atomically via replaceState — no "deferred construction behind prompt".
 const store = createStore({ seed: DEFAULT_SEED });
+
+// P17: activate semantic memory (the ONLY production caller that flips the
+// activation flag — tests/replay never call this, so the indexing subscribers
+// stay inert). Bind the active slot and seed the lore corpus once (idempotent).
+// This is the load-bearing seed site: the clean first-launch path is the
+// createStore above, NOT a replaceState, so wiring lore only to the
+// replaceState callers (SettingsMenu / CorruptSaveBanner) would miss it.
+enableSemanticMemory();
+setActiveSlot(DEV_SLOT);
+void seedLoreCorpus(DEV_SLOT);
 
 // P2: expose the test-only IndexedDB write helper on window in dev mode so
 // Playwright's corrupt-save spec can seed pathological records (e.g.,

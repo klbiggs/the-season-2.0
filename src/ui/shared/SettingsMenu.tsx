@@ -3,6 +3,7 @@ import { type SeasonStore, selectGameState } from "../../game/store";
 import { DEV_SLOT, load, save } from "../../persist/dexie";
 import { SaveLoadError } from "../../persist/errors";
 import { fromSaveV15 } from "../../persist/schema";
+import { seedLoreCorpus, setActiveSlot } from "../../runtime/semanticIndex";
 
 // Settings menu dropdown. Houses Save / Load / Pass Year affordances that
 // were free-floating in the dev shell. Year-pass becomes an in-menu action
@@ -43,6 +44,10 @@ export function SettingsMenu({ store, onStatus, onLoadError }: Props) {
         return;
       }
       store.getState().replaceState(fromSaveV15(saved));
+      // P17: re-point the vector-index slot + backfill lore (idempotent; inert
+      // unless semantic memory is enabled).
+      setActiveSlot(DEV_SLOT);
+      void seedLoreCorpus(DEV_SLOT);
       onLoadError(null);
       onStatus("Loaded.");
     } catch (err) {

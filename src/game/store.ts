@@ -434,6 +434,12 @@ import { locationBus } from "../runtime/events/location";
 import { publishSchemeTransitions, schemeBus } from "../runtime/events/scheme";
 import { publishSiblingRivalTransitions, siblingRivalBus } from "../runtime/events/siblingRival";
 import { publishWhisperTransitions, whisperBus } from "../runtime/events/whispers";
+// P17: importing semanticIndex registers its bus subscriptions (indexing) at
+// module load; bindStore wires the state accessor; retrieve runs the read path.
+import {
+  bindStore as bindSemanticIndexStore,
+  retrieve as retrieveSemanticHits,
+} from "../runtime/semanticIndex";
 // Re-import here at the bottom of the file (cycle-avoidance pattern) — the
 // runtime layer imports rules layer, which is OK after store.ts symbols
 // have been declared above.
@@ -518,7 +524,7 @@ function overwriteFromGameState(draft: GameState, next: GameState): void {
 }
 
 export function createStore({ seed }: { seed: string }): SeasonStore {
-  return create<StoreState>()(
+  const store = create<StoreState>()(
     immer((set, get) => ({
       ...createInitialState(seed),
       // P5: arrow→block-form refactor with `before` snapshot capture for
@@ -986,6 +992,12 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           }
         }
 
+        // P17: retrieve semantic-memory hits BEFORE the request build. Inert
+        // ([] ) when semantic memory is disabled or on any failure (recency-only,
+        // spec §7 line 657). Awaited here, so its budget is additive to the
+        // round-trip — see EMBED_RETRIEVAL_TIMEOUT_MS.
+        const semanticContext = await retrieveSemanticHits(target.id, input.freeformMessage);
+
         const request = {
           targetCharacterId: target.id,
           playerHouseId: PLAYER_HOUSE_ID,
@@ -1011,6 +1023,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           // would supply this on parse, but emitting explicitly avoids the
           // pre-parse construction-vs-parse asymmetry.
           mode: "Ballroom" as const,
+          semanticContext,
         };
 
         // Publish ConversationSent BEFORE awaiting the LLM (per
@@ -2041,6 +2054,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           }
         }
 
+        // P17: semantic-memory hits (inert/[] when disabled or on failure).
+        const semanticContext = await retrieveSemanticHits(target.id, input.freeformMessage);
+
         const request = {
           targetCharacterId: target.id,
           playerHouseId: PLAYER_HOUSE_ID,
@@ -2058,6 +2074,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             spouse,
           },
           mode: "Promenade" as const,
+          semanticContext,
         };
 
         // Pin-priority resolver. UI always pins a promenade tactic.
@@ -2109,6 +2126,11 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
       },
     })),
   );
+  // P17: bind the post-mutation state accessor for the semantic-index
+  // subscribers (their read path resolves passage text from event ids). Inert
+  // until enableSemanticMemory() is called from src/main.tsx.
+  bindSemanticIndexStore(() => store.getState());
+  return store;
 }
 
 // Project the store's combined state back to a pure GameState (drops actions).
