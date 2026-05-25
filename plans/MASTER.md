@@ -16,6 +16,7 @@
 8. [Edge Cases (§7 → Phase)](#8-edge-cases)
 9. [Non-Functional Requirements (§8) Cross-Reference](#9-non-functional-requirements)
 10. [Open Questions (§10)](#10-open-questions)
+11. [Post-v1 Audit (UI Surfacing Gaps + v1.5 Backlog)](#11-post-v1-audit-ui-surfacing-gaps--v15-backlog)
 
 ---
 
@@ -257,8 +258,25 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P17 | (Optional) Semantic Memory | [`phases/17-semantic-memory.md`](./phases/17-semantic-memory.md) | P4, P6, P5 | ✅ done |
 | P18 | (Optional) LLM Flavor Content | [`phases/18-llm-flavor.md`](./phases/18-llm-flavor.md) | P4, P10 | ✅ done |
 | P19 | Pre-ship cleanup: delete migration ladder | [`phases/19-migration-ladder-cleanup.md`](./phases/19-migration-ladder-cleanup.md) | all prior | ✅ done |
+| — | **Post-v1 (skeleton — scoped from §11; not yet detailed)** | | | |
+| P20 | v1.1 — Core-Loop Reachability & Legibility | [`phases/20-coreloop-reachability.md`](./phases/20-coreloop-reachability.md) | P7, P9, P4, P14 | 📋 planned (v1.1) |
+| P21 | v1.1 — Ledger Completeness & Notifications | [`phases/21-ledger-completeness.md`](./phases/21-ledger-completeness.md) | P14, P20 | 📋 planned (v1.1) |
+| P22 | v1.5 — Society & World Surfacing | [`phases/22-society-surfacing.md`](./phases/22-society-surfacing.md) | P14, P16, P18 | 📋 planned (v1.5) |
+| P23 | v1.5 — Marriage, Family & Lifespan Depth | [`phases/23-marriage-family-depth.md`](./phases/23-marriage-family-depth.md) | P7, P8, P16 | 📋 planned (v1.5) |
+| P24 | v1.5 — Covert Operations & Material Assets Depth | [`phases/24-covert-material-depth.md`](./phases/24-covert-material-depth.md) | P5, P6, P9, P10, P15 | 📋 planned (v1.5) |
+| P25 | v1.5 — Rivals, Factions, Global Events & Era Depth | [`phases/25-rivals-events-depth.md`](./phases/25-rivals-events-depth.md) | P8, P10, P13 | 📋 planned (v1.5) |
+| P26 | v1.5 — Conversation, LLM, Memory & Promenade Depth | [`phases/26-conversation-llm-depth.md`](./phases/26-conversation-llm-depth.md) | P4, P12, P17, P18 | 📋 planned (v1.5) |
+| P27 | v1.5 — Platform: Ledger QoL, Tooling & Infra | [`phases/27-platform-qol-infra.md`](./phases/27-platform-qol-infra.md) | P0, P2, P14 | 📋 planned (v1.5) |
 
 **Note**: P7.5 is a cross-cutting architectural amendment (LLM-key relocation), not a new feature phase. P8+ "Depends on" columns do NOT inherit P7.5.
+
+**Note on post-v1 phases (P20–P27)**: Scoped from §11 (the post-v1 audit). P20–P21 are the **v1.1 hardening track** — surfacing already-persisted state and wiring already-built store actions; no new gameplay rules, ideally no save-format bump. P22–P27 are the **v1.5 feature track** — coarse thematic bundles of the §11.2 backlog, each independently shippable. Subplans are **skeletons** (Goal / In scope / Out of scope / cross-cutting impact / Verification); flesh out a phase against the spec + §11 items when work starts, same as the v1 phases. The "rivals always run last (among RNG-consuming phases)" and pure-logic/orchestrator-separation contracts bind these phases unchanged.
+
+**Migration posture (P20–P27 are pre-release)**: *The Season* is not released at v1.0 — **v1.5 is the first public base version**, so through P20–P27 there are still zero saves in the wild. Re-applying the v1-style per-phase migration ladder (named `migrate_vN_to_vN+1` functions, save-version bumps, Pre-schemas, strip-cascade, chain tests) would be the same dead weight P19 deleted. Posture for these phases:
+- **Edit the single live schema in place** (P19 rebased to `SAVE_VERSION_CURRENT = 1`). Do **not** scaffold a migration runner or bump the save version. A dev save broken by a schema edit is reset via `npm run reset-save` (greenfield acceptance, per P19).
+- **Keep the determinism discipline** — it is separate from migration and is what the trip-wires actually enforce: every new top-level `GameState` field still requires the full **quad-sync** (schema↔projection↔selector↔`overwriteFromGameState`) + `hashable-state` wiring, and every new RNG draw still extends the **30-run replay harness**. The harness runs fresh-seeded campaigns (not loaded saves), so save format never affects it; a deliberate derivation change (e.g. P23 lifespans) is free pre-release.
+- **Save/load of the current schema must still round-trip** — that's a normal correctness check, not a migration.
+- The **real migration ladder re-scaffolds once, at the actual first public release** (a P19-style rebase from the then-current single schema). The CLAUDE.md migration-discipline pins describe that future ladder and stay dormant until then.
 
 **Note on P19**: The v1→v{N} migration ladder + SaveV1-V{N-1} schemas + Pre-schemas + strip cascade exist as a development-discipline forcing function through P0-P18 (catches non-additive schema changes, gives chain-test determinism coverage). At v1.0 ship there will be zero saves "in the wild," so the ladder is dead weight. P19 deletes the entire scaffolding and ships v1.0 with a single `SaveV{current}Schema`. Any extant dev saves require a one-time `npm run reset-save` (acceptable for greenfield).
 
@@ -386,6 +404,94 @@ Carrying forward all 24 open questions with a recommended default for each. Reso
 | 24 | Allow concurrent player Seductions per aggressor at v1? | **One Seduction per aggressor at a time** (Q2 verdict). **Resolved at P9 PROVISIONALLY** ([phases/09-elopement.md](./phases/09-elopement.md)); `tryStartScheme` rejects `Seduction` with `{ kind: "SeductionAlreadyActiveForAggressor", activeSchemeId }` when an aggressor already owns an Active Seduction. Functionally per-house at v1 (`selectAggressor` returns the head for Seduction); future-proof for later phases that may widen the aggressor pool. Reopens if v1 play surfaces the constraint as too restrictive. |
 | 25 | On elopement win with one party already married, mint marriage or apply rep-halve only? | **Rep-halve always; marriage minted only if both unmarried (or widow/widower remarriage)** (Q3 verdict). **Resolved at P9** ([phases/09-elopement.md](./phases/09-elopement.md)); `resolveElopementTerminal` Won-branch's marriage-mint predicate uses `isAvailableForRemarriage` (harmonized with `applyProposalPure` gates 10/11 — null marriageId OR the referenced marriage is dissolved). Preserves the affair-archetype Seduction gameplay tone while avoiding bigamous state shape. Future P-later "Abandonment" / "Divorce" action can model explicit dissolution-then-remarriage with its own cost surface. |
 | 26 | Should ticks advance during an active elopement sprint? | **Suspend** — rule-layer gate on every tick-advancing and mutation action when `state.elopement !== null` (Q4 verdict). **Resolved at P9** ([phases/09-elopement.md](./phases/09-elopement.md)); the gate publishes `ElopementBlocked` on `elopementBus` for `advanceTick` / `runYearPass` / `proposeMarriage` and returns a typed `{ kind: "ElopementInProgress" }` rejection on every other player-elected wrapper. See CLAUDE.md "Modal-state rule-layer gate principle" pin. |
+
+---
+
+## 11. Post-v1 Audit (UI Surfacing Gaps + v1.5 Backlog)
+
+> Produced after P0–P19 closeout (2026-05-25) by auditing all 19 phase plans + §10 + SESSION-NOTES against the shipped `src/` tree. Three parts:
+> **11.1** — UI surfacing gaps: persisted state / player actions that exist in code but are not reachable or readable in the UI. These are candidate **v1 fixes**, not v1.5.
+> **11.2** — aggregated v1.5 / deferred / out-of-scope backlog, deduped across all phases. Items resolved as §10 open-question v1 defaults are tagged `[OQ#n]`; explicit non-goals are tagged `[non-goal]`.
+> **11.3** — plan/doc inconsistencies found while auditing.
+> Every claim was traced in code or cited to a plan line.
+
+### 11.1 UI Surfacing Gaps (v1 fix candidates)
+
+> **Scheduled into:** P20 (Core-Loop Reachability & Legibility) — proposeMarriage, scandal/generation readout, elopement outcome, faux-pas, conversation turn-result; and P21 (Ledger Completeness & Notifications) — duels, marriages, couriers, happiness/composure/temptation, scheme-outcome notifications, the LOW items, and §11.3 doc fixes. See §6.
+
+Severity: **CRITICAL** = blocks a core loop; **HIGH** = important info/payoff hidden; **MEDIUM** = degrades play but recoverable elsewhere; **LOW** = cosmetic/edge.
+
+**CRITICAL**
+- **`proposeMarriage` has no UI trigger anywhere.** The store action is fully built (`src/game/store.ts:1504`, publisher fan-out, tests, `PROPOSAL_TICK_COST`). No view invokes it — zero call sites in `src/ui/**`; the FamilyTreeTab buttons are reconcile-sibling (`FamilyTreeTab.tsx:172`) and assign-tutor (`:242`). P7 designed this as *the* incentive that unlocks family-tree progression and the Spymaster/Chaperone/Assassination gates (`07-family-succession.md:498`) and reserved `proposalsLog` "for ledger rendering at P14" (`07-…:20`) — but P7 shipped rules/state only and P14 shipped the *reaction* (ProposalRejected social-web cue) without the *action*. **The player cannot marry anyone; dynasty continuation is unreachable.** Needs a propose affordance that calls `proposeMarriage` and renders the `ProposalOutcome`.
+
+**HIGH**
+- **Player-house `scandal` never shown as a number** (`entities.ts:148`; the exile trigger, spec §3 L462). TopBar shows only wealth + effective reputation (`shared/TopBar.tsx:63-68`); scandal appears only as per-location delta previews (`map/LocationDetailsPanel.tsx:95`). The player can't see how close they are to exile.
+- **Elopement resolution outcome is silent.** `ElopementResolved` carries `outcome: "Won" | "Lost"` (`runtime/events/elopement.ts`) but no UI subscribes; the overlay just unmounts back to the map. Neither the win (rep-halve/marriage mint) nor the loss (+50 scandal) is called out.
+- **Duels history has zero readout.** `state.duels` (`entities.ts:616`) is persisted but never rendered; `GrievancesTab` only flashes the just-resolved outcome from React-local state (`GrievancesTab.tsx:33,57`).
+- **Marriages have no roster anywhere.** `state.marriages` (`entities.ts:569`) is never rendered in ledger or social web — who's married to whom, dissolutions, `viaElopement` are all invisible. (Compounds the proposeMarriage gap.)
+
+**MEDIUM**
+- **Faux-pas not surfaced in the ballroom.** `FauxPasFired` (`runtime/events/conversation.ts`) fires the social-blunder + target mood-lock, but `BallroomView` subscribes only to `ConversationResolved`/`ConversationFailed` (`BallroomView.tsx:71-76`). The composure drop shows with no explanation and no per-portrait "locked" indicator. The comment at `BallroomView.tsx:68` is stale/false.
+- **Conversation turn result not read out in the ballroom.** `ConversationResolved` carries `affectionDelta`/`synergy`/`moodHint`; `BallroomView.tsx:72` consumes only `composureDelta`. No signal whether the line worked, and no standing/affection readout for the selected NPC.
+- **Couriers have no readout** (`state.couriers`, `entities.ts:594`). The Spymaster intercept card acts on them blind; the Map only exposes the research action.
+- **Character happiness / composure / temptation-latch invisible** in FamilyTreeTab (`entities.ts:229-236`) — the Dull-spouse → temptation flow is hidden.
+- **Launched-scheme outcomes have no core-loop notification** (`SchemeCompleted`/`SchemeFailed`/`SeductionDiscovered` on `schemeBus`) — only ledger/social-web.
+- **`generation` / `ancestorSummary` have no readout** (`entities.ts:150-151`).
+
+**LOW**
+- Scheme-launch rejections only `console.warn` (`SchemeButtons.tsx:87`; mitigated by disabled-state tooltips). Enter-ballroom rejection swallowed (`LocationDetailsPanel.tsx:169-172`; only the `SessionAlreadyOpen` race is reachable). `proposalsLog`/`tutorAssignmentsLog` history not rendered (`entities.ts:602-603`). Social-web inbound affection excluded by design (`SocialWebView.tsx:63`; tracked in 11.2-A). Global events + era absent from the ledger (shown on the Map).
+
+### 11.2 v1.5 / Deferred Backlog (aggregated, deduped)
+
+> **Theme → phase map (see §6):** A → P22 · B → P23 · C → P24 · D → P25 · E → P24 · F → P25 · G → P26 · H → P26 · I → P24 · J → P22 (society-facing: portraits, founder naming, replenishment) + P27 (QoL & tooling) · K → P27.
+
+**A. Society / non-player world surfacing** (the recurring marquee item)
+- "Society / The Ton" view rendering non-player NPCs (rivals + procedural society; invisible outside the ballroom roster). Recommended as a third Family-Tree-tab toggle. §10 V1.5 row; `16-procedural-npcs.md`, `18-llm-flavor.md`.
+- NPC→player (inbound) Social Web edges — keys exist in `affectionMap`, only player-outbound render. `14-…:228`.
+- NPC bios for player-house members + broader roster bios (bios only on the ballroom PortraitCard today). `18-…:162`.
+
+**B. Marriage & family expansion**
+- Cross-house marriages with rivals + hostility cascade `[OQ#16]` (`07-…:1264`, `08-…:1422`, `11-…:1188`); pre-adulthood betrothals + Betrothal lifecycle `[OQ#17]` (`07-…:1265`); trait-modifier lifespans `[OQ#18]` (`07-…:1266`); gender-skewed lifespans (`07-…:101`).
+- Mid-life archetype reclassification on trait acquisition/role flip `[OQ#4]` (`07-…:913`); random-archetype trait-pool-pick in maturation (`07-…:909`); tutor reassignment after maturation `[non-goal v1]` + re-widowing role flip `[non-goal v1]` (`07-…:1267-1268`).
+- Procedural marriages between society NPCs; society NPCs as HeadOfHouse `[non-goal v1]` (`16-…:54-55`).
+
+**C. Schemes, seduction & elopement depth**
+- Multi-tick Seduction-discovery suspicion `[OQ#6]` (`accumulatedAffection` reserved; save-bump) (`05-…:143`, `09-…:568`); aggressor-selector UI (save-bump) (`05-…:146`); auto-dissolution of a prior marriage on elopement win ("Abandonment"/"Divorce" action) `[OQ#25]` (`09-…:569`).
+- Multi-character / rival-driven / NPC-initiated elopement sprints; pursuit-speed trait modifiers (`09-…:570-574`).
+- Composure-driven mood transitions from scheme completions (`05-…:890`); Smuggling blockade-bypass dead-state cleanup (`05-…:1431`); randomized/synthetic-NPC starting schemes (save-bump) (`05-…:183`).
+
+**D. Rival depth**
+- Rival succession / auto-promote-heir (`08-…:1424`); rival economic model (wealth gating) (`08-…:1425`); rival-owned artifact loops (`10-…:1059`); NPC-initiated duels `[OQ#14]` (`08-…:1423`); per-rival LLM persona prompts (rivals as conversation targets) (`08-…:1428`); rival war-profiteer / per-rival event economy (`13-…:1242`); rival inline ledger action ("declare war"/"olive branch") (`14-…:147`); "withdraw grievance" non-duel resolution (`08-…:1248`); `findGrievanceAcrossHouses` / global-grievances inbox (`08-…:1184`).
+
+**E. Artifacts & forgery**
+- Procedural artifact generation (`10-…:1059`, `16-…:52`); per-artifact-family wardrobe decay `[OQ#10]` (`10-…:1059`); Observant-trait-detected forgeries `[OQ#11]` (`10-…:1059`); NPC-initiated thefts (`10-…:1059`); explicit forger picker for multiple Rakes (`14-…:166`).
+
+**F. Global events, era & military**
+- Additional global event types (`13-…:1243`); `Culture` enum + per-family `culturalAffinity` `[OQ#21]` (`13-…:1244`); `MilitaryOfficer` acquisition path + officer cohort seeding — *partly superseded by P16's BohemianRake officer path* (`13-…:1245-1246`); mid-event end-tick mutation `[non-goal]` + WarEffort draftable-archetypes `[non-goal]` (`13-…:1247,1249`); era-flip animation/banner (`13-…:1250`); multi-tick research-action sequence `[non-goal]` + per-house courier-research halving for non-player houses (`13-…:1251-1252`); faction-tension graphical viz `[OQ#8]` (`08-…:1427`).
+
+**G. LLM, routing & memory**
+- Cross-house semantic retrieval (`17-…:110`); second embedding provider (OpenAI/Voyage) + re-embedding historical passages on model change (`17-…:111-112`); NPC-initiated conversations `[OQ#14]` + streaming dialogue/flavor `[OQ#15]` (`04-…:31,40`, `18-…:159`); Pro-routed "key moment" model overrides (proposal/scheme/duel/audience) (`04-…:37`); `generateGrievance` / additional LLM tools + persona cache-key extension for multi-character scenes (`06-…:1576-1577`); per-character bio/backstory authoring UI + flavor regenerate button `[non-goal]` (`18-…:160-161`).
+
+**H. Promenade**
+- Stance toggle inside promenade (`12-…:1077`); mood/trait synergy on promenade tactics (`12-…:1078`); multi-NPC promenade scene (`12-…:1079`); `ComplimentMount` as a ballroom tactic (`12-…:1080`); `sendPromenadeMessage`/`exitPromenade` exile + elopement post-await short-circuits (`12-…:1095-1096`).
+
+**I. Staff**
+- "Promote staff to character" rule (save-bump) (`06-…:89`); hire-staff (`makeStaffId`) + fire-staff affordances — *verify whether P15 shipped fire-staff* (`06-…:604,1579`); BribeDriver subject-selection specialization (`06-…:783`); dynasty-perk loyalty effects + procedural staff identity (`06-…:87`).
+
+**J. UI / QoL / ledger**
+- Cross-view global-events chip row (`14-…:5`); shadcn `Tabs` install (`14-…:102`); URL routing / deep-linking for tabs (`14-…:327`); Activity/Event-log tab (`14-…:328`) + persistent event-log subsystem (`18-…:163`); sortable/filterable tables (`14-…:329`); fast-forward / auto-tick-while-idle (`14-…:332`); "host an event at the rural estate" action (`15-…:44`); per-family/per-location patronage tuning `[non-goal]` (`15-…:283`); founder procedural naming (`16-…:24`); procedural portrait generation (`16-…:51`); ongoing society replenishment (`16-…:16`).
+
+**K. Infra / dev / build**
+- CI workflow + hosting/static-SPA deploy target (`00-…:15,135`); `seedrandom.alea({state:true})` O(1) restore (`00-…:143`); `REPLAY_BASELINE.md` regression-anchor hash (`01-…:619`); save import/export + autosave + multi-slot save-management UI + delete-corrupt-save consent affordance + Dexie object-store schema-migration tooling (`02-…:387-392`); centralize the duplicate local `clamp` across 4 rule files (`05-…:470`); remove the empty `src/game/machines/` slot / unrealized XState dep (`19-…:43`); proxy rate-limiting/auth/quotas + public deployment/Docker/systemd — `[non-goal]`, single-user dev only (`07-5-…:57-58`).
+
+**Likely OBSOLETE after P19** (verify, then strike): `HousePreV4Schema` → Zod `.omit()` refactor (`04-…:219`) and the reverse `v3→v2` migration (`02-…:434`) both reference Pre-schemas / the migration ladder that P19 deleted.
+
+### 11.3 Plan / doc inconsistencies
+
+1. **Portraits contradiction.** `14-…:326` says real portraits are "owned by P16"; `16-…:51` lists portrait generation as out of scope. Portraits remain a glyph placeholder and a v1.5 item (11.2-J). Reconcile one note.
+2. **Stale `BallroomView` comment** (`src/ui/ballroom/BallroomView.tsx:68`) claims faux-pas handling that does not exist (11.1 MEDIUM).
+3. **Stale `SpymasterInterceptCard` comment** claims the button is "disabled until P7"; P7 shipped archetypes, so it works whenever a living Spymaster exists.
+4. **`MilitaryOfficer` "inert at v1" vs P16.** The P13 plan calls the officer trait inert with no v1 acquisition path; P16's BohemianRake society profile is the first designed officer path. CLAUDE.md carries the correction; the P13 plan does not.
 
 ---
 
