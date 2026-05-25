@@ -47,6 +47,21 @@ describe("negative control — different seed yields a different hash", () => {
   });
 });
 
+// P18: the harness never invokes the LLM, so the flavor orchestrator stays
+// inert (its flag is off — enableFlavorContent() is only called from main.tsx)
+// and state.flavorText stays empty across the run. This is the proof that the
+// in-hash flavorText field (like conversationHistory) does NOT perturb replay.
+describe("P18 flavorText stays empty through the harness (no LLM generation)", () => {
+  it("flavorText is empty after a 100-tick run", () => {
+    const store = createStore({ seed: REPLAY_SEEDS[0] });
+    for (let i = 0; i < TICKS_PER_RUN; i += 1) {
+      store.getState().advanceTick();
+      if (i % YEAR_PASS_EVERY === 0) store.getState().runYearPass();
+    }
+    expect(store.getState().flavorText.size).toBe(0);
+  });
+});
+
 // P3: multi-action determinism harness. Exercises the four new player-elected
 // actions (travel + requestAudience + escapeBankruptcy + refreshWardrobe) and
 // asserts identical hashes across 30 runs. The fixed action sequence:

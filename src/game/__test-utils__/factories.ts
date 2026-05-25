@@ -7,6 +7,7 @@
 import type {
   ArtifactInstance,
   Character,
+  FlavorContentEntry,
   ForgeryRecord,
   GameState,
   GlobalEvent,
@@ -18,6 +19,7 @@ import type {
   ArtifactInstanceId,
   CharacterId,
   FactionId,
+  FlavorContentId,
   ForgeryId,
   GlobalEventId,
   HouseId,
@@ -59,6 +61,8 @@ export function makeGameState(overrides: Partial<GameState> = {}): GameState {
     thiefAttempts: new Map<ThiefAttemptId, ThiefAttempt>(),
     // P13 default — empty global events at fresh state.
     globalEvents: new Map<GlobalEventId, GlobalEvent>(),
+    // P18 default — empty flavor content at fresh state.
+    flavorText: new Map<FlavorContentId, FlavorContentEntry>(),
     ...overrides,
   };
 }

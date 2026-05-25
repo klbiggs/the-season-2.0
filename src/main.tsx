@@ -5,6 +5,7 @@ import { DEFAULT_SEED } from "./game/rng.seeds";
 import { createStore, selectGameState } from "./game/store";
 import { DEV_SLOT, _putRawForTests } from "./persist/dexie";
 import { toSaveV9 } from "./persist/schema";
+import { enableFlavorContent } from "./runtime/flavorOrchestrator";
 import { enableSemanticMemory, seedLoreCorpus, setActiveSlot } from "./runtime/semanticIndex";
 import "./index.css";
 
@@ -22,6 +23,13 @@ const store = createStore({ seed: DEFAULT_SEED });
 enableSemanticMemory();
 setActiveSlot(DEV_SLOT);
 void seedLoreCorpus(DEV_SLOT);
+
+// P18: activate flavor-content generation (the ONLY production caller that
+// flips the flag — tests/replay never call it, so the flavor subscribers +
+// ensureFlavor stay inert). The store already bound its accessor via
+// bindFlavorStore in createStore. Unlike P17's lore seed, flavor has no
+// per-slot bootstrap init, so CorruptSaveBanner/SettingsMenu need no wiring.
+enableFlavorContent();
 
 // P2: expose the test-only IndexedDB write helper on window in dev mode so
 // Playwright's corrupt-save spec can seed pathological records (e.g.,

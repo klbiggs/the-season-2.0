@@ -57,6 +57,11 @@ export type PromenadeSessionId = string & { readonly __brand: "PromenadeSessionI
 // Index-counted per-kind via state-walk; see makeGlobalEventId in
 // src/game/rules/globalEvents.ts.
 export type GlobalEventId = string & { readonly __brand: "GlobalEventId" };
+// P18: brand for generated flavor content (state.flavorText Map key). The id
+// is a composite ("artifact:<definitionId>" | "bio:<CharacterId>" |
+// "scandal:<generationCount>") — the keyed underlying types are all ":"-free,
+// so the composite cannot collide (asserted at the factory site).
+export type FlavorContentId = string & { readonly __brand: "FlavorContentId" };
 
 // P3 (B1 fix): PLAYER_HOUSE_ID lives here, not in rng.seeds.ts, so that
 // src/game/rules/** can import it. rules → game-other is disallowed per
@@ -122,6 +127,9 @@ export const BloodFeudIdSchema = z.string().transform((s) => s as BloodFeudId);
 // P13: brand schema for GlobalEventId. state.globalEvents is z.map(K, V)
 // keyed on this brand.
 export const GlobalEventIdSchema = z.string().transform((s) => s as GlobalEventId);
+// P18: brand schema for FlavorContentId. state.flavorText is z.map(K, V)
+// keyed on this brand. Same `.transform` pattern.
+export const FlavorContentIdSchema = z.string().transform((s) => s as FlavorContentId);
 
 export const RngStateSchema = z.object({
   seed: z.string(),

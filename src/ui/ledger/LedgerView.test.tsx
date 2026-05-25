@@ -20,10 +20,12 @@ const TAB_KEYS = [
   "rivals",
   "staff",
   "artifacts",
+  "dynasty",
+  "scandal-sheet",
 ] as const;
 
 describe("LedgerView (matrix #4)", () => {
-  it("renders all 8 tab buttons and the default Family Tree panel", () => {
+  it("renders all 10 tab buttons and the default Family Tree panel", () => {
     const store = createStore({ seed: "ledger-test" });
     render(<LedgerView store={store} onExit={() => {}} />);
     for (const key of TAB_KEYS) {

@@ -39,6 +39,7 @@ import {
   DuelIdSchema,
   FactionIdSchema,
   FactionPairKeySchema,
+  FlavorContentIdSchema,
   ForgeryIdSchema,
   GlobalEventIdSchema,
   GrievanceIdSchema,
@@ -540,6 +541,20 @@ export const GlobalEventSchema = z.discriminatedUnion("kind", [
 ]);
 export type GlobalEvent = z.infer<typeof GlobalEventSchema>;
 
+// P18: a single generated flavor-content entry (artifact backstory, NPC bio,
+// or scandal-sheet column). LLM-authored, persisted-once, read-back-verbatim
+// (spec §3 line 270). Keyed in state.flavorText by FlavorContentId
+// ("artifact:<definitionId>" | "bio:<CharacterId>" | "scandal:<generationCount>").
+// Only SUCCESSFULLY generated text is stored; the designer stub is a display-
+// time fallback, never a persisted entry.
+export const FlavorContentEntrySchema = z.object({
+  id: FlavorContentIdSchema,
+  kind: z.enum(["ArtifactBackstory", "NpcBio", "ScandalColumn"]),
+  text: z.string().min(1),
+  generatedAtTick: z.number().int().nonnegative(),
+});
+export type FlavorContentEntry = z.infer<typeof FlavorContentEntrySchema>;
+
 // GameState lives here (not in store.ts) so the rule layer can import it.
 // store.ts re-exports GameState/GameStateSchema for P0-era callers.
 //
@@ -619,5 +634,13 @@ export const GameStateSchema = z.object({
   // (hash.ts), selectGameState (store.ts), overwriteFromGameState (store.ts),
   // createInitialState (store.ts). Per CLAUDE.md non-negotiable.
   globalEvents: z.map(GlobalEventIdSchema, GlobalEventSchema),
+  // P18 addition — generated flavor content (artifact backstories / NPC bios /
+  // scandal columns), keyed by FlavorContentId. LLM-authored, persisted-once.
+  // In the hash exactly like conversationHistory (also LLM-authored text): the
+  // replay harness never invokes the LLM, so this stays empty across all 30
+  // runs and hashes identically. Quad-sync surfaces: GameStateSchema (here),
+  // hashableState (hash.ts), selectGameState (store.ts), overwriteFromGameState
+  // (store.ts), + createInitialState (store.ts). Per CLAUDE.md non-negotiable.
+  flavorText: z.map(FlavorContentIdSchema, FlavorContentEntrySchema),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

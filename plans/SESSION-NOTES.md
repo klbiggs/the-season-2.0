@@ -905,3 +905,32 @@ Items 6 and 8 remain partial:
 - src/game/store.ts — retrieve + semanticContext thread (sendBallroomMessage/sendPromenadeMessage) + bindStore at createStore
 - server/conversation.ts:buildContents — [Relevant past events:] section ([Setting:] → semantic → transcript)
 - src/main.tsx — enableSemanticMemory + setActiveSlot + seedLoreCorpus (load-bearing seed site)
+
+## P18 — LLM Flavor Content — closed 2026-05-25
+
+**Decisions made:**
+- **Scope = all three content types** (artifact backstories, NPC bios, per-generation scandal columns).
+- **Persistence = in the JSON save AND in the replay hash, as a normal top-level `GameState.flavorText` Map** — NOT a P17-style sidecar. Decisive precedent: `conversationHistory` is already LLM-authored text in the hashed save (`hash.ts`), and the 30-run replay stays green because the harness never invokes the LLM (flavorText stays empty → identical hash). The vector index went sidecar because it's a rebuildable cache; authored flavor must read back verbatim, so it belongs with the save. Save bumped V15 → **V16**.
+- **NPC-bio trigger = `revealNpcBio` store action on the "Who is this?" expander, NOT a conversation** (changed mid-session on user feedback — gating behind a full round-trip was wrong friction, and an un-conversed NPC would show only a stub forever). Artifact backstory = on first equip (`equipArtifact` wrapper). Scandal column = at player-house succession (`familyBus` `ArchetypeReclassified`, `trigger:"Succession"`). All three funnel through one flag-gated, deduped, idempotent `ensureFlavor`.
+- **Cut-off-text fix (Context7-verified):** flavor `generateContent` runs with **thinking DISABLED** (`thinkingConfig: { thinkingBudget: 0 }`) — on Gemini 2.5/3.x flash, thinking tokens are deducted from `maxOutputTokens`, so a tight cap was eaten by thinking and truncated the prose. `FLAVOR_OUTPUT_TOKEN_BUDGET` raised 300 → **512 as a safety ceiling, not the length control**; length is steered by the prompt (per-kind sentence/word caps + "always finish your final sentence"), so the model completes naturally (`finishReason: STOP`).
+- **Designer stub fallback** is a display-time fixture (`flavorStubs.ts`), never persisted; only LLM successes land in the save (honors "produced at most once").
+- **Save bump with NO strip-cascade**: `flavorText` is a top-level field, so legacy `toSaveV1..V15` simply omit it and legacy lifters default it to `new Map()` in each Bare return literal. Required the V15 Bare/wrap split (`fromSaveV15Bare`) which didn't exist (V15 was live).
+
+**Open questions hit:**
+- Streaming dialogue (§10 #15) — already Resolved-at-P4 (no streaming); P18's "streaming token rendering" stays deferred, no §10 change.
+- No new §10 OQ emerged.
+
+**Deferred / next-up:**
+- Scandal-column generation at succession verified by unit tests only (manual needs ~40+ year-passes for a head death); network-pull-mid-generation → stub also test-covered only.
+- Token budget / sentence caps are playtest-tuning values.
+- Per-character bios for player-house members + a "Society / Ton" roster view remain the standing v1.5 candidate (bios surface on the ballroom PortraitCard only).
+
+**Files of note:**
+- server/flavor.ts — `/api/llm/flavor` relay (thinking disabled, generous ceiling); server/prompts/flavor.ts — per-kind prompts with length caps; server/index.ts route
+- src/llm/flavor.ts — client `fetchFlavorText` wrapper; src/llm/types.ts — `FlavorContext`/`FlavorRequest`/`FlavorResponse`
+- src/runtime/flavorOrchestrator.ts — `ensureFlavor`, `enableFlavorContent`, `bindStore` (typed `() => StoreState`), `aggregateScandalEvents`, scandal `familyBus` subscriber
+- src/game/fixtures/flavorStubs.ts — designer stubs + `flavorStubFor` resolver
+- src/game/store.ts — `flavorText` quad-sync + `recordFlavorText` + `revealNpcBio` actions; `equipArtifact` `ensureFlavor` call; `bindFlavorStore`
+- src/game/entities.ts:FlavorContentEntrySchema + GameStateSchema.flavorText; src/game/hash.ts (in-hash); src/game/rng.ts:FlavorContentId
+- src/persist/schema.ts — SaveV16 + `fromSaveV15Bare` split; src/persist/migrations/v15-to-v16.ts
+- src/ui/ledger/tabs/ScandalSheetTab.tsx (10th tab); ArtifactsTab.tsx backstory expander; src/ui/ballroom/PortraitCard.tsx bio expander + `onRevealBio`

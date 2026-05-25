@@ -28,6 +28,7 @@ export function migrate_v9_to_v10(save: SaveV9): SaveV10 {
     forgeries: new Map(),
     thiefAttempts: new Map(),
     globalEvents: new Map(),
+    flavorText: new Map(),
   };
   return toSaveV10(seeded);
 }

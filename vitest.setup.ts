@@ -4,6 +4,8 @@
 //
 // Route table:
 //   POST /api/llm/conversation       → deterministic ConversationResponseRaw
+//   POST /api/llm/embed              → deterministic embeddings
+//   POST /api/llm/flavor             → deterministic { text }
 //   POST /api/llm/persona/invalidate → 204 No Content
 //   anything else                    → throws (defensive catch for drift)
 //
@@ -89,6 +91,16 @@ vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit): Pro
     }
     const embeddings = texts.map(deterministicEmbedding);
     return new Response(JSON.stringify({ embeddings }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (path === "/api/llm/flavor") {
+    // P18: deterministic flavor text derived from the request-body hash, so
+    // client-side flavor tests are stable. Server tests use the genai mock.
+    const hash = createHashFromString(canonicalJSON(rawBody));
+    const text = `Flavor passage [${hash}].`;
+    return new Response(JSON.stringify({ text }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });

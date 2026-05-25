@@ -30,6 +30,7 @@ export type {
   PromenadeSessionId,
   BallSessionId,
   GlobalEventId,
+  FlavorContentId,
   BloodFeudId,
   InheritedSecretId,
   PatronessId,

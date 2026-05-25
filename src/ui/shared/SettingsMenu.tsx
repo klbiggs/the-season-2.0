@@ -2,7 +2,7 @@ import { useState } from "react";
 import { type SeasonStore, selectGameState } from "../../game/store";
 import { DEV_SLOT, load, save } from "../../persist/dexie";
 import { SaveLoadError } from "../../persist/errors";
-import { fromSaveV15 } from "../../persist/schema";
+import { fromSaveV16 } from "../../persist/schema";
 import { seedLoreCorpus, setActiveSlot } from "../../runtime/semanticIndex";
 
 // Settings menu dropdown. Houses Save / Load / Pass Year affordances that
@@ -43,7 +43,7 @@ export function SettingsMenu({ store, onStatus, onLoadError }: Props) {
         onStatus("No save in slot 'dev'.");
         return;
       }
-      store.getState().replaceState(fromSaveV15(saved));
+      store.getState().replaceState(fromSaveV16(saved));
       // P17: re-point the vector-index slot + backfill lore (idempotent; inert
       // unless semantic memory is enabled).
       setActiveSlot(DEV_SLOT);

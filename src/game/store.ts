@@ -23,6 +23,7 @@ import {
   CharacterSchema,
   type CourierPayload,
   type Duel,
+  type FlavorContentEntry,
   type GameState,
   GameStateSchema,
   type GlobalEvent,
@@ -37,6 +38,7 @@ import {
   type StaffMember,
   type Whisper,
 } from "./entities";
+import { ARTIFACT_REGISTRY } from "./fixtures/artifacts";
 import { makeDuelId } from "./fixtures/duelIdFactory";
 import { FACTION_PAIRS } from "./fixtures/factions";
 import type { LocationId } from "./fixtures/locations";
@@ -48,6 +50,7 @@ import {
   type CourierPayloadId,
   type DuelId,
   type FactionPairKey,
+  type FlavorContentId,
   type ForgeryId,
   type GlobalEventId,
   type GrievanceId,
@@ -227,6 +230,9 @@ export function createInitialState(
     // P13: empty global events at fresh state. Events spawn via the slot-6
     // global-event roll (5%/tick); no seeding helper.
     globalEvents: new Map<GlobalEventId, GlobalEvent>(),
+    // P18: empty flavor content at fresh state. Entries land at runtime via
+    // flavorOrchestrator's success path (recordFlavorText); no seeding helper.
+    flavorText: new Map<FlavorContentId, FlavorContentEntry>(),
   };
 }
 
@@ -370,6 +376,20 @@ export type StoreActions = {
     { ok: true; outcome: ConversationResponse } | { ok: false; reason: ConversationFailure }
   >;
   abortPromenadeRequest: () => void;
+  // P18: persist one generated flavor entry. Called ONLY from the
+  // flavorOrchestrator success path (never a UI affordance). Free action:
+  // no tick advance, no publisher fan-out, no modal-state gate (a conscious
+  // divergence from the P9 free-action-gate pin — the write is additive keyed
+  // text with no gameplay effect, so landing it during exile/elopement is
+  // harmless). No-op if the id is already present (honors "produced at most
+  // once" even against a race past ensureFlavor's check).
+  recordFlavorText: (entry: FlavorContentEntry) => void;
+  // P18: trigger NPC-bio generation when the player opens an NPC's "Who is
+  // this?" expander (the deliberate reveal — NOT gated behind a conversation).
+  // Fire-and-forget + flag-gated inside ensureFlavor (inert in tests/replay);
+  // idempotent (no-op if already persisted / in flight). Skips player-house
+  // characters (bios are for ballroom NPCs).
+  revealNpcBio: (characterId: CharacterId) => void;
 };
 
 // P12: input shape for sendPromenadeMessage. Differs from BallroomMessageInput
@@ -434,6 +454,10 @@ import { locationBus } from "../runtime/events/location";
 import { publishSchemeTransitions, schemeBus } from "../runtime/events/scheme";
 import { publishSiblingRivalTransitions, siblingRivalBus } from "../runtime/events/siblingRival";
 import { publishWhisperTransitions, whisperBus } from "../runtime/events/whispers";
+// P18: importing flavorOrchestrator registers its bus subscriptions (NPC bio +
+// scandal column) at module load; bindFlavorStore wires the state accessor;
+// ensureFlavor is called from equipArtifact (artifact backstory trigger).
+import { bindStore as bindFlavorStore, ensureFlavor } from "../runtime/flavorOrchestrator";
 // P17: importing semanticIndex registers its bus subscriptions (indexing) at
 // module load; bindStore wires the state accessor; retrieve runs the read path.
 import {
@@ -521,6 +545,10 @@ function overwriteFromGameState(draft: GameState, next: GameState): void {
   // action silently CLEARS state.globalEvents (critical because slot 6's
   // applyGlobalEventPhase mutates this Map every tick).
   draft.globalEvents = next.globalEvents;
+  // P18 addition — generated flavor content. Without this line, every tick-
+  // advancing action silently CLEARS state.flavorText (so a scandal column or
+  // backstory recorded mid-campaign would vanish on the next tick).
+  draft.flavorText = next.flavorText;
 }
 
 export function createStore({ seed }: { seed: string }): SeasonStore {
@@ -1797,7 +1825,41 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         set((state) => {
           overwriteFromGameState(state, result.state);
         });
+        // P18: first-equip is the "encounter" that triggers backstory
+        // generation. Fire-and-forget + flag-gated inside ensureFlavor, so this
+        // is inert in tests/replay. Derive def fields from the freshly-equipped
+        // instance (none are in scope at the wrapper signature).
+        const equipped = result.state.artifactInstances.get(artifactInstanceId);
+        if (equipped !== undefined) {
+          const def = ARTIFACT_REGISTRY.get(equipped.definitionId);
+          if (def !== undefined) {
+            ensureFlavor(`artifact:${equipped.definitionId}` as FlavorContentId, {
+              kind: "ArtifactBackstory",
+              definitionId: equipped.definitionId,
+              displayName: def.displayName,
+              family: def.family,
+            });
+          }
+        }
         return { ok: true };
+      },
+      recordFlavorText: (entry) => {
+        // No-op if already present (honors "produced at most once" even if a
+        // race slips past ensureFlavor's check). Immer handles the Map mutation.
+        set((state) => {
+          if (state.flavorText.has(entry.id)) return;
+          state.flavorText.set(entry.id, entry);
+        });
+      },
+      revealNpcBio: (characterId) => {
+        // UI-triggered (the "Who is this?" expander). Fire-and-forget; flag-
+        // gated + idempotent inside ensureFlavor. No tick, no mutation here.
+        const character = get().characters.get(characterId);
+        if (character === undefined || character.houseId === PLAYER_HOUSE_ID) return;
+        ensureFlavor(`bio:${characterId}` as FlavorContentId, {
+          kind: "NpcBio",
+          character,
+        });
       },
       unequipArtifact: (characterId, artifactInstanceId) => {
         const stateBefore = get();
@@ -2130,6 +2192,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
   // subscribers (their read path resolves passage text from event ids). Inert
   // until enableSemanticMemory() is called from src/main.tsx.
   bindSemanticIndexStore(() => store.getState());
+  // P18: bind the store accessor for the flavor subscribers + ensureFlavor.
+  // Accessor returns the full StoreState (incl. recordFlavorText). Inert until
+  // enableFlavorContent() is called from src/main.tsx.
+  bindFlavorStore(() => store.getState());
   return store;
 }
 
@@ -2182,5 +2248,7 @@ export function selectGameState(state: StoreState): GameState {
     thiefAttempts: state.thiefAttempts,
     // P13 addition — global events Map. Quint-sync 3rd surface.
     globalEvents: state.globalEvents,
+    // P18 addition — generated flavor content. Quint-sync 3rd surface.
+    flavorText: state.flavorText,
   };
 }

@@ -6,6 +6,7 @@ import type {
   CourierPayload,
   Duel,
   ElopementSprintState,
+  FlavorContentEntry,
   ForgeryRecord,
   GameState,
   GlobalEvent,
@@ -27,6 +28,7 @@ import type {
   CourierPayloadId,
   DuelId,
   FactionPairKey,
+  FlavorContentId,
   ForgeryId,
   GlobalEventId,
   HouseId,
@@ -90,6 +92,10 @@ export function hashableState(state: GameState): {
   // field already; this projection captures the event lifecycle entries).
   // Lex-sorted via serializeRegistry.
   globalEvents: Array<[GlobalEventId, GlobalEvent]>;
+  // P18: generated flavor content. In-hash like conversationHistory (LLM-
+  // authored text) — harness never generates it, so it stays empty and hashes
+  // identically across replay runs. Lex-sorted via serializeRegistry.
+  flavorText: Array<[FlavorContentId, FlavorContentEntry]>;
 } {
   return {
     tick: state.tick,
@@ -130,6 +136,8 @@ export function hashableState(state: GameState): {
     thiefAttempts: serializeRegistry(state.thiefAttempts),
     // P13: global events Map. Lex-sorted via serializeRegistry.
     globalEvents: serializeRegistry(state.globalEvents),
+    // P18: generated flavor content. Lex-sorted via serializeRegistry.
+    flavorText: serializeRegistry(state.flavorText),
   };
 }
 

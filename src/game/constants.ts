@@ -317,6 +317,24 @@ export const EMBED_RETRIEVAL_TIMEOUT_MS = 5_000;
 // Server-side embed composite-AbortController budget (embeddings are fast).
 export const EMBED_SERVER_TIMEOUT_MS = 8_000;
 
+// ── P18: LLM Flavor Content ───────────────────────────────────────────────
+// Generate-once / persist-once flavor prose (artifact backstories, NPC bios,
+// per-generation scandal columns). Cheap creative prose — Flash, not the Pro
+// first-meeting model. Pinned concrete id, not a `latest` alias.
+export const FLAVOR_MODEL = "gemini-3.5-flash" as const;
+// SAFETY CEILING, not the length control — length is steered by the prompt
+// (server/prompts/flavor.ts caps sentences/words) so the model finishes
+// naturally (finishReason STOP) instead of getting cut off at the wall
+// (finishReason MAX_TOKENS). Set generously above any 2-4 sentence output.
+// Flavor thinking is DISABLED server-side (thinkingBudget: 0), so the whole
+// budget feeds visible prose rather than being eaten by thinking tokens —
+// without that, a tight cap truncates mid-sentence.
+export const FLAVOR_OUTPUT_TOKEN_BUDGET = 512;
+// Fire-and-forget generation never blocks the tick or a conversation, so the
+// budget is generous. Client AbortSignal.timeout vs server composite controller.
+export const FLAVOR_REQUEST_TIMEOUT_MS = 14_000;
+export const FLAVOR_SERVER_TIMEOUT_MS = 12_000;
+
 // ── P5: Schemes & Multi-Tick Operations ──────────────────────────────────
 
 // Six scheme kinds per spec §3 "Schemes" line 79. Treason Framing (7th) is

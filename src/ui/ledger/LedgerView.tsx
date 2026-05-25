@@ -1,8 +1,8 @@
-// P14: the canonical 8-tab Ledger view (fourth top-level view; suppressed by
+// P14: the canonical 10-tab Ledger view (fourth top-level view; suppressed by
 // the Elopement overlay, takes precedence over Map). Hand-rolled ARIA tabs
 // (shadcn is a v1.5 candidate per MASTER.md §2). Reading-only over the store —
 // every tab reads via useShallow selectors; mutations route through existing
-// store actions inside each tab.
+// store actions inside each tab. (P15 added Dynasty; P18 added Scandal Sheet.)
 
 import { useState } from "react";
 import type { SeasonStore } from "../../game/store";
@@ -12,6 +12,7 @@ import { FamilyTreeTab } from "./tabs/FamilyTreeTab";
 import { GrievancesTab } from "./tabs/GrievancesTab";
 import { PatronessesTab } from "./tabs/PatronessesTab";
 import { RivalsTab } from "./tabs/RivalsTab";
+import { ScandalSheetTab } from "./tabs/ScandalSheetTab";
 import { SchemesTab } from "./tabs/SchemesTab";
 import { StaffTab } from "./tabs/StaffTab";
 import { WhispersTab } from "./tabs/WhispersTab";
@@ -30,7 +31,8 @@ type TabKey =
   | "rivals"
   | "staff"
   | "artifacts"
-  | "dynasty";
+  | "dynasty"
+  | "scandal-sheet";
 
 const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "family-tree", label: "Family Tree" },
@@ -42,6 +44,7 @@ const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "staff", label: "Staff" },
   { key: "artifacts", label: "Artifacts" },
   { key: "dynasty", label: "Dynasty" },
+  { key: "scandal-sheet", label: "Scandal Sheet" },
 ];
 
 export function LedgerView({ store, onExit }: Props) {
@@ -89,6 +92,7 @@ export function LedgerView({ store, onExit }: Props) {
         {active === "staff" && <StaffTab store={store} />}
         {active === "artifacts" && <ArtifactsTab store={store} />}
         {active === "dynasty" && <DynastyTab store={store} />}
+        {active === "scandal-sheet" && <ScandalSheetTab store={store} />}
       </div>
     </div>
   );

@@ -8,6 +8,7 @@ import { createServer } from "node:http";
 import { handleConversation } from "./conversation";
 import { handleEmbed } from "./embeddings";
 import { validateEnv } from "./env";
+import { handleFlavor } from "./flavor";
 import { handleInvalidate } from "./invalidate";
 
 const PORT = 8787;
@@ -34,6 +35,15 @@ const server = createServer(async (req, res) => {
       await handleEmbed(req, res);
     } catch (err) {
       console.error("[server] embed handler error:", err);
+      if (!res.headersSent) res.writeHead(500).end();
+    }
+    return;
+  }
+  if (req.url === "/api/llm/flavor" && req.method === "POST") {
+    try {
+      await handleFlavor(req, res);
+    } catch (err) {
+      console.error("[server] flavor handler error:", err);
       if (!res.headersSent) res.writeHead(500).end();
     }
     return;

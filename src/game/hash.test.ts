@@ -69,6 +69,7 @@ describe("hashableState", () => {
       "elopement",
       "era",
       "factionTensions",
+      "flavorText",
       "forgeries",
       "globalEvents",
       "houses",
@@ -136,6 +137,7 @@ describe("hashState — Map reorder invariance", () => {
         forgeries: new Map(),
         thiefAttempts: new Map(),
         globalEvents: new Map(),
+        flavorText: new Map(),
       }),
     ).toBe(
       hashState({
@@ -165,6 +167,7 @@ describe("hashState — Map reorder invariance", () => {
         forgeries: new Map(),
         thiefAttempts: new Map(),
         globalEvents: new Map(),
+        flavorText: new Map(),
       }),
     );
   });

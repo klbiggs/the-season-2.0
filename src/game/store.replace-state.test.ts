@@ -200,3 +200,39 @@ describe("P13 quint-sync: state.globalEvents (overwriteFromGameState 6th surface
     expect(store.getState().globalEvents.has(event.id)).toBe(true);
   });
 });
+
+describe("P18 quint-sync: state.flavorText (overwriteFromGameState 7th surface)", () => {
+  // recordFlavorText is the only mutator and never runs inside a tick, so the
+  // real risk is a tick-advancing action CLEARING a previously-recorded entry.
+  // Without `draft.flavorText = next.flavorText` in overwriteFromGameState, the
+  // next advanceTick would silently destroy the persisted flavor text.
+  const entry = {
+    id: "artifact:sapphires" as import("./rng").FlavorContentId,
+    kind: "ArtifactBackstory" as const,
+    text: "A storied heirloom.",
+    generatedAtTick: 0,
+  };
+
+  it("replaceState carries a non-empty flavorText Map through", () => {
+    const store = createStore({ seed: "p18-quint-A" });
+    const synth = {
+      ...createInitialState("p18-quint-A"),
+      flavorText: new Map([[entry.id, entry]]),
+    };
+    store.getState().replaceState(synth);
+    expect(store.getState().flavorText.size).toBe(1);
+    expect(store.getState().flavorText.get(entry.id)).toEqual(entry);
+  });
+
+  it("advanceTick preserves a seeded flavorText entry through the mirror writes", () => {
+    const store = createStore({ seed: "p18-quint-B" });
+    const synth = {
+      ...createInitialState("p18-quint-B"),
+      flavorText: new Map([[entry.id, entry]]),
+    };
+    store.getState().replaceState(synth);
+    store.getState().advanceTick();
+    expect(store.getState().flavorText.has(entry.id)).toBe(true);
+    expect(store.getState().flavorText.get(entry.id)).toEqual(entry);
+  });
+});

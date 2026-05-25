@@ -9,6 +9,7 @@ import {
   CourierPayloadSchema,
   DuelSchema,
   ElopementSprintStateSchema,
+  FlavorContentEntrySchema,
   ForgeryRecordSchema,
   type GameState,
   GlobalEventSchema,
@@ -50,6 +51,7 @@ import {
   CourierPayloadIdSchema,
   DuelIdSchema,
   FactionPairKeySchema,
+  FlavorContentIdSchema,
   ForgeryIdSchema,
   GlobalEventIdSchema,
   type HouseId,
@@ -75,9 +77,11 @@ import { DEFAULT_CAMPAIGN_NAME } from "../game/store";
 // ("BloodFeud"). P13 bumps from 12 → 13 (adds state.globalEvents Map +
 // House.courierResearchEarned + MilitaryOfficer trait — see SaveV13Schema).
 // P15 bumps from 13 → 14 (adds 4 new House fields: awardedDynastyPerks +
-// 3 progress counters — see SaveV14Schema). Legacy toSaveV1..V13 retain their
-// literal `version: N` writes; only toSaveV14 references SAVE_VERSION_CURRENT.
-export const SAVE_VERSION_CURRENT = 15 as const;
+// 3 progress counters — see SaveV14Schema). P18 bumps from 15 → 16 (adds
+// state.flavorText Map — generated flavor content; see SaveV16Schema). Legacy
+// toSaveV1..V15 retain their literal `version: N` writes; only toSaveV16
+// references SAVE_VERSION_CURRENT.
+export const SAVE_VERSION_CURRENT = 16 as const;
 
 // ── HousePreV4 (legacy on-disk House shape for V1/V2/V3 saves) ────────────
 // Omits the 5 P3-added fields (currentLocation, etc.) AND the P5 grievances
@@ -819,6 +823,7 @@ function fromSaveV1Bare(save: SaveV1): GameState {
     forgeries: new Map(),
     thiefAttempts: new Map(),
     globalEvents: new Map(),
+    flavorText: new Map(),
   };
 }
 
@@ -912,6 +917,7 @@ function fromSaveV2Bare(save: SaveV2): GameState {
     forgeries: new Map(),
     thiefAttempts: new Map(),
     globalEvents: new Map(),
+    flavorText: new Map(),
   };
 }
 
@@ -996,6 +1002,7 @@ function fromSaveV3Bare(save: SaveV3): GameState {
     forgeries: new Map(),
     thiefAttempts: new Map(),
     globalEvents: new Map(),
+    flavorText: new Map(),
   };
 }
 
@@ -1086,6 +1093,7 @@ export function fromSaveV4Bare(save: SaveV4): GameState {
     forgeries: new Map(),
     thiefAttempts: new Map(),
     globalEvents: new Map(),
+    flavorText: new Map(),
   };
 }
 
@@ -1179,6 +1187,7 @@ export function fromSaveV5Bare(save: SaveV5): GameState {
     forgeries: new Map(),
     thiefAttempts: new Map(),
     globalEvents: new Map(),
+    flavorText: new Map(),
   };
 }
 
@@ -1277,6 +1286,7 @@ export function fromSaveV6Bare(save: SaveV6): GameState {
     forgeries: new Map(),
     thiefAttempts: new Map(),
     globalEvents: new Map(),
+    flavorText: new Map(),
   };
 }
 
@@ -1408,6 +1418,7 @@ export function fromSaveV7Bare(save: SaveV7): GameState {
     forgeries: new Map(),
     thiefAttempts: new Map(),
     globalEvents: new Map(),
+    flavorText: new Map(),
   };
 }
 
@@ -1503,6 +1514,7 @@ export function fromSaveV8Bare(save: SaveV8): GameState {
     | "artifactInstances"
     | "forgeries"
     | "thiefAttempts"
+    | "flavorText"
   > = {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
@@ -1540,6 +1552,7 @@ export function fromSaveV8Bare(save: SaveV8): GameState {
     forgeries: new Map(),
     thiefAttempts: new Map(),
     globalEvents: new Map(),
+    flavorText: new Map(),
   } as GameState;
 }
 
@@ -1561,6 +1574,7 @@ export function fromSaveV8(save: SaveV8): GameState {
     forgeries: new Map(),
     thiefAttempts: new Map(),
     globalEvents: new Map(),
+    flavorText: new Map(),
   };
   // P10: bootstrap player artifact inventory symmetric with createInitialState.
   return seedProceduralSocietyIntoLegacyState(
@@ -1641,7 +1655,7 @@ export function fromSaveV9Bare(
   save: SaveV9,
 ): Omit<
   GameState,
-  "elopement" | "artifactInstances" | "forgeries" | "thiefAttempts" | "globalEvents"
+  "elopement" | "artifactInstances" | "forgeries" | "thiefAttempts" | "globalEvents" | "flavorText"
 > {
   return {
     tick: save.tick,
@@ -1686,6 +1700,7 @@ export function fromSaveV9(save: SaveV9): GameState {
       forgeries: new Map(),
       thiefAttempts: new Map(),
       globalEvents: new Map(),
+      flavorText: new Map(),
     }),
     extractPlayerSeed(save.rng),
   );
@@ -1800,6 +1815,7 @@ export function fromSaveV10Bare(save: SaveV10): GameState {
     forgeries: new Map(),
     thiefAttempts: new Map(),
     globalEvents: new Map(),
+    flavorText: new Map(),
   };
 }
 
@@ -1922,6 +1938,7 @@ export function fromSaveV11Bare(save: SaveV11): GameState {
     forgeries: deserializeRegistry(save.forgeries) as GameState["forgeries"],
     thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
     globalEvents: new Map(),
+    flavorText: new Map(),
   };
 }
 
@@ -2063,6 +2080,7 @@ export function fromSaveV12Bare(save: SaveV12): GameState {
     thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
     // P13: V12 saves predate globalEvents — empty on lift.
     globalEvents: new Map(),
+    flavorText: new Map(),
   };
 }
 
@@ -2192,6 +2210,7 @@ export function fromSaveV13Bare(save: SaveV13): GameState {
     forgeries: deserializeRegistry(save.forgeries) as GameState["forgeries"],
     thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
     globalEvents: deserializeRegistry(save.globalEvents) as GameState["globalEvents"],
+    flavorText: new Map(),
   };
 }
 
@@ -2310,6 +2329,7 @@ export function fromSaveV14Bare(save: SaveV14): GameState {
     forgeries: deserializeRegistry(save.forgeries) as GameState["forgeries"],
     thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
     globalEvents: deserializeRegistry(save.globalEvents) as GameState["globalEvents"],
+    flavorText: new Map(),
   };
 }
 
@@ -2361,11 +2381,13 @@ export const SaveV15Schema = z.object({
 });
 export type SaveV15 = z.infer<typeof SaveV15Schema>;
 
-// P16 live emitter. ONLY emitter to reference SAVE_VERSION_CURRENT. NO proc-npc
-// filter — society NPCs are a first-class part of the live V15 format.
+// P16 emitter, demoted to legacy at P18. Version pinned to literal 15 (was
+// SAVE_VERSION_CURRENT pre-P18). NO proc-npc filter — society NPCs are a
+// first-class part of the V15 format; flavorText is simply not emitted (a
+// top-level field absent from the V15 schema).
 export function toSaveV15(state: GameState): SaveV15 {
   return SaveV15Schema.parse({
-    version: SAVE_VERSION_CURRENT,
+    version: 15,
     tick: state.tick,
     rng: serializeRegistry(state.rng),
     houses: serializeRegistry(state.houses),
@@ -2394,20 +2416,17 @@ export function toSaveV15(state: GameState): SaveV15 {
   });
 }
 
-// P16 live loader. V15 already carries society inline (toSaveV15 doesn't filter),
-// so NO society seed here — only the idempotent NPC-mount seed (mirrors the
-// established live-loader shape).
-export function fromSaveV15(save: SaveV15): GameState {
-  const characters = deserializeRegistry(save.characters) as GameState["characters"];
-  const artifactInstances = deserializeRegistry(
-    save.artifactInstances,
-  ) as GameState["artifactInstances"];
-  bootstrapNpcMountFamily(characters, artifactInstances, save.tick);
+// P18: V15 Bare lifter — pure deserialization, NO NPC-mount seeding. Created
+// because the migration (migrate_v15_to_v16) consumes the Bare half (the
+// migration runner does its own seed steps; the public mount-seeding wrapper
+// would double-seed). Mirrors fromSaveV13Bare / fromSaveV14Bare. flavorText is
+// empty (V15 saves predate the field).
+export function fromSaveV15Bare(save: SaveV15): GameState {
   return {
     tick: save.tick,
     rng: deserializeRegistry(save.rng) as GameState["rng"],
     houses: deserializeRegistry(save.houses) as GameState["houses"],
-    characters,
+    characters: deserializeRegistry(save.characters) as GameState["characters"],
     marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
     campaignName: save.campaignName,
     era: save.era,
@@ -2431,11 +2450,25 @@ export function fromSaveV15(save: SaveV15): GameState {
     factionTensions: deserializeRegistry(save.factionTensions) as GameState["factionTensions"],
     duels: deserializeRegistry(save.duels) as GameState["duels"],
     elopement: save.elopement,
-    artifactInstances,
+    artifactInstances: deserializeRegistry(
+      save.artifactInstances,
+    ) as GameState["artifactInstances"],
     forgeries: deserializeRegistry(save.forgeries) as GameState["forgeries"],
     thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
     globalEvents: deserializeRegistry(save.globalEvents) as GameState["globalEvents"],
+    flavorText: new Map(),
   };
+}
+
+// P16 loader, demoted to legacy at P18. Composes the Bare deserialize + the
+// idempotent NPC-mount seed (mirrors the established legacy-loader shape). V15
+// already carries society inline (toSaveV15 doesn't filter), so NO society seed.
+export function fromSaveV15(save: SaveV15): GameState {
+  const bare = fromSaveV15Bare(save);
+  const characters = new Map(bare.characters);
+  const artifactInstances = new Map(bare.artifactInstances);
+  bootstrapNpcMountFamily(characters, artifactInstances, save.tick);
+  return { ...bare, characters, artifactInstances };
 }
 
 // ── seedProceduralSocietyIntoLegacyState (P16) ────────────────────────────
@@ -2527,6 +2560,126 @@ export function seedRivalsAndPatronessesIntoLegacyState(
     factionTensions,
     duels,
   };
+}
+
+// ── SaveV16 (P18: generated flavor content) ───────────────────────────────
+// Adds the single top-level state.flavorText Map (artifact backstories / NPC
+// bios / scandal columns). Structurally a clone of SaveV15 + the flavorText
+// array. The bump marks "flavorText field present"; no other shape change.
+export const SaveV16Schema = z.object({
+  version: z.literal(16),
+  tick: z.number().int().nonnegative(),
+  rng: z.array(z.tuple([HouseIdSchema, RngStateSchema])),
+  houses: z.array(z.tuple([HouseIdSchema, HouseSchema])),
+  characters: z.array(z.tuple([CharacterIdSchema, CharacterSchema])),
+  marriages: z.array(z.tuple([MarriageIdSchema, MarriageRecordSchema])),
+  campaignName: z.string(),
+  era: z.enum(["Earlier", "Later"]),
+  conversationHistory: z.array(z.tuple([ConversationPairKeySchema, z.array(ExchangeSchema)])),
+  affectionMap: z.array(z.tuple([ConversationPairKeySchema, z.number().int().min(0).max(100)])),
+  schemes: z.array(z.tuple([SchemeIdSchema, SchemeSchema])),
+  whispers: z.array(z.tuple([WhisperIdSchema, WhisperSchema])),
+  couriers: z.array(z.tuple([CourierPayloadIdSchema, CourierPayloadSchema])),
+  staff: z.array(z.tuple([StaffIdSchema, StaffMemberSchema])),
+  proposalsLog: z.array(z.tuple([CharacterIdSchema, ProposalLogEntrySchema])),
+  tutorAssignmentsLog: z.array(z.tuple([CharacterIdSchema, TutorAssignmentLogEntrySchema])),
+  pendingTutorTraitChoices: z.array(z.tuple([CharacterIdSchema, PendingTutorTraitChoiceSchema])),
+  patronesses: z.array(z.tuple([PatronessIdSchema, PatronessRecordSchema])),
+  rivalActors: z.array(z.tuple([HouseIdSchema, RivalActorStateSchema])),
+  factionTensions: z.array(z.tuple([FactionPairKeySchema, z.number().int().min(0).max(100)])),
+  duels: z.array(z.tuple([DuelIdSchema, DuelSchema])),
+  elopement: ElopementSprintStateSchema.nullable(),
+  artifactInstances: z.array(z.tuple([ArtifactInstanceIdSchema, ArtifactInstanceSchema])),
+  forgeries: z.array(z.tuple([ForgeryIdSchema, ForgeryRecordSchema])),
+  thiefAttempts: z.array(z.tuple([ThiefAttemptIdSchema, ThiefAttemptSchema])),
+  globalEvents: z.array(z.tuple([GlobalEventIdSchema, GlobalEventSchema])),
+  flavorText: z.array(z.tuple([FlavorContentIdSchema, FlavorContentEntrySchema])),
+});
+export type SaveV16 = z.infer<typeof SaveV16Schema>;
+
+// P18 live emitter. ONLY emitter to reference SAVE_VERSION_CURRENT. flavorText
+// serializes directly via serializeRegistry (lex-sorted by FlavorContentId).
+export function toSaveV16(state: GameState): SaveV16 {
+  return SaveV16Schema.parse({
+    version: SAVE_VERSION_CURRENT,
+    tick: state.tick,
+    rng: serializeRegistry(state.rng),
+    houses: serializeRegistry(state.houses),
+    characters: serializeRegistry(state.characters),
+    marriages: serializeRegistry(state.marriages),
+    campaignName: state.campaignName,
+    era: state.era,
+    conversationHistory: serializeRegistry(state.conversationHistory),
+    affectionMap: serializeRegistry(state.affectionMap),
+    schemes: serializeRegistry(state.schemes),
+    whispers: serializeRegistry(state.whispers),
+    couriers: serializeRegistry(state.couriers),
+    staff: serializeRegistry(state.staff),
+    proposalsLog: serializeRegistry(state.proposalsLog),
+    tutorAssignmentsLog: serializeRegistry(state.tutorAssignmentsLog),
+    pendingTutorTraitChoices: serializeRegistry(state.pendingTutorTraitChoices),
+    patronesses: serializeRegistry(state.patronesses),
+    rivalActors: serializeRegistry(state.rivalActors),
+    factionTensions: serializeRegistry(state.factionTensions),
+    duels: serializeRegistry(state.duels),
+    elopement: state.elopement,
+    artifactInstances: serializeRegistry(state.artifactInstances),
+    forgeries: serializeRegistry(state.forgeries),
+    thiefAttempts: serializeRegistry(state.thiefAttempts),
+    globalEvents: serializeRegistry(state.globalEvents),
+    flavorText: serializeRegistry(state.flavorText),
+  });
+}
+
+// P18 Bare lifter — pure deserialization, NO NPC-mount seeding. Exported to
+// mirror the prior Bare lifters (used by future migrations + direct-lift tests).
+export function fromSaveV16Bare(save: SaveV16): GameState {
+  return {
+    tick: save.tick,
+    rng: deserializeRegistry(save.rng) as GameState["rng"],
+    houses: deserializeRegistry(save.houses) as GameState["houses"],
+    characters: deserializeRegistry(save.characters) as GameState["characters"],
+    marriages: deserializeRegistry(save.marriages) as GameState["marriages"],
+    campaignName: save.campaignName,
+    era: save.era,
+    conversationHistory: deserializeRegistry(
+      save.conversationHistory,
+    ) as GameState["conversationHistory"],
+    affectionMap: deserializeRegistry(save.affectionMap) as GameState["affectionMap"],
+    schemes: deserializeRegistry(save.schemes) as GameState["schemes"],
+    whispers: deserializeRegistry(save.whispers) as GameState["whispers"],
+    couriers: deserializeRegistry(save.couriers) as GameState["couriers"],
+    staff: deserializeRegistry(save.staff) as GameState["staff"],
+    proposalsLog: deserializeRegistry(save.proposalsLog) as GameState["proposalsLog"],
+    tutorAssignmentsLog: deserializeRegistry(
+      save.tutorAssignmentsLog,
+    ) as GameState["tutorAssignmentsLog"],
+    pendingTutorTraitChoices: deserializeRegistry(
+      save.pendingTutorTraitChoices,
+    ) as GameState["pendingTutorTraitChoices"],
+    patronesses: deserializeRegistry(save.patronesses) as GameState["patronesses"],
+    rivalActors: deserializeRegistry(save.rivalActors) as GameState["rivalActors"],
+    factionTensions: deserializeRegistry(save.factionTensions) as GameState["factionTensions"],
+    duels: deserializeRegistry(save.duels) as GameState["duels"],
+    elopement: save.elopement,
+    artifactInstances: deserializeRegistry(
+      save.artifactInstances,
+    ) as GameState["artifactInstances"],
+    forgeries: deserializeRegistry(save.forgeries) as GameState["forgeries"],
+    thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
+    globalEvents: deserializeRegistry(save.globalEvents) as GameState["globalEvents"],
+    flavorText: deserializeRegistry(save.flavorText) as GameState["flavorText"],
+  };
+}
+
+// P18 live loader. Composes the Bare deserialize + the idempotent NPC-mount
+// seed (mirrors fromSaveV15). flavorText round-trips from the save verbatim.
+export function fromSaveV16(save: SaveV16): GameState {
+  const bare = fromSaveV16Bare(save);
+  const characters = new Map(bare.characters);
+  const artifactInstances = new Map(bare.artifactInstances);
+  bootstrapNpcMountFamily(characters, artifactInstances, save.tick);
+  return { ...bare, characters, artifactInstances };
 }
 
 // Internal exports for the migration runner + tests

@@ -26,8 +26,9 @@ import {
   type SaveV13,
   type SaveV14,
   type SaveV15,
-  SaveV15Schema,
-  toSaveV15,
+  type SaveV16,
+  SaveV16Schema,
+  toSaveV16,
 } from "./schema";
 import type { VectorIndexRecord } from "./vectorIndex";
 
@@ -42,7 +43,7 @@ export const DEV_SLOT = "dev";
 const DB_NAME = "the-season";
 const DEXIE_SCHEMA_VERSION = 2;
 
-// P16: data widens to include SaveV15.
+// P18: data widens to include SaveV16.
 type SaveRecord = {
   slot: string;
   data:
@@ -60,7 +61,8 @@ type SaveRecord = {
     | SaveV12
     | SaveV13
     | SaveV14
-    | SaveV15;
+    | SaveV15
+    | SaveV16;
 };
 
 class SeasonDB extends Dexie {
@@ -94,21 +96,21 @@ export function vectorIndexTable(): EntityTable<VectorIndexRecord, "slot"> {
 }
 
 export async function save(slot: string, state: GameState): Promise<void> {
-  // P16: toSaveV15 is the live emitter (was toSaveV14 pre-P16). Sync prep:
+  // P18: toSaveV16 is the live emitter (was toSaveV15 pre-P18). Sync prep:
   // serializes and Zod-validates synchronously.
-  const data = toSaveV15(state);
+  const data = toSaveV16(state);
   // Async IO: structured-clone copy into IndexedDB.
   await db().saves.put({ slot, data });
 }
 
-// Load returns SaveV15 by routing legacy SaveV1..V14 records through
+// Load returns SaveV16 by routing legacy SaveV1..V15 records through
 // runMigrations. Errors are SaveLoadError variants:
 // - UnknownSaveVersionError: version field missing, non-numeric, or < 1
 // - SaveVersionTooNewError: version > SAVE_VERSION_CURRENT
-// - InvalidSaveSchemaError: Zod validation failed for the SaveV15 final shape
+// - InvalidSaveSchemaError: Zod validation failed for the SaveV16 final shape
 // - MigrationFailedError (from runMigrations): a migration step threw or
 //   produced output that failed the next version's schema
-export async function load(slot: string): Promise<SaveV15 | undefined> {
+export async function load(slot: string): Promise<SaveV16 | undefined> {
   const record = await db().saves.get(slot);
   if (record === undefined) return undefined;
   const raw = record.data as unknown;
@@ -130,7 +132,7 @@ export async function load(slot: string): Promise<SaveV15 | undefined> {
   }
   if (observedVersion === SAVE_VERSION_CURRENT) {
     try {
-      return SaveV15Schema.parse(raw);
+      return SaveV16Schema.parse(raw);
     } catch (cause) {
       throw asInvalidSaveSchemaError(cause);
     }
@@ -138,7 +140,7 @@ export async function load(slot: string): Promise<SaveV15 | undefined> {
   // Legacy version path — route through migrations.
   const migrated = runMigrations(raw, observedVersion, SAVE_VERSION_CURRENT, MIGRATIONS);
   try {
-    return SaveV15Schema.parse(migrated);
+    return SaveV16Schema.parse(migrated);
   } catch (cause) {
     throw asInvalidSaveSchemaError(cause);
   }

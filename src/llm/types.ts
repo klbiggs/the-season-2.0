@@ -141,6 +141,41 @@ export const EmbedResponseSchema = z.object({
 });
 export type EmbedResponse = z.infer<typeof EmbedResponseSchema>;
 
+// P18: flavor-generation wire contract (client → server). The context is a
+// discriminated union on `kind`; the server (server/prompts/flavor.ts) builds
+// the per-kind prompt from it. The scandal aggregation happens client-side
+// (it needs GameState) and arrives pre-built as `eventSummaries` — the server
+// never sees GameState. CharacterSchema is reused for the NpcBio context, the
+// same way CharacterStateSnapshot embeds it.
+export const FlavorContextSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("ArtifactBackstory"),
+    definitionId: z.string(),
+    displayName: z.string(),
+    family: z.string(),
+  }),
+  z.object({
+    kind: z.literal("NpcBio"),
+    character: CharacterSchema,
+  }),
+  z.object({
+    kind: z.literal("ScandalColumn"),
+    generationCount: z.number().int().nonnegative(),
+    eventSummaries: z.array(z.string()),
+  }),
+]);
+export type FlavorContext = z.infer<typeof FlavorContextSchema>;
+
+export const FlavorRequestSchema = z.object({
+  context: FlavorContextSchema,
+});
+export type FlavorRequest = z.infer<typeof FlavorRequestSchema>;
+
+export const FlavorResponseSchema = z.object({
+  text: z.string().min(1),
+});
+export type FlavorResponse = z.infer<typeof FlavorResponseSchema>;
+
 // Widen-and-validate: enum fields parsed as z.string() so unknown values
 // don't trigger SchemaError. Post-parse resolvers (resolveTactic /
 // resolveMoodHint) apply the enum check + fallback per spec §7 line 664

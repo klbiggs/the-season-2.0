@@ -8,7 +8,9 @@
 import { useEffect, useState } from "react";
 import { COMPOSURE_DEFAULT, type Stance, type Tactic } from "../../game/constants";
 import { type ConversationFailure, makePairKey } from "../../game/conversation/types";
-import { INDEPENDENT_HOUSE_ID, PLAYER_HOUSE_ID } from "../../game/rng.seeds";
+import type { Character } from "../../game/entities";
+import { flavorStubFor } from "../../game/fixtures/flavorStubs";
+import { type FlavorContentId, INDEPENDENT_HOUSE_ID, PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import type { SeasonStore } from "../../game/store";
 import { conversationBus } from "../../runtime/events/conversation";
 import { ChatLog } from "./ChatLog";
@@ -31,6 +33,14 @@ export function BallroomView({ store, onExit }: Props) {
   const characters = store((s) => s.characters);
   const conversationHistory = store((s) => s.conversationHistory);
   const houses = store((s) => s.houses);
+  const flavorText = store((s) => s.flavorText);
+
+  // P18: persisted bio if generated (on first "Who is this?" reveal), else stub.
+  const bioFor = (c: Character): string => {
+    const id = `bio:${c.id}` as FlavorContentId;
+    return flavorText.get(id)?.text ?? flavorStubFor(id, { character: c });
+  };
+  const revealNpcBio = store((s) => s.revealNpcBio);
 
   // Independent's living NPCs are the ballroom roster at P4 (P8 may
   // augment with rival-house NPCs).
@@ -128,6 +138,8 @@ export function BallroomView({ store, onExit }: Props) {
       <PortraitRing
         npcs={npcs}
         selectedTargetId={selectedTargetId}
+        bioFor={bioFor}
+        onRevealBio={revealNpcBio}
         onSelect={(id) => {
           setSelectedTargetId(id);
           setPinnedTactic(null);

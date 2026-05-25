@@ -69,6 +69,10 @@ export type GenerateContentResponse = ReturnType<typeof deterministicResponseFro
 
 function deterministicResponseFromHash(hash: string): {
   functionCalls: Array<{ name: string; args: Record<string, unknown> }>;
+  // P18: plain-prose getter consumed by the flavor handler (server/flavor.ts
+  // reads response.text). Coexists with functionCalls (conversation reads that
+  // via optional-chaining, so it's unaffected).
+  text: string;
   usageMetadata: {
     promptTokenCount: number;
     candidatesTokenCount: number;
@@ -93,6 +97,7 @@ function deterministicResponseFromHash(hash: string): {
         },
       },
     ],
+    text: `Flavor passage [${hash}].`,
     usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 },
   };
 }
