@@ -152,9 +152,6 @@ export const RIVAL_CHARACTER_IDS_SET: ReadonlySet<CharacterId> = new Set(
     ...r.associatedSeeds.map((s) => s.characterId),
   ]),
 );
-// Derived list (lex-sorted for iteration determinism).
-export const RIVAL_HOUSE_IDS: readonly HouseId[] = [...RIVAL_HOUSE_IDS_SET].sort();
-
 if (RIVAL_HOUSE_IDS_SET.size !== 3) {
   throw new Error("RIVAL_HOUSE_IDS_SET must have exactly 3 entries (per spec §3 line 130)");
 }
@@ -173,8 +170,8 @@ for (const id of RIVAL_HOUSE_IDS_SET) {
   }
 }
 
-// Build a full 17-field Character from a rival character seed. Used by both
-// bootstrap (seedStartingFamily) and migration (V8→V9 seeder) for parity.
+// Build a full 17-field Character from a rival character seed. Used by
+// bootstrap (seedStartingFamily).
 // `role` and `age` are passed in: head gets HeadOfHouse + age 35; associated
 // chars get Dependent + age 30 (rivals at bootstrap are adults). `birthTick: 0`
 // matches the baseline NPC precedent (npcs.ts:84) — aging.ts increments

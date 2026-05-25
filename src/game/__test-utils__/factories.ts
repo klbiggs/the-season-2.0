@@ -110,7 +110,7 @@ export function makeHouse(overrides: Partial<House> = {}): House {
     generation: 0,
     ancestorSummary: [],
     heirless: false,
-    // P3 defaults — match bootstrap.ts + migrate_v3_to_v4 lift defaults.
+    // P3 defaults — match bootstrap.ts defaults.
     currentLocation: "Capital",
     consecutiveTicksAtCurrentLocation: 0,
     lastAudienceTick: null,

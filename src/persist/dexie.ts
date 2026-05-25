@@ -7,29 +7,7 @@ import {
   SaveVersionTooNewError,
   UnknownSaveVersionError,
 } from "./errors";
-import { MIGRATIONS } from "./migrations";
-import { runMigrations } from "./migrations/runner";
-import {
-  SAVE_VERSION_CURRENT,
-  type SaveV1,
-  type SaveV2,
-  type SaveV3,
-  type SaveV4,
-  type SaveV5,
-  type SaveV6,
-  type SaveV7,
-  type SaveV8,
-  type SaveV9,
-  type SaveV10,
-  type SaveV11,
-  type SaveV12,
-  type SaveV13,
-  type SaveV14,
-  type SaveV15,
-  type SaveV16,
-  SaveV16Schema,
-  toSaveV16,
-} from "./schema";
+import { SAVE_VERSION_CURRENT, type SaveV1, SaveV1Schema, toSaveV1 } from "./schema";
 import type { VectorIndexRecord } from "./vectorIndex";
 
 // Slot for dev/scaffold UI. UI components and the round-trip test reference
@@ -43,26 +21,10 @@ export const DEV_SLOT = "dev";
 const DB_NAME = "the-season";
 const DEXIE_SCHEMA_VERSION = 2;
 
-// P18: data widens to include SaveV16.
+// P19: the migration ladder is gone — only the live SaveV1 format persists.
 type SaveRecord = {
   slot: string;
-  data:
-    | SaveV1
-    | SaveV2
-    | SaveV3
-    | SaveV4
-    | SaveV5
-    | SaveV6
-    | SaveV7
-    | SaveV8
-    | SaveV9
-    | SaveV10
-    | SaveV11
-    | SaveV12
-    | SaveV13
-    | SaveV14
-    | SaveV15
-    | SaveV16;
+  data: SaveV1;
 };
 
 class SeasonDB extends Dexie {
@@ -96,21 +58,21 @@ export function vectorIndexTable(): EntityTable<VectorIndexRecord, "slot"> {
 }
 
 export async function save(slot: string, state: GameState): Promise<void> {
-  // P18: toSaveV16 is the live emitter (was toSaveV15 pre-P18). Sync prep:
-  // serializes and Zod-validates synchronously.
-  const data = toSaveV16(state);
+  // Sync prep: serializes and Zod-validates synchronously.
+  const data = toSaveV1(state);
   // Async IO: structured-clone copy into IndexedDB.
   await db().saves.put({ slot, data });
 }
 
-// Load returns SaveV16 by routing legacy SaveV1..V15 records through
-// runMigrations. Errors are SaveLoadError variants:
-// - UnknownSaveVersionError: version field missing, non-numeric, or < 1
-// - SaveVersionTooNewError: version > SAVE_VERSION_CURRENT
-// - InvalidSaveSchemaError: Zod validation failed for the SaveV16 final shape
-// - MigrationFailedError (from runMigrations): a migration step threw or
-//   produced output that failed the next version's schema
-export async function load(slot: string): Promise<SaveV16 | undefined> {
+// Load returns the single live SaveV1 format. P19 deleted the migration
+// ladder, so there is no legacy-version branch. Errors are SaveLoadError
+// variants:
+// - InvalidSaveSchemaError: version field missing, or current-version Zod
+//   validation failed
+// - UnknownSaveVersionError: version non-numeric, non-integer, or < 1
+// - SaveVersionTooNewError: version > SAVE_VERSION_CURRENT (e.g., a save from
+//   a future build, or a pre-P19 dev save still at v2..v16)
+export async function load(slot: string): Promise<SaveV1 | undefined> {
   const record = await db().saves.get(slot);
   if (record === undefined) return undefined;
   const raw = record.data as unknown;
@@ -130,17 +92,9 @@ export async function load(slot: string): Promise<SaveV16 | undefined> {
   if (observedVersion > SAVE_VERSION_CURRENT) {
     throw new SaveVersionTooNewError(observedVersion, SAVE_VERSION_CURRENT);
   }
-  if (observedVersion === SAVE_VERSION_CURRENT) {
-    try {
-      return SaveV16Schema.parse(raw);
-    } catch (cause) {
-      throw asInvalidSaveSchemaError(cause);
-    }
-  }
-  // Legacy version path — route through migrations.
-  const migrated = runMigrations(raw, observedVersion, SAVE_VERSION_CURRENT, MIGRATIONS);
+  // observedVersion === SAVE_VERSION_CURRENT (the only remaining case).
   try {
-    return SaveV16Schema.parse(migrated);
+    return SaveV1Schema.parse(raw);
   } catch (cause) {
     throw asInvalidSaveSchemaError(cause);
   }

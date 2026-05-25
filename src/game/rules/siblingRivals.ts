@@ -31,6 +31,7 @@ import {
   type SiblingRivalActionKind,
 } from "../constants";
 import type { Character, House, SiblingRivalState, Whisper } from "../entities";
+import type { GameState } from "../entities";
 import {
   type CharacterId,
   type HouseId,
@@ -39,7 +40,6 @@ import {
   type WhisperId,
   drawNext,
 } from "../rng";
-import type { GameState } from "../store";
 import { tryStartScheme } from "./schemes";
 
 // ── Adulthood predicate (resolves cycle-2-iter-2 R5 — `isAdult` is exported here).

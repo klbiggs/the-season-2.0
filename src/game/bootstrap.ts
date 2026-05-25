@@ -1,17 +1,12 @@
-// Single source of truth for starting-family construction. Called by both
-// createInitialState (fresh-state path) and migrate_v1_to_v2 (legacy save
-// upgrade path). The parity invariant — `hashState(createInitialState(seed))
-// === hashState(fromSaveV2(migrate_v1_to_v2(saveV1WithSeed)))` when
-// SaveV1.callCount = 0 — depends on this helper being the byte-identical
-// shared bootstrap math.
+// Single source of truth for starting-family construction. Called by
+// createInitialState (fresh-state path). Must be byte-identical shared
+// bootstrap math so a fresh campaign hashes deterministically across runs.
 //
 // P4: returns PLURAL arrays { rngState, houses, characters } so both the
 // player house AND the Independent house's 5 baseline NPCs can be seeded
 // in one call. Both arrays are in deterministic order: houses[0] is the
 // player house, houses[1] is Independent. characters[0] is the player
 // head, characters[1..5] are the 5 NPCs in BASELINE_NPCS order.
-// migrate_v1_to_v2 filters to player-only (V2 saves predate Independent);
-// createInitialState includes both.
 //
 // NPC deathAges are CONSTANTS from the BASELINE_NPCS fixture — ZERO RNG
 // draws for NPC construction. The bootstrap draw budget stays at 1
@@ -117,8 +112,7 @@ export function seedStartingFamily(
     generation: 0,
     ancestorSummary: [],
     heirless: false,
-    // P3 additions — defaults match migrate_v3_to_v4's lift values so a
-    // fresh-state + serialized-to-v4 hash equals a migrated-v3-to-v4 hash.
+    // P3 additions.
     currentLocation: "Capital",
     consecutiveTicksAtCurrentLocation: 0,
     lastAudienceTick: null,
@@ -181,10 +175,8 @@ export function seedStartingFamily(
   // P16: procedural society batch. Drawn from a TRANSIENT sub-stream
   // (`${campaignSeed}|procedural-npcs`) that is consumed here and discarded —
   // never added to state.rng, so the player rngState return is unchanged. Era
-  // is pinned to "Earlier" (founding era) on BOTH this path and the legacy-seed
-  // path (seedProceduralSocietyIntoLegacyState) so the two produce byte-identical
-  // society. migrate_v1_to_v2 reads only the player char/house, so these
-  // Independent-house NPCs are ignored there (V2 predates society).
+  // is pinned to "Earlier" (founding era) so society generation is
+  // deterministic across runs.
   const societyNpcs = generateSocietyNpcs(
     createRngState(`${campaignSeed}|procedural-npcs`),
     "Earlier",
@@ -295,7 +287,7 @@ export function bootstrapPlayerArtifactsForInit(
 //
 // Called from TWO sites:
 //   1. createInitialState (fresh state path).
-//   2. fromSaveV12 (live load path; legacy lifts reach this via the chain).
+//   2. fromSaveV1 (live load path).
 //
 // Per-iteration synthState rebuild inside the for-loop is the canonical
 // pattern here — each iteration freshly clones the LIVE `artifactInstances`
@@ -341,61 +333,4 @@ export function bootstrapNpcMountFamily(
       equippedArtifactIds: [...npc.equippedArtifactIds, instId],
     });
   }
-}
-
-// Used by migrate_v10_to_v11 and the fromSaveV1..V11 outer wraps. Pure
-// state-in/state-out. IDEMPOTENT — if the player head already has any
-// equippedArtifactIds OR state.artifactInstances is non-empty, returns
-// state unchanged for the player-side seeding (the migration-runner
-// double-call path is safe).
-//
-// P12: ALSO threads through bootstrapNpcMountFamily so legacy lifts gain
-// the same NPC mount seeding as the fresh-state path. Each helper is
-// independently idempotent, so the call order is symmetric — player first
-// (so the per-definitionId counter for "mount" lands at 0 for the player
-// head, 1+2 for NPCs).
-// No `seed` parameter — starting inventory is deterministic via
-// PLAYER_STARTING_ARTIFACTS + NPC_STARTING_MOUNT_FAMILY + lex-sorted ids.
-export function bootstrapPlayerArtifactsForMigration(state: GameState): GameState {
-  // Player-artifact seeding. Guarded by the same "already seeded?" checks
-  // as before P12 — skipped when state.artifactInstances has any entries
-  // or the player head already equips anything.
-  const player = state.houses.get(PLAYER_HOUSE_ID);
-  if (!player) return state;
-  const headChar = state.characters.get(player.headOfHouseCharacterId);
-  if (!headChar) return state;
-
-  const newArtifactInstances = new Map(state.artifactInstances);
-  const newCharacters = new Map(state.characters);
-  const playerAlreadySeeded =
-    state.artifactInstances.size > 0 || headChar.equippedArtifactIds.length > 0;
-
-  if (!playerAlreadySeeded) {
-    const instances = computeStartingArtifactInstances(
-      state.artifactInstances,
-      headChar.id,
-      player.id,
-      state.tick,
-    );
-    const equippedIds: ArtifactInstanceId[] = [];
-    for (let i = 0; i < instances.length; i++) {
-      const inst = instances[i];
-      const starter = PLAYER_STARTING_ARTIFACTS[i];
-      if (inst === undefined || starter === undefined) continue;
-      newArtifactInstances.set(inst.id, inst);
-      if (starter.equippedFromStart) equippedIds.push(inst.id);
-    }
-    newCharacters.set(headChar.id, { ...headChar, equippedArtifactIds: equippedIds });
-  }
-
-  // P12: NPC mount seeding (per-NPC idempotent via the helper's
-  // alreadyEquipped check). Always invoked — re-calls on already-seeded
-  // NPCs are no-ops.
-  bootstrapNpcMountFamily(newCharacters, newArtifactInstances, state.tick);
-
-  return {
-    ...state,
-    artifactInstances: newArtifactInstances,
-    characters: newCharacters,
-  };
 }

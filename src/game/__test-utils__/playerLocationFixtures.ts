@@ -9,13 +9,6 @@ import type { LocationId } from "../fixtures/locations";
 import { PLAYER_HOUSE_ID } from "../rng";
 import { createInitialState } from "../store";
 
-// Build a player house at a given location with overridable defaults.
-export function playerHouseAt(location: LocationId, overrides: Partial<House> = {}): House {
-  const base = createInitialState("test").houses.get(PLAYER_HOUSE_ID);
-  if (base === undefined) throw new Error("createInitialState produced no player house");
-  return { ...base, currentLocation: location, ...overrides };
-}
-
 // Build a single-house GameState at a given location. Overrides are applied
 // to the GameState top level; House-specific overrides go via `house`.
 export function synthStateAt(

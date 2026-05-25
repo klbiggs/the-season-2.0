@@ -3,9 +3,8 @@
 // head-of-house; the other four are dependents.
 //
 // All fields are pre-assigned constants — ZERO RNG draws involved in NPC
-// construction. This property keeps fresh-state (createInitialState) and
-// migration (migrate_v4_to_v5 + lifters) paths producing byte-identical
-// NPCs across the bootstrap-vs-migration boundary.
+// construction. This property keeps NPC construction deterministic across
+// runs (the fresh-state createInitialState path).
 //
 // Plan: plans/phases/04-ballroom-llm.md "NPC pool: INDEPENDENT_HOUSE_ID +
 // 5 baseline society NPCs".
@@ -71,11 +70,9 @@ export const BASELINE_NPCS: ReadonlyArray<BaselineNpcSeed> = [
   },
 ];
 
-// Builders called by BOTH seedStartingFamily (fresh-state path) AND
-// seedIndependentIntoLegacyState (migration/lifter path) so there is a
-// single source of truth — no constants duplication between bootstrap.ts
-// and schema.ts. v4-to-v5.test.ts asserts byte-identical Independent
-// construction across both paths.
+// Builders called by seedStartingFamily (fresh-state path) — the single
+// source of truth for Independent NPC construction (no constants duplication
+// elsewhere).
 export function buildBaselineNpcCharacter(seed: BaselineNpcSeed): Character {
   return {
     id: seed.id,

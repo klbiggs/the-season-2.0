@@ -3,9 +3,8 @@
 // FIXED 8-draw budget per NPC (profile, gender, age, deathAge, 2 pooled traits,
 // given name, surname) — fixed regardless of branch so the draw count is part of
 // the determinism contract. Society NPCs are all single, non-head, adults in
-// INDEPENDENT_HOUSE_ID. The same generator runs on the bootstrap path AND the
-// legacy-seed path (seedProceduralSocietyIntoLegacyState), so identical seed +
-// era + count ⇒ byte-identical society.
+// INDEPENDENT_HOUSE_ID. Runs on the bootstrap path; identical seed + era +
+// count ⇒ byte-identical society across runs.
 
 import {
   HAPPINESS_INITIAL,

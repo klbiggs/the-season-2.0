@@ -1,0 +1,20 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/main.tsx",
+    "server/index.ts",
+    "src/**/*.test.{ts,tsx}",
+    "eslint/**/*.test.ts",
+    "tests/**/*.spec.ts",
+    "scripts/*.mjs"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}",
+    "server/**/*.ts",
+    "eslint/**/*.ts",
+    "tests/**/*.ts",
+    "scripts/*.mjs"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "ignoreDependencies": ["framer-motion", "tailwindcss", "@vitest/coverage-v8"]
+}

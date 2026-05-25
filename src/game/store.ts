@@ -123,8 +123,7 @@ import { getHouseOrThrow } from "./util/lookups";
 export type { Character, GameState, House, MarriageRecord };
 export { CharacterSchema, GameStateSchema, HouseSchema, MarriageRecordSchema };
 
-// P2: default campaign name written into every new save and used by
-// migrate_v2_to_v3 + fromSaveV1/fromSaveV2 default-on-lift. Lives here
+// P2: default campaign name written into every new save. Lives here
 // (not in game/constants.ts) because it's an initialization string,
 // not a designer-tuned gameplay value.
 export const DEFAULT_CAMPAIGN_NAME = "Unnamed Campaign";
@@ -153,9 +152,7 @@ export function createInitialState(
   rng.set(PLAYER_HOUSE_ID, seeded.rngState);
   // P4: Independent's RNG state is deterministically derived from the
   // player seed. Required because applyMoodDriftPhase iterates every house
-  // and calls getOrThrow(state.rng, houseId). Same derivation in
-  // seedIndependentIntoLegacyState so fresh-state and migration paths
-  // produce byte-identical Independent RNG.
+  // and calls getOrThrow(state.rng, houseId).
   rng.set(INDEPENDENT_HOUSE_ID, createRngState(`${seed}|independent`));
   // P8: 3 per-rival RNG entries. Same `${seed}|${rivalHouseId}` string-concat
   // form as Independent; mood drift + rival action both consume from these.

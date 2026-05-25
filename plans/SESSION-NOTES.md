@@ -934,3 +934,30 @@ Items 6 and 8 remain partial:
 - src/game/entities.ts:FlavorContentEntrySchema + GameStateSchema.flavorText; src/game/hash.ts (in-hash); src/game/rng.ts:FlavorContentId
 - src/persist/schema.ts — SaveV16 + `fromSaveV15Bare` split; src/persist/migrations/v15-to-v16.ts
 - src/ui/ledger/tabs/ScandalSheetTab.tsx (10th tab); ArtifactsTab.tsx backstory expander; src/ui/ballroom/PortraitCard.tsx bio expander + `onRevealBio`
+
+## P19 — Pre-ship cleanup: delete migration ladder + dead-code sweep — closed 2026-05-25
+
+Final pre-ship phase. Delete-only, no behavior change. Net **91 files, +724 / −5962 (~−5,240 LOC)**.
+
+**Decisions made (resolved this session, baked into the converged subplan):**
+- **D1 — Rebase to `version: 1`.** Renamed the live `SaveV16*` → `SaveV1*` and set `SAVE_VERSION_CURRENT = 1`. The future post-ship migration ladder restarts from v1. (The symbol `SaveV1` now denotes the former V16 shape; no collision because the original SaveV1 was deleted in the same pass.)
+- **D2 — Delete the runner entirely.** `src/persist/migrations/` removed wholesale (15 `migrate_*` modules + `runner.ts` + `index.ts` registry + `__test-utils__` + ~35 tests). `load()` lost its legacy branch: version `=== 1` → parse; anything else → a `SaveLoadError` variant. First post-ship migration re-scaffolds the runner.
+- **D3 — No reset tooling.** The original "`npm run reset-save`" was infeasible (Node can't reach browser IndexedDB). Any pre-P19 dev save (≥ v2) surfaces the existing `SaveVersionTooNewError` banner; the single-user dev clears IndexedDB by hand if needed.
+- **`schema.ts` reconstructed** 2686 → **171 lines** (the live schema's entity component schemas live in `entities.ts`, so what remained is `SaveV1Schema` + `toSaveV1`/`fromSaveV1`/`fromSaveV1Bare` + imports). `fromSaveV16Bare` was kept-and-renamed (NOT dead — the live loader calls it; caught in converge cycle 1).
+- **Dead-code sweep (knip-driven):** deleted 3 unused files (`util/assertNever.ts`, the never-wired `events/patronesses.ts` + `events/rivals.ts` buses — defined at P8, zero importers, absent from every publisher set), ~16 unused exports/types, 10 dead designer constants, resolving cascades (`SchemeNotFoundError`, `TimeoutError`, `SchemeFailureReason`). Removed the redundant `typescript-eslint` umbrella dep (only `@typescript-eslint/parser` is used).
+- **`framer-motion` KEPT** as a documented `knip.json` ignore — it's a locked-stack choice (MASTER §2), unimported so it tree-shakes from the bundle; a locked-stack dep is not dropped unilaterally. `tailwindcss` (CSS `@import` + vite-plugin peer) and `@vitest/coverage-v8` (coverage provider) also ignored as tool peers.
+- **Deferred P14 boundary fix done:** swapped `inheritedSecrets.ts` + `siblingRivals.ts` `import type { GameState } from "../store"` → `"../entities"`; `lint:boundaries` is now **zero** (was the known-2 baseline).
+
+**Open questions hit:**
+- No MASTER §10 OQ involved (this is a cleanup phase). D1/D2/D3 were session decisions surfaced via AskUserQuestion, not §10 OQs.
+
+**Deferred / next-up:**
+- `machines/` is an empty `.gitkeep` dir and XState was never added as a dependency — a documented-but-unrealized stack slot (MASTER §2/§4/§5.2). Left untouched (removing it would force a multi-doc architecture rewrite, out of scope). v1.5 cleanup candidate.
+- After P19 the project is ready to tag **v1.0**.
+
+**Files of note:**
+- src/persist/schema.ts — reconstructed to the single live `SaveV1` path; src/persist/dexie.ts — `load()` simplified (no legacy branch); src/persist/errors.ts — `MigrationFailedError`/`MissingMigrationError` removed
+- src/game/bootstrap.ts — `bootstrapPlayerArtifactsForMigration` removed (kept `bootstrapNpcMountFamily`); src/main.tsx — dead `__buildSaveV9ForTests` removed (kept `__putRawForTests`)
+- knip.json — new; `pnpm knip` script in package.json; `typescript-eslint` removed from devDependencies
+- src/game/util/{assertNever.ts (deleted), errors.ts, lookups.ts}; src/runtime/events/{patronesses.ts, rivals.ts} (deleted)
+- src/game/constants.ts — 10 dead constants + 3 courier type aliases removed

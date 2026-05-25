@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   InvalidSaveSchemaError,
-  MigrationFailedError,
-  MissingMigrationError,
   SaveLoadError,
   SaveVersionTooNewError,
   UnknownSaveVersionError,
@@ -22,8 +20,6 @@ describe("SaveLoadError variants — class hierarchy", () => {
     ["InvalidSaveSchemaError", () => new InvalidSaveSchemaError([{ path: "x", message: "y" }])],
     ["UnknownSaveVersionError", () => new UnknownSaveVersionError("two")],
     ["SaveVersionTooNewError", () => new SaveVersionTooNewError(5, 3)],
-    ["MigrationFailedError", () => new MigrationFailedError(1, 2, new Error("synthetic"))],
-    ["MissingMigrationError", () => new MissingMigrationError(2, 3)],
   ];
 
   for (const [name, factory] of variants) {
@@ -54,23 +50,6 @@ describe("SaveLoadError variants — class hierarchy", () => {
       });
     });
   }
-});
-
-describe("MigrationFailedError — inner-cause preservation", () => {
-  it("carries the inner error", () => {
-    const inner = new Error("synthetic inner");
-    const err = new MigrationFailedError(1, 2, inner);
-    expect(err.inner).toBe(inner);
-  });
-  it("formats inner Error message in this.message", () => {
-    const err = new MigrationFailedError(1, 2, new Error("xyz"));
-    expect(err.message).toContain("xyz");
-    expect(err.message).toContain("v1 → v2");
-  });
-  it("stringifies non-Error inner causes", () => {
-    const err = new MigrationFailedError(1, 2, "string cause");
-    expect(err.message).toContain("string cause");
-  });
 });
 
 describe("SaveLoadError — userMessage differentiation", () => {

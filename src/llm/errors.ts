@@ -10,14 +10,6 @@
 
 import { z } from "zod";
 
-export class TimeoutError extends Error {
-  readonly reason = "timeout" as const;
-  constructor() {
-    super("Conversation request exceeded 15-second budget.");
-    this.name = "TimeoutError";
-  }
-}
-
 export class NetworkError extends Error {
   readonly reason = "network" as const;
   constructor(public override readonly cause?: unknown) {
@@ -41,8 +33,6 @@ export class CancelledError extends Error {
     this.name = "CancelledError";
   }
 }
-
-export type LlmError = TimeoutError | NetworkError | SchemaError | CancelledError;
 
 // Converts a thrown ZodError into the issues array shape SchemaError expects.
 // Non-Zod errors surface as a single generic issue. Lives here (not in

@@ -6,9 +6,8 @@
 // and Cowper; court gets Castlereagh and Mrs. Drummond Burrell; country gets
 // Sefton.
 //
-// Used by:
-//   - createInitialState (fresh-state path) — seeds into state.patronesses Map.
-//   - seedRivalsAndPatronessesIntoLegacyState (V8→V9 migration path) — same.
+// Used by createInitialState (fresh-state path) — seeds into
+// state.patronesses Map.
 
 import type { PatronessRecord } from "../entities";
 import type { FactionId, PatronessId } from "../rng";

@@ -2,9 +2,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { DEFAULT_SEED } from "./game/rng.seeds";
-import { createStore, selectGameState } from "./game/store";
+import { createStore } from "./game/store";
 import { DEV_SLOT, _putRawForTests } from "./persist/dexie";
-import { toSaveV9 } from "./persist/schema";
 import { enableFlavorContent } from "./runtime/flavorOrchestrator";
 import { enableSemanticMemory, seedLoreCorpus, setActiveSlot } from "./runtime/semanticIndex";
 import "./index.css";
@@ -33,46 +32,13 @@ enableFlavorContent();
 
 // P2: expose the test-only IndexedDB write helper on window in dev mode so
 // Playwright's corrupt-save spec can seed pathological records (e.g.,
-// {version: 99}) without bypassing the regular save() Zod path.
-// P3-P5: additionally expose __buildSaveV9ForTests so Playwright happy-path
-// specs can construct valid SaveV9 records (with branded HouseId tuples,
-// 5 P3 House fields, P5 grievances array, era, schemes registry) without
-// importing schemas in page-evaluate scope. Both gated by import.meta.env.DEV
-// so production bundles don't carry them.
+// {version: 99}) without bypassing the regular save() Zod path. Gated by
+// import.meta.env.DEV so production bundles don't carry it.
 if (import.meta.env.DEV) {
   const w = window as unknown as {
     __putRawForTests: typeof _putRawForTests;
-    __buildSaveV9ForTests: (overrides?: {
-      wealth?: number;
-      reputation?: number;
-      currentLocation?: string;
-      lastAudienceTick?: number | null;
-    }) => unknown;
   };
   w.__putRawForTests = _putRawForTests;
-  w.__buildSaveV9ForTests = (overrides = {}) => {
-    const state = selectGameState(store.getState());
-    // Apply House-level overrides to the player house, then serialize.
-    const houses = new Map(state.houses);
-    const playerKey = [...houses.keys()][0];
-    if (playerKey !== undefined) {
-      const player = houses.get(playerKey);
-      if (player !== undefined) {
-        houses.set(playerKey, {
-          ...player,
-          ...(overrides.wealth !== undefined ? { wealth: overrides.wealth } : {}),
-          ...(overrides.reputation !== undefined ? { reputation: overrides.reputation } : {}),
-          ...(overrides.currentLocation !== undefined
-            ? { currentLocation: overrides.currentLocation as never }
-            : {}),
-          ...(overrides.lastAudienceTick !== undefined
-            ? { lastAudienceTick: overrides.lastAudienceTick }
-            : {}),
-        });
-      }
-    }
-    return toSaveV9({ ...state, houses });
-  };
 }
 
 const rootElement = document.getElementById("root");

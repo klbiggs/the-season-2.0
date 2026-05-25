@@ -8,7 +8,7 @@
 // useStore.setState (bypassing the load path's invariants — there is no
 // production path that constructs this state cleanly because the Q4 gate
 // prevents any wrapper from running while sprint is active). The test
-// configuration is invariant-violated by design (per the SaveV10 hand-craft
+// configuration is invariant-violated by design (per the hand-craft
 // loophole note in the P9 plan) — the gate's job is to reject regardless.
 
 import "fake-indexeddb/auto";

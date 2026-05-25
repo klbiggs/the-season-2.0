@@ -26,6 +26,7 @@ import {
 } from "../constants";
 import { makePairKey } from "../conversation/types";
 import type { BloodFeud, Grievance, House, InheritedSecret } from "../entities";
+import type { GameState } from "../entities";
 import { RIVAL_HOUSE_IDS_SET } from "../fixtures/rivals";
 import {
   type BloodFeudId,
@@ -35,7 +36,6 @@ import {
   PLAYER_HOUSE_ID,
   drawNext,
 } from "../rng";
-import type { GameState } from "../store";
 
 // ── Accumulation at succession ─────────────────────────────────────────────
 export function accumulateInheritedSecretsAtSuccession(

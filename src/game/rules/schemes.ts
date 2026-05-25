@@ -113,16 +113,6 @@ export type CancelSchemeResult =
   | { ok: true; state: GameState }
   | { ok: false; reason: CancelSchemeRejection };
 
-export type SchemeFailureReason =
-  | { kind: "TargetDiedDuringFlight"; targetId: CharacterId }
-  | { kind: "EraFlippedDuringSmuggling" };
-
-export type SchemeTransition =
-  | { kind: "Completed"; schemeId: SchemeId }
-  | { kind: "Cancelled"; schemeId: SchemeId }
-  | { kind: "Failed"; schemeId: SchemeId; reason: SchemeFailureReason }
-  | { kind: "SeductionDiscovered"; schemeId: SchemeId; targetCharacterId: CharacterId };
-
 // ── Private helpers ──────────────────────────────────────────────────────
 
 // Aggressor selection: lex-smallest qualifying CharacterId for archetype-

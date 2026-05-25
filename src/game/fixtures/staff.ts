@@ -1,7 +1,6 @@
-// P6: baseline household-staff registry. Single source of truth for both
-// fresh-state (seedStartingFamily) and migration (seedWhispersCouriersStaff
-// IntoLegacyState) paths so both produce byte-identical Maps. Mirrors the
-// BASELINE_NPCS pattern at fixtures/npcs.ts.
+// P6: baseline household-staff registry. Single source of truth for the
+// fresh-state (seedStartingFamily) path. Mirrors the BASELINE_NPCS pattern
+// at fixtures/npcs.ts.
 //
 // All fields are pre-assigned constants — ZERO RNG draws involved in staff
 // construction. The bootstrap draw budget stays at 1 (player head's
@@ -63,11 +62,8 @@ export function buildBaselineStaffMember(seed: BaselineStaffSeed): StaffMember {
   };
 }
 
-// Single source of truth — called by BOTH seedStartingFamily (fresh-state
-// path) AND seedWhispersCouriersStaffIntoLegacyState (migration/lifter path)
-// so there's no constants duplication between bootstrap.ts and schema.ts.
-// Vitest assertion in bootstrap.test.ts asserts byte-identical staff Maps
-// across both paths.
+// Single source of truth — called by seedStartingFamily (fresh-state path)
+// so there's no constants duplication in bootstrap.ts.
 export function buildBaselineStaffMap(): Map<StaffId, StaffMember> {
   const m = new Map<StaffId, StaffMember>();
   for (const seed of BASELINE_STAFF) {

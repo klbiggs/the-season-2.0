@@ -7,7 +7,6 @@ import "fake-indexeddb/auto";
 import { _putRawForTests, _resetForTests, load } from "./dexie";
 import {
   InvalidSaveSchemaError,
-  MigrationFailedError,
   SaveLoadError,
   SaveVersionTooNewError,
   UnknownSaveVersionError,
@@ -54,14 +53,14 @@ describe("load() — InvalidSaveSchemaError", () => {
     await expect(load(SLOT)).rejects.toBeInstanceOf(InvalidSaveSchemaError);
   });
 
-  it("fires when SaveV16 (current-version) fields are malformed", async () => {
-    // P18 — current-version path is SaveV16. Malformed current-version records
-    // hit SaveV16Schema.parse directly and surface as InvalidSaveSchemaError
-    // (NOT MigrationFailedError — no migration runs). The in-payload version
-    // literal MUST be 16 (current); a 15 here would take the legacy-migration
-    // branch and test the wrong path.
+  it("fires when current-version (SaveV1) fields are malformed", async () => {
+    // P19 — the only save format is the live SaveV1 (version 1). A malformed
+    // current-version record hits SaveV1Schema.parse directly and surfaces as
+    // InvalidSaveSchemaError. The in-payload version literal MUST be 1
+    // (current); any other value would trip SaveVersionTooNewError /
+    // UnknownSaveVersionError before reaching the parse.
     await _putRawForTests(SLOT, {
-      version: 16,
+      version: 1,
       tick: "not-a-number",
       rng: [],
       houses: [],
@@ -95,54 +94,6 @@ describe("load() — InvalidSaveSchemaError", () => {
       expect(err instanceof InvalidSaveSchemaError).toBe(true);
       const issues = (err as InvalidSaveSchemaError).zodIssues;
       expect(issues.some((i) => i.path.includes("tick"))).toBe(true);
-    }
-  });
-});
-
-describe("load() — MigrationFailedError from a malformed legacy save", () => {
-  it("fires when SaveV1 input fails the registry's SaveV1Schema.parse wrap", async () => {
-    // A v1 record with a non-string seed inside rng — the registry entry's
-    // SaveV1Schema.parse wrap throws, which the runner catches and rethrows
-    // as MigrationFailedError.
-    await _putRawForTests(SLOT, {
-      version: 1,
-      tick: 0,
-      rng: [["player", { seed: 42, callCount: 0 }]],
-    });
-    try {
-      await load(SLOT);
-      throw new Error("expected load() to throw");
-    } catch (err) {
-      expect(err instanceof MigrationFailedError).toBe(true);
-      const failed = err as MigrationFailedError;
-      expect(failed.stepFrom).toBe(1);
-      expect(failed.stepTo).toBe(2);
-    }
-  });
-
-  it("fires when malformed SaveV3 fields fail the v3→v4 migration's parse wrap", async () => {
-    // Post-P3, version: 3 is legacy. Malformed V3 records route through
-    // runMigrations(raw, 3, 4); the v3→v4 entry's SaveV3Schema.parse(s) wrap
-    // throws on the malformed tick, which the runner catches and rethrows
-    // as MigrationFailedError. (Pre-P3 this same case surfaced as
-    // InvalidSaveSchemaError because v3 was the current version.)
-    await _putRawForTests(SLOT, {
-      version: 3,
-      tick: "not-a-number",
-      rng: [],
-      houses: [],
-      characters: [],
-      marriages: [],
-      campaignName: "x",
-    });
-    try {
-      await load(SLOT);
-      throw new Error("expected load() to throw");
-    } catch (err) {
-      expect(err instanceof MigrationFailedError).toBe(true);
-      const failed = err as MigrationFailedError;
-      expect(failed.stepFrom).toBe(3);
-      expect(failed.stepTo).toBe(4);
     }
   });
 });

@@ -32,7 +32,7 @@ import {
   getOrThrow,
 } from "../rng";
 import { clamp } from "../util/clamp";
-import { getCharacterOrThrow, getHouseOrThrow } from "../util/lookups";
+import { getHouseOrThrow } from "../util/lookups";
 import { generateSynergyWhisper, generateWhisperCourier } from "./whispers";
 
 // ── Public input/result types ────────────────────────────────────────────
@@ -318,7 +318,3 @@ export function trySpymasterMailIntercept(state: GameState): SpymasterInterceptR
   newCouriers.set(targetId, { ...target, status: "Intercepted", resolvedAtTick: state.tick });
   return { ok: true, state: { ...state, houses: newHouses, couriers: newCouriers } };
 }
-
-// Reference to keep getCharacterOrThrow imported (used downstream by future
-// rules layered on staff outputs); also used by Vitest fixtures.
-export const _staffRuleHelpers = { getCharacterOrThrow };

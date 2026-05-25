@@ -1,5 +1,5 @@
 // Shared conversation types — canonical home for ConversationPairKey,
-// Exchange, Speaker, and ConversationFailure. Both the rules layer (aging.ts
+// Exchange, and ConversationFailure. Both the rules layer (aging.ts
 // orphan-prune) and the LLM layer (client, orchestrator) import from here
 // without crossing the game-rules → llm boundary. The llm/types.ts module
 // re-exports these names so llm/** consumers have a single import surface.
@@ -65,7 +65,6 @@ export const ExchangeSchema = z.object({
   tick: z.number().int().nonnegative(),
 });
 export type Exchange = z.infer<typeof ExchangeSchema>;
-export type Speaker = Exchange["speaker"];
 
 // Four-reason discriminated union shared by orchestrator return type,
 // event-bus payload, store-action result, and UI banner prose mapping.

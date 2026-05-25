@@ -256,7 +256,7 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P16 | Procedural NPC Generation | [`phases/16-procedural-npcs.md`](./phases/16-procedural-npcs.md) | P0, P1, P7 | ✅ done |
 | P17 | (Optional) Semantic Memory | [`phases/17-semantic-memory.md`](./phases/17-semantic-memory.md) | P4, P6, P5 | ✅ done |
 | P18 | (Optional) LLM Flavor Content | [`phases/18-llm-flavor.md`](./phases/18-llm-flavor.md) | P4, P10 | ✅ done |
-| P19 | Pre-ship cleanup: delete migration ladder | [`phases/19-migration-ladder-cleanup.md`](./phases/19-migration-ladder-cleanup.md) | all prior | — |
+| P19 | Pre-ship cleanup: delete migration ladder | [`phases/19-migration-ladder-cleanup.md`](./phases/19-migration-ladder-cleanup.md) | all prior | ✅ done |
 
 **Note**: P7.5 is a cross-cutting architectural amendment (LLM-key relocation), not a new feature phase. P8+ "Depends on" columns do NOT inherit P7.5.
 

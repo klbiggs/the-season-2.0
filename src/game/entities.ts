@@ -3,10 +3,10 @@
 // game-rules → game-store boundary (spec §8 forbids game-rules from depending
 // on the store; entity TYPES don't carry that concern).
 //
-// The Zod schemas here describe the in-memory shape. The save-format schemas
-// (in src/persist/schema.ts at SaveV2) reference these via type, but the
-// save shape uses serialized Array<[Id, Entity]> tuples — bridged by
-// serializeRegistry / deserializeRegistry.
+// The Zod schemas here describe the in-memory shape. The save-format schema
+// (in src/persist/schema.ts) references these via type, but the save shape
+// uses serialized Array<[Id, Entity]> tuples — bridged by serializeRegistry /
+// deserializeRegistry.
 
 import { z } from "zod";
 import {
@@ -558,7 +558,7 @@ export type FlavorContentEntry = z.infer<typeof FlavorContentEntrySchema>;
 // GameState lives here (not in store.ts) so the rule layer can import it.
 // store.ts re-exports GameState/GameStateSchema for P0-era callers.
 //
-// In-memory uses `z.map(...)`; the save-format schema (SaveV2) uses
+// In-memory uses `z.map(...)`; the save-format schema (SaveV1) uses
 // `z.array(z.tuple(...))`. The two forms are bridged by serializeRegistry /
 // deserializeRegistry. Never copy the array shape into GameStateSchema.
 export const GameStateSchema = z.object({

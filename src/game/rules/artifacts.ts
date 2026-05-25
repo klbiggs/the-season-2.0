@@ -42,7 +42,6 @@ import type {
   CourierPayload,
   ForgeryRecord,
   GameState,
-  House,
   ThiefAttempt,
 } from "../entities";
 import type { Archetype } from "../fixtures/archetypes";
@@ -656,11 +655,4 @@ export function applyPreBallComposurePenaltyPure(state: GameState): GameState {
   const newChars = new Map(state.characters);
   newChars.set(playerHead.id, { ...playerHead, composure: newComposure });
   return { ...state, characters: newChars };
-}
-
-// Helper for House lookups within this module.
-export function getPlayerHouseOrThrow(state: GameState): House {
-  const house = state.houses.get(PLAYER_HOUSE_ID);
-  if (!house) throw new Error("Player house missing");
-  return house;
 }

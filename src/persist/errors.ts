@@ -2,15 +2,9 @@
 // attempt extend SaveLoadError and carry a `userMessage` for banner
 // rendering. The technical `message` is for logging only.
 //
-// NOTE: MigrationFailedError.cause carries an Error instance and is NOT
-// structured-clone-safe. Do not serialize SaveLoadError instances to
-// IndexedDB or postMessage them across worker boundaries — the cause
-// chain will degrade to {}. The banner UX only renders userMessage, so
-// this is fine for P2; flag for any future "send error report" feature.
-//
-// Programmer errors at module-load time (e.g., assertMonotonic) are NOT
-// part of this taxonomy — they throw plain Error and surface only at
-// test-suite boot.
+// P19 deleted the migration ladder, so the load path no longer runs
+// migrations: the only failure modes are a missing/invalid version field,
+// a too-new version, or a malformed current-version payload.
 
 export abstract class SaveLoadError extends Error {
   // banner-safe; no internal jargon
@@ -42,38 +36,5 @@ export class SaveVersionTooNewError extends SaveLoadError {
   ) {
     super(`Save version v${saveVersion} is newer than client v${clientVersion}`);
     this.name = "SaveVersionTooNewError";
-  }
-}
-
-export class MigrationFailedError extends SaveLoadError {
-  readonly userMessage = "This save file is corrupted and cannot be loaded.";
-  // Rationale for the field name: `cause` overlaps with the built-in
-  // ES2022 Error.cause. Use `inner` to keep our explicit field separate
-  // from Error's optional native one — instanceof narrowing still works.
-  constructor(
-    public readonly stepFrom: number,
-    public readonly stepTo: number,
-    public readonly inner: unknown,
-  ) {
-    super(
-      `Migration v${stepFrom} → v${stepTo} failed: ${
-        inner instanceof Error ? inner.message : String(inner)
-      }`,
-    );
-    this.name = "MigrationFailedError";
-    if (inner instanceof Error && inner.stack !== undefined) {
-      this.stack = `${this.stack ?? ""}\nCaused by: ${inner.stack}`;
-    }
-  }
-}
-
-export class MissingMigrationError extends SaveLoadError {
-  readonly userMessage = "This save file is corrupted and cannot be loaded.";
-  constructor(
-    public readonly from: number,
-    public readonly to: number,
-  ) {
-    super(`No migration registered from v${from} to v${to}`);
-    this.name = "MissingMigrationError";
   }
 }

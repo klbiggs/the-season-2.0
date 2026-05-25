@@ -117,8 +117,3 @@ export async function hasLoreEntries(slot: string): Promise<boolean> {
   const entries = await readEntriesForSlot(slot);
   return entries.some((e) => e.entryType === "Lore");
 }
-
-// Test-only: drop a slot's index.
-export async function _clearSlotForTests(slot: string): Promise<void> {
-  await vectorIndexTable().delete(slot);
-}

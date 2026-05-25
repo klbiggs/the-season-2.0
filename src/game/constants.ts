@@ -92,11 +92,6 @@ export const MONARCH_AUDIENCE_RIVAL_HOSTILITY_DROP = 5;
 export const BANKRUPTCY_ESCAPE_WEALTH_GAIN = 50;
 export const BANKRUPTCY_ESCAPE_SCANDAL_COST = 5;
 
-// Spec §3 "Location-Bound Trait Acquisition & Risk Asymmetry": seduction
-// cities apply a higher probability multiplier to scandal-bearing inbound
-// couriers. Consumed at the courier-flow layer at P6; unused at P3.
-export const SEDUCTION_CITY_SCANDAL_PROBABILITY_MULTIPLIER = 2.0;
-
 // Spec §3 "Wardrobe Decay & Pre-Ball Composure Penalty": refresh action
 // at Capital. P3 writes wardrobeLastRefreshTick; P10 reads it to compute
 // the pre-ball composure penalty.
@@ -125,8 +120,6 @@ export const QUALITY_MULTIPLIER_CEIL = 1.5;
 export const STANCE_WALLFLOWER_AFFECTION_MULT = 0.5;
 export const STANCE_MINGLE_AFFECTION_MULT = 1.0;
 export const STANCE_TARGETED_PURSUIT_AFFECTION_MULT = 1.25;
-// Doubled composure damage when sabotaged (P5 Sabotage consumes this).
-export const STANCE_TARGETED_PURSUIT_SABOTAGE_COMPOSURE_MULT = 2.0;
 
 // Spec §3 "Marriage, Conception & Inheritance": affection threshold for
 // proposal eligibility. Cited at P4 only as the clamp ceiling reference.
@@ -269,10 +262,6 @@ export const MODEL_FIRST_MEETING = "gemini-3.1-pro-preview" as const;
 export const LLM_TIMEOUT_MS = 15_000;
 // Spec §5 "capped output-token budget" — short in-character replies.
 export const LLM_OUTPUT_TOKEN_BUDGET = 600;
-// Spec §5 line 601 "under 1500 tokens" — documentation-only at P4
-// (buildPersonaPrompt keeps personas <300 tokens; P18 polishes adds a
-// runtime check if needed).
-export const LLM_SYSTEM_INSTRUCTION_TOKEN_BUDGET = 1500;
 // P7.5: GEMINI_KEY_SHAPE_REGEX (formerly BYOK_KEY_SHAPE_REGEX) was deleted
 // from this file — the key is server-only now and the regex lives in
 // server/env.ts as a local constant. No client-side consumer remains.
@@ -462,13 +451,10 @@ export const STAFF_ASSIGNMENTS = [
 export type StaffAssignment = (typeof STAFF_ASSIGNMENTS)[number];
 
 export const COURIER_STATUSES = ["InFlight", "Delivered", "Intercepted", "Cancelled"] as const;
-export type CourierStatus = (typeof COURIER_STATUSES)[number];
 
 export const COURIER_PAYLOAD_TYPES = ["Whisper"] as const; // "Letter" reserved for P11
-export type CourierPayloadType = (typeof COURIER_PAYLOAD_TYPES)[number];
 
 export const COURIER_DIRECTIONS = ["Inbound", "Outbound"] as const;
-export type CourierDirection = (typeof COURIER_DIRECTIONS)[number];
 
 // Module-load cardinality assertions. Guard against future enum additions
 // landing without a save-version bump. Symmetric with P5's SCHEME_KINDS
@@ -589,11 +575,6 @@ export const TEMPTATION_DISCOUNTED_SCANDAL = 5;
 
 // Spec §3 "Tutor Influence" (line 471-476).
 export const TUTOR_REASSIGNMENT_WEALTH_COST = 5;
-// Minimum tick gap between consecutive guide-opinion effects on the same
-// child from the same tutor.
-export const TUTOR_GUIDE_OPINION_COOLDOWN_TICKS = 10;
-// Guide-opinion forces the child's mood toward Receptive, subject to mood-lock.
-export const TUTOR_GUIDE_OPINION_MOOD_TARGET: Mood = "Receptive";
 
 // ── P8: Rival Houses, Patronesses & Duels ─────────────────────────────────
 
@@ -642,9 +623,6 @@ export const RIVAL_WEIGHT_SCALE = 100;
 // Stored as INTEGER 5 (not float 0.05) for IEEE-754 cross-engine safety.
 export const RIVAL_OPEN_SABOTAGE_TENSION_BIAS_SLOPE_SCALED = 5;
 
-// Spec §3 line 134 — player-action hostility deltas (sign = direction).
-export const PLAYER_SABOTAGE_HOSTILITY_DELTA = 15;
-export const PUBLIC_FAUX_PAS_HOSTILITY_DELTA = 5;
 // MONARCH_AUDIENCE_RIVAL_HOSTILITY_DROP at line 89 (P3 stub) becomes load-
 // bearing at P8 — applyAudience subtracts the magnitude on full-success.
 
@@ -652,7 +630,6 @@ export const PUBLIC_FAUX_PAS_HOSTILITY_DELTA = 5;
 export const PETTY_SABOTAGE_REPUTATION_DELTA = -2;
 
 // Spec §3 "Patroness Favor" (lines 408-415).
-export const PATRONESS_FAVOR_INITIAL = 50;
 export const PATRONESS_FAVOR_EROSION_PER_TICK = -1;
 export const PATRONESS_FAVOR_EROSION_DOUBLED_PER_TICK = -2;
 export const PATRONESS_FAVOR_EROSION_SCANDAL_THRESHOLD = 50;
@@ -668,8 +645,6 @@ export const FACTION_TENSION_DELTA_PER_RAISE_ACTION = 10;
 
 // Spec §3 "Duel Resolution" (lines 364-370 + line 532).
 export const DUEL_INITIAL_COMPOSURE = 100;
-export const DUEL_BASE_POWER = 25;
-export const DUEL_COMPOSURE_MULTIPLIER = 2;
 export const DUEL_MAX_EXCHANGES = 12;
 if (DUEL_MAX_EXCHANGES !== 12) {
   throw new Error("Spec §3 line 368 pins 12-exchange cap");

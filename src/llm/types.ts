@@ -36,7 +36,6 @@ import { TRAITS } from "../game/fixtures/traits";
 export {
   ConversationPairKeySchema,
   type ConversationPairKey,
-  type Speaker,
   ExchangeSchema,
   type Exchange,
   makePairKey,
@@ -139,7 +138,6 @@ export const EmbedResponseSchema = z.object({
   // One vector per input text, in input order. Raw (un-normalized) values.
   embeddings: z.array(z.array(z.number())),
 });
-export type EmbedResponse = z.infer<typeof EmbedResponseSchema>;
 
 // P18: flavor-generation wire contract (client → server). The context is a
 // discriminated union on `kind`; the server (server/prompts/flavor.ts) builds
@@ -174,7 +172,6 @@ export type FlavorRequest = z.infer<typeof FlavorRequestSchema>;
 export const FlavorResponseSchema = z.object({
   text: z.string().min(1),
 });
-export type FlavorResponse = z.infer<typeof FlavorResponseSchema>;
 
 // Widen-and-validate: enum fields parsed as z.string() so unknown values
 // don't trigger SchemaError. Post-parse resolvers (resolveTactic /
