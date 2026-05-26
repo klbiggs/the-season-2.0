@@ -259,7 +259,7 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P18 | (Optional) LLM Flavor Content | [`phases/18-llm-flavor.md`](./phases/18-llm-flavor.md) | P4, P10 | ✅ done |
 | P19 | Pre-ship cleanup: delete migration ladder | [`phases/19-migration-ladder-cleanup.md`](./phases/19-migration-ladder-cleanup.md) | all prior | ✅ done |
 | — | **Post-v1 (skeleton — scoped from §11; not yet detailed)** | | | |
-| P20 | v1.1 — Core-Loop Reachability & Legibility | [`phases/20-coreloop-reachability.md`](./phases/20-coreloop-reachability.md) | P7, P9, P4, P14 | 📋 planned (v1.1) |
+| P20 | v1.1 — Core-Loop Reachability & Legibility | [`phases/20-coreloop-reachability.md`](./phases/20-coreloop-reachability.md) | P7, P9, P4, P14 | ✅ done |
 | P21 | v1.1 — Ledger Completeness & Notifications | [`phases/21-ledger-completeness.md`](./phases/21-ledger-completeness.md) | P14, P20 | 📋 planned (v1.1) |
 | P22 | v1.5 — Society & World Surfacing | [`phases/22-society-surfacing.md`](./phases/22-society-surfacing.md) | P14, P16, P18 | 📋 planned (v1.5) |
 | P23 | v1.5 — Marriage, Family & Lifespan Depth | [`phases/23-marriage-family-depth.md`](./phases/23-marriage-family-depth.md) | P7, P8, P16 | 📋 planned (v1.5) |

@@ -11,7 +11,10 @@ import { conversationOrchestrator } from "../../runtime/conversationOrchestrator
 
 // Right-side details panel. Shows the current location's name, description,
 // per-tick deltas, and available actions. Conditional rendering per location:
-// - All: "Stay here a year" (calls store.advanceTick directly).
+// - All: "Stay here a while" (calls store.advanceTick — advances the STRATEGIC
+//   tick only; the dynasty clock, aging/conception/succession, advances via the
+//   map-level "Pass a Year" control / runYearPass, NOT this button. P20 relabel:
+//   the old "Stay here a year" wording falsely implied a year-pass).
 // - Country: "Liquidate Heirlooms" (only when wealth < 0).
 // - Capital: "Request Audience" (only when canRequestAudience.ok) +
 //            "Refresh Wardrobe" (always available; wealth warning is
@@ -112,8 +115,9 @@ export function LocationDetailsPanel({
           onClick={() => store.getState().advanceTick()}
           className="px-3 py-2 rounded bg-stone-700 text-white hover:bg-stone-800 text-sm"
           data-testid="location-details-stay"
+          title="Advances the strategic clock by one tick (location income, scheme/courier resolution). Does NOT age the family — use “Pass a Year” for conception and succession."
         >
-          Stay here a year
+          Stay here a while
         </button>
         {showLiquidate && (
           <button

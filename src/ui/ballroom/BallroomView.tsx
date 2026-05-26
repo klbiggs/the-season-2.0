@@ -6,13 +6,27 @@
 // Per spec §3 "Conversational Ballroom" + plan "Ballroom UI" section.
 
 import { useEffect, useState } from "react";
-import { COMPOSURE_DEFAULT, type Stance, type Tactic } from "../../game/constants";
+import {
+  AFFECTION_PROPOSAL_THRESHOLD,
+  COMPOSURE_DEFAULT,
+  PROPOSAL_REPUTATION_THRESHOLD,
+  type Stance,
+  type Tactic,
+} from "../../game/constants";
 import { type ConversationFailure, makePairKey } from "../../game/conversation/types";
 import type { Character } from "../../game/entities";
 import { flavorStubFor } from "../../game/fixtures/flavorStubs";
-import { type FlavorContentId, INDEPENDENT_HOUSE_ID, PLAYER_HOUSE_ID } from "../../game/rng.seeds";
+import type { Mood } from "../../game/fixtures/moods";
+import {
+  type CharacterId,
+  type FlavorContentId,
+  INDEPENDENT_HOUSE_ID,
+  PLAYER_HOUSE_ID,
+} from "../../game/rng.seeds";
+import type { ProposalOutcome } from "../../game/rules/proposal";
 import type { SeasonStore } from "../../game/store";
 import { conversationBus } from "../../runtime/events/conversation";
+import { ProposalOutcomeBanner } from "../shared/ProposalOutcomeBanner";
 import { ChatLog } from "./ChatLog";
 import { ComposureBar } from "./ComposureBar";
 import { ConversationFailureBanner } from "./ConversationFailureBanner";
@@ -34,6 +48,10 @@ export function BallroomView({ store, onExit }: Props) {
   const conversationHistory = store((s) => s.conversationHistory);
   const houses = store((s) => s.houses);
   const flavorText = store((s) => s.flavorText);
+  // P20: affection map (for the propose-gate + standing readouts) and tick (for
+  // the per-portrait faux-pas mood-lock badge).
+  const affectionMap = store((s) => s.affectionMap);
+  const tick = store((s) => s.tick);
 
   // P18: persisted bio if generated (on first "Who is this?" reveal), else stub.
   const bioFor = (c: Character): string => {
@@ -55,6 +73,18 @@ export function BallroomView({ store, onExit }: Props) {
   const [draftMessage, setDraftMessage] = useState("");
   const [inFlight, setInFlight] = useState(false);
   const [failure, setFailure] = useState<ConversationFailure | null>(null);
+  // P20: proposal outcome (rendered via the shared banner), per-turn combat
+  // result, and faux-pas blunder notice. All session-local.
+  const [proposalOutcome, setProposalOutcome] = useState<ProposalOutcome | null>(null);
+  const [turnResult, setTurnResult] = useState<{
+    affectionDelta: number;
+    synergy: boolean;
+    moodHint: Mood | null;
+  } | null>(null);
+  const [fauxPas, setFauxPas] = useState<{
+    targetCharacterId: CharacterId;
+    lockUntilTick: number;
+  } | null>(null);
 
   // Session player composure starts from the player head's persisted value.
   const playerHouse = houses.get(PLAYER_HOUSE_ID);
@@ -64,25 +94,52 @@ export function BallroomView({ store, onExit }: Props) {
   const maxComposure = playerHead?.maxComposure ?? COMPOSURE_DEFAULT;
   const [sessionComposure, setSessionComposure] = useState(initialComposure);
 
-  // Subscribe to conversation events to update session composure on resolve
-  // and on faux-pas. (The orchestrator's session composure is React-local
-  // by design; we read combat deltas off the bus.)
+  // P20: subscribe to conversation events. ConversationResolved updates session
+  // composure AND surfaces the per-turn combat result (affectionDelta / synergy
+  // / moodHint — previously only composureDelta was consumed). FauxPasFired
+  // surfaces the social blunder + drives the per-portrait mood-lock badge (the
+  // composure drop otherwise showed with no explanation). The orchestrator's
+  // session composure is React-local by design; combat deltas are read off the
+  // bus. (Pre-P20 this effect handled only Resolved/Failed — the stale comment
+  // claiming faux-pas handling is now true.)
   useEffect(() => {
     const unsubResolved = conversationBus.subscribe("ConversationResolved", (e) => {
       setSessionComposure((prev) => Math.max(0, Math.min(maxComposure, prev + e.composureDelta)));
+      setTurnResult({ affectionDelta: e.affectionDelta, synergy: e.synergy, moodHint: e.moodHint });
     });
     const unsubFailed = conversationBus.subscribe("ConversationFailed", (e) => {
       setFailure(e.failure);
     });
+    const unsubFauxPas = conversationBus.subscribe("FauxPasFired", (e) => {
+      setFauxPas({ targetCharacterId: e.targetCharacterId, lockUntilTick: e.lockUntilTick });
+    });
     return () => {
       unsubResolved();
       unsubFailed();
+      unsubFauxPas();
     };
   }, [maxComposure]);
 
   const selectedTarget = selectedTargetId !== null ? characters.get(selectedTargetId) : undefined;
   const pairKey = selectedTargetId !== null ? makePairKey(PLAYER_HOUSE_ID, selectedTargetId) : null;
   const exchanges = pairKey !== null ? (conversationHistory.get(pairKey) ?? []) : [];
+
+  // P20 propose-gate readouts. Affection drives gate 13; reputation drives
+  // gate 12 — which tests RAW playerHouse.reputation (proposal.ts:143), NOT the
+  // TopBar's effective/artifact-walked value. A reputation-boosting artifact can
+  // push effective ≥ threshold while raw is below it, so the gate readout MUST
+  // read raw or it misrepresents whether the proposal can be accepted.
+  const selectedAffection = pairKey !== null ? (affectionMap.get(pairKey) ?? 0) : 0;
+  const rawReputation = playerHouse?.reputation ?? 0;
+  const affectionMet = selectedAffection >= AFFECTION_PROPOSAL_THRESHOLD;
+  const reputationMet = rawReputation >= PROPOSAL_REPUTATION_THRESHOLD;
+
+  const onPropose = () => {
+    if (selectedTargetId === null) return;
+    // proposeMarriage gates internally; the returned ProposalOutcome carries
+    // the accept / roll-reject / predicate-rejection result for the banner.
+    setProposalOutcome(store.getState().proposeMarriage(selectedTargetId));
+  };
 
   const disabledReason = inFlight
     ? "Awaiting response…"
@@ -96,6 +153,8 @@ export function BallroomView({ store, onExit }: Props) {
     if (selectedTargetId === null) return;
     setInFlight(true);
     setFailure(null);
+    setTurnResult(null);
+    setFauxPas(null);
     try {
       await store.getState().sendBallroomMessage({
         targetCharacterId: selectedTargetId,
@@ -144,13 +203,57 @@ export function BallroomView({ store, onExit }: Props) {
           setSelectedTargetId(id);
           setPinnedTactic(null);
           setDraftMessage("");
+          // P20: outcome/turn banners are target-specific — clear on switch.
+          setProposalOutcome(null);
+          setTurnResult(null);
+          setFauxPas(null);
         }}
+        tick={tick}
       />
 
       <ConversationFailureBanner failure={failure} onDismiss={() => setFailure(null)} />
 
       {selectedTarget !== undefined && (
         <>
+          {/* P20: running standing + last-turn combat result for the selected
+              NPC. The affection number doubles as the propose-gate readout. */}
+          <div
+            className="flex flex-wrap items-center gap-3 text-sm text-stone-700"
+            data-testid="npc-standing-readout"
+          >
+            <span>
+              Affection with {selectedTarget.name}:{" "}
+              <span className="font-semibold text-stone-900" data-testid="npc-affection-value">
+                {selectedAffection}
+              </span>
+              /100
+            </span>
+            {turnResult !== null && (
+              <span className="text-stone-500" data-testid="turn-result-readout">
+                Last line:{" "}
+                <span
+                  className={turnResult.affectionDelta >= 0 ? "text-emerald-700" : "text-rose-700"}
+                >
+                  {turnResult.affectionDelta >= 0 ? "+" : ""}
+                  {turnResult.affectionDelta} affection
+                </span>
+                {turnResult.synergy ? " · synergy!" : ""}
+                {turnResult.moodHint !== null ? ` · mood: ${turnResult.moodHint}` : ""}
+              </span>
+            )}
+          </div>
+
+          {fauxPas !== null && (
+            <div
+              role="alert"
+              className="rounded-md border-l-4 border-rose-500 bg-rose-50 px-3 py-2 text-sm text-rose-900"
+              data-testid="faux-pas-banner"
+            >
+              A faux pas! {characters.get(fauxPas.targetCharacterId)?.name ?? "Your target"} recoils
+              — their mood is locked to Defensive until tick {fauxPas.lockUntilTick}.
+            </div>
+          )}
+
           <ChatLog exchanges={exchanges} npcName={selectedTarget.name} />
           <StanceToggle stance={stance} onChange={setStance} />
           <TacticButtons
@@ -164,6 +267,41 @@ export function BallroomView({ store, onExit }: Props) {
           {/* P5: scheme launch buttons. Free action — does NOT advance the
               tick (the tick advances via map travel/audience/etc). */}
           <SchemeButtons store={store} selectedTargetId={selectedTargetId} />
+
+          {/* P20: propose marriage to the selected NPC. Unlike schemes, this
+              DOES advance a tick (proposeMarriage's wrapper). Gate readout shows
+              affection vs threshold + RAW reputation vs threshold so the gate is
+              legible before the click; the rule still produces every rejection
+              reason if clicked while a gate is unmet. */}
+          <div className="flex flex-col gap-2" data-testid="propose-section">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-stone-500">
+              <span className={affectionMet ? "text-emerald-700" : "text-rose-700"}>
+                Affection {selectedAffection} / {AFFECTION_PROPOSAL_THRESHOLD}
+              </span>
+              <span className={reputationMet ? "text-emerald-700" : "text-rose-700"}>
+                Reputation {rawReputation} / {PROPOSAL_REPUTATION_THRESHOLD}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={onPropose}
+              disabled={inFlight}
+              title={
+                affectionMet && reputationMet
+                  ? "Propose marriage to the selected NPC."
+                  : "Thresholds unmet — proposing will be declined, but you may try."
+              }
+              className="self-start rounded bg-rose-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50"
+              data-testid="propose-marriage-btn"
+            >
+              Propose Marriage to {selectedTarget.name}
+            </button>
+            <ProposalOutcomeBanner
+              outcome={proposalOutcome}
+              targetName={selectedTarget.name}
+              onDismiss={() => setProposalOutcome(null)}
+            />
+          </div>
           {inFlight ? (
             <>
               <ThinkingIndicator />

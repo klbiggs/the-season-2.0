@@ -12,9 +12,18 @@ type Props = {
   bioFor: (character: Character) => string;
   // P18: triggers bio generation when a card's "Who is this?" expander opens.
   onRevealBio: (id: CharacterId) => void;
+  // P20: current tick, threaded to each card for the faux-pas mood-lock badge.
+  tick: number;
 };
 
-export function PortraitRing({ npcs, selectedTargetId, onSelect, bioFor, onRevealBio }: Props) {
+export function PortraitRing({
+  npcs,
+  selectedTargetId,
+  onSelect,
+  bioFor,
+  onRevealBio,
+  tick,
+}: Props) {
   return (
     <div
       className="grid grid-cols-5 gap-3"
@@ -30,6 +39,7 @@ export function PortraitRing({ npcs, selectedTargetId, onSelect, bioFor, onRevea
           onSelect={() => onSelect(npc.id)}
           bio={bioFor(npc)}
           onRevealBio={() => onRevealBio(npc.id)}
+          tick={tick}
         />
       ))}
     </div>

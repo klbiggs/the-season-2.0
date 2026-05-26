@@ -1,4 +1,5 @@
 import { useShallow } from "zustand/react/shallow";
+import { PATRONESS_FAVOR_EROSION_SCANDAL_THRESHOLD } from "../../game/constants";
 import { LOCATION_LABELS } from "../../game/fixtures/locations";
 import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import { getEffectiveReputation } from "../../game/rules/artifacts";
@@ -34,15 +35,26 @@ export function TopBar({ store, onEnterLedger }: Props) {
   // s.characters) into a single subscription per the WhisperLedgerPanel
   // precedent — both fields return primitives so the shallow-equality check
   // matches Zustand's default selector semantics.
-  const { wealth, effectiveReputation } = store(
+  const { wealth, effectiveReputation, scandal, generation } = store(
     useShallow((s) => ({
       wealth: s.houses.get(PLAYER_HOUSE_ID)?.wealth ?? null,
       effectiveReputation:
         s.houses.get(PLAYER_HOUSE_ID) !== undefined
           ? getEffectiveReputation(s, PLAYER_HOUSE_ID)
           : null,
+      // P20: scandal is the player's clamped [0,100] censure scalar. Its real
+      // threshold consequence is patroness favor erosion at ≥ 50
+      // (PATRONESS_FAVOR_EROSION_SCANDAL_THRESHOLD) — NOT a direct exile trigger
+      // (exile only fires from Scandal-Sheet self-attribution). The cue reflects
+      // that real mechanic, not an invented exile-proximity.
+      scandal: s.houses.get(PLAYER_HOUSE_ID)?.scandal ?? null,
+      generation: s.houses.get(PLAYER_HOUSE_ID)?.generation ?? null,
     })),
   );
+  // ancestorSummary is a stable array reference until succession appends a line,
+  // so a plain selector is safe under Object.is (no useShallow needed).
+  const ancestorSummary = store((s) => s.houses.get(PLAYER_HOUSE_ID)?.ancestorSummary ?? null);
+  const underCensure = scandal !== null && scandal >= PATRONESS_FAVOR_EROSION_SCANDAL_THRESHOLD;
   // P14: elopement-modal gate — disable Ledger entry while the sprint overlay
   // owns the screen (mirrors the rule-layer modal-state gate principle).
   const elopement = store((s) => s.elopement);
@@ -66,6 +78,43 @@ export function TopBar({ store, onEnterLedger }: Props) {
       <div className="text-sm text-stone-600" data-testid="effective-reputation-readout">
         Reputation: <span className="font-medium text-stone-800">{effectiveReputation ?? "—"}</span>
       </div>
+      <div
+        className="text-sm text-stone-600"
+        data-testid="scandal-readout"
+        title={
+          underCensure
+            ? `Scandal ≥ ${PATRONESS_FAVOR_EROSION_SCANDAL_THRESHOLD}: a patroness's favor erodes each tick.`
+            : "Scandal accrues from rejections, schemes, and bankruptcy."
+        }
+      >
+        Scandal:{" "}
+        <span className={`font-medium ${underCensure ? "text-rose-700" : "text-stone-800"}`}>
+          {scandal ?? "—"}
+        </span>
+        {underCensure && (
+          <span
+            className="ml-1 text-xs font-semibold text-rose-700"
+            data-testid="scandal-censure-cue"
+          >
+            (censure)
+          </span>
+        )}
+      </div>
+      <div className="text-sm text-stone-600" data-testid="generation-readout">
+        Gen: <span className="font-medium text-stone-800">{generation ?? "—"}</span>
+      </div>
+      {ancestorSummary !== null && ancestorSummary.length > 0 && (
+        <details className="text-sm text-stone-600" data-testid="ancestor-summary">
+          <summary className="cursor-pointer select-none text-stone-500 hover:text-stone-800">
+            Lineage ({ancestorSummary.length})
+          </summary>
+          <ul className="absolute z-10 mt-1 max-w-xs space-y-0.5 rounded border border-stone-300 bg-white p-2 text-xs text-stone-600 shadow-md">
+            {ancestorSummary.map((line, i) => (
+              <li key={`${i}-${line}`}>{line}</li>
+            ))}
+          </ul>
+        </details>
+      )}
       <div className="text-sm text-stone-600" data-testid="tick-readout">
         Tick: <span className="font-medium text-stone-800">{tick}</span>
       </div>

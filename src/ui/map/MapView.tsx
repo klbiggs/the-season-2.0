@@ -9,6 +9,7 @@ import { ActionRejectionToast } from "./ActionRejectionToast";
 import { LocationDetailsPanel } from "./LocationDetailsPanel";
 import { LocationPin } from "./LocationPin";
 import { MapBackdrop } from "./MapBackdrop";
+import { formatYearPassSummary, summarizeYearPass } from "./yearPassSummary";
 
 type Props = {
   store: SeasonStore;
@@ -38,6 +39,19 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
   }, [state]);
 
   const [toast, setToast] = useState<{ kind: string; message: string } | null>(null);
+  // P20: dynasty-clock control. "Pass a Year" runs runYearPass (aging /
+  // conception / succession) — distinct from the per-location tick advance.
+  // The result is surfaced via a before/after diff (no bus event exists for
+  // births/succession).
+  const [yearSummary, setYearSummary] = useState<string | null>(null);
+  const isExiled = house?.exiled === true;
+
+  const onPassYear = () => {
+    const before = store.getState();
+    before.runYearPass();
+    const after = store.getState();
+    setYearSummary(formatYearPassSummary(summarizeYearPass(before, after)));
+  };
 
   useBusEvent(locationBus, "TravelRejected", (event) => {
     const reason = event.reason;
@@ -101,6 +115,27 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
 
   return (
     <div className="flex flex-col" data-testid="map-view">
+      <div className="flex items-center gap-3 px-6 py-2 border-b border-stone-200">
+        <button
+          type="button"
+          onClick={onPassYear}
+          disabled={isExiled}
+          data-testid="pass-year-btn"
+          title="Advance the dynasty clock one year: the family ages; couples conceive on cadence; an heir inherits on the head's death."
+          className="rounded bg-amber-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Pass a Year
+        </button>
+        {yearSummary !== null && (
+          <output
+            aria-live="polite"
+            className="text-sm text-stone-700"
+            data-testid="year-pass-summary"
+          >
+            {yearSummary}
+          </output>
+        )}
+      </div>
       {activeEvents.length > 0 && (
         <div
           className="flex flex-wrap justify-end gap-2 px-6 py-2 bg-stone-900"

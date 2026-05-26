@@ -34,11 +34,19 @@ enableFlavorContent();
 // Playwright's corrupt-save spec can seed pathological records (e.g.,
 // {version: 99}) without bypassing the regular save() Zod path. Gated by
 // import.meta.env.DEV so production bundles don't carry it.
+//
+// P20: also expose the live store so the core-loop e2e can inject a precondition
+// (high affection for a propose target; an aged head + heir for succession) via
+// replaceState — the SAME sink the load path feeds (fromSaveV1 → replaceState),
+// so it faithfully stands in for a loaded high-affection save without brittle
+// hand-built SaveV1 blobs. DEV-only, like __putRawForTests.
 if (import.meta.env.DEV) {
   const w = window as unknown as {
     __putRawForTests: typeof _putRawForTests;
+    __store: typeof store;
   };
   w.__putRawForTests = _putRawForTests;
+  w.__store = store;
 }
 
 const rootElement = document.getElementById("root");

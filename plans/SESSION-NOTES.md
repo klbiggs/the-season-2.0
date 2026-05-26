@@ -961,3 +961,31 @@ Final pre-ship phase. Delete-only, no behavior change. Net **91 files, +724 / �
 - knip.json — new; `pnpm knip` script in package.json; `typescript-eslint` removed from devDependencies
 - src/game/util/{assertNever.ts (deleted), errors.ts, lookups.ts}; src/runtime/events/{patronesses.ts, rivals.ts} (deleted)
 - src/game/constants.ts — 10 dead constants + 3 courier type aliases removed
+
+## P20 — Core-Loop Reachability & Legibility — closed 2026-05-26
+
+First v1.1-track phase. UI-only: wired already-built store actions to UI affordances + surfaced already-persisted state. **Bumped nothing** — `hash.ts` / `entities.ts` / `schema.ts` / `store.ts` / all of `src/runtime/` UNCHANGED (verified by `git diff --stat`); no save bump, no hash/projection/selector/overwrite change, no `PERSONA_CACHE_VERSION` bump, no new bus events, no new rules modules. Extends the P14/P17 "reading-only UI phase bumps nothing" precedent. Net: 10 files modified + 6 new (1 helper, 4 Vitest, 1 e2e spec).
+
+**Decisions made (resolved via AskUserQuestion, baked into the converged subplan):**
+- **D1 — Propose surface = Ballroom (primary) + Social Web (secondary).** Family-tree placement dropped (it lists player-house members; valid targets are Independent-house NPCs).
+- **D2 — Spec override (authorized in writing):** the Social-Web propose action overrides spec §3 L262 ("Reading-only view"). Recorded in the `SocialWebView.tsx` header invariant comment + the plan's Decision 1 SPEC OVERRIDE paragraph so future audits read it as intentional, not a regression. The read-only proposal-rejection slide-away coexists (DOM overlay vs canvas physics).
+- **D3 — Year-pass promoted + relabeled + surfaced.** Added a first-class map "Pass a Year" control (the dynasty clock was buried in the Settings dropdown); relabeled the per-location "Stay here a year" → "Stay here a while" (it calls `advanceTick`, not a year-pass). Births/deaths/succession surfaced via a pure UI before/after diff (`yearPassSummary.ts`) — there is NO `ChildConceived`/`SuccessionOccurred` bus event and the head death is suppressed from `publishCharacterDeaths`, so a diff is the only path.
+- **D4 — Scandal cue tied to a real mechanic.** TopBar scandal readout flags "censure" at `scandal ≥ PATRONESS_FAVOR_EROSION_SCANDAL_THRESHOLD` (50) — the patroness-erosion threshold, NOT an invented exile-proximity (scandal never directly causes exile; only Scandal-Sheet self-attribution does).
+- **D5 — Golden-path verification via in-browser state injection** through a new DEV-only `window.__store` seam (mirrors `__putRawForTests`); `replaceState` is the same sink the load path feeds, so it stands in for a loaded high-affection save without a brittle hand-built SaveV1 blob.
+- **Propose-gate readout reads RAW `playerHouse.reputation`**, not the TopBar's effective/artifact-walked value — gate 12 tests raw (`proposal.ts:143`).
+
+**Open questions hit:**
+- No MASTER §10 OQ involved. The §3 L262 spec override (D2) is a resolved deviation, documented in code + plan; it is not an open question and needs no §10 row.
+
+**Two pre-existing gotchas surfaced (NOT changed by P20 — flagged for P23 family work):**
+- Conception cadence is keyed on `state.tick` (`dt = tick − marriedAtTick`), and `runYearPass` does NOT advance the tick — so a birth needs a tick advance to reach `dt = 2` BEFORE a year-pass runs the conception step.
+- The conception child joins the **lex-first** spouse's house (`conception.ts:126`). Marrying a baseline `npc-*` (sorts before `player-head`) puts children in the NPC's house, not the player's; a `proc-npc-*` (sorts after) puts them in the player house.
+
+**Deferred / next-up:**
+- P21 (Ledger Completeness & Notifications): duels/marriages/couriers/happiness readouts, scheme-outcome notifications, §11.3 doc fixes #3–#4, the LOW items.
+
+**Files of note:**
+- src/ui/shared/ProposalOutcomeBanner.tsx — shared outcome renderer (exhaustive over 14 rejection variants); src/ui/map/yearPassSummary.ts — pure before/after diff helper
+- src/ui/ballroom/BallroomView.tsx — propose control + gate readout + turn-result + faux-pas banner + mood-lock; src/ui/ballroom/PortraitCard.tsx — `portrait-moodlock-*` badge
+- src/ui/socialWeb/SocialWebView.tsx — onNodeClick propose + overlay (spec-override); src/ui/shared/TopBar.tsx — scandal/generation/ancestorSummary; src/App.tsx — elopement Won/Lost banner; src/ui/map/MapView.tsx — Pass a Year control
+- src/main.tsx — `window.__store` DEV-only e2e seam; tests/e2e/coreloop.spec.ts — marry→conceive→succeed golden path

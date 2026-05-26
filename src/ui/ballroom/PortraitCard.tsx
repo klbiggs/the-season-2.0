@@ -14,6 +14,9 @@ type Props = {
   // P18: fired when the player opens the "Who is this?" bio expander — triggers
   // generation (idempotent). The deliberate reveal, not a conversation.
   onRevealBio: () => void;
+  // P20: current tick, for the faux-pas mood-lock indicator. A character is
+  // mood-locked (Defensive, immovable) while tick < moodLockUntilTick.
+  tick: number;
 };
 
 const MOOD_COLOR: Readonly<Record<string, string>> = {
@@ -24,8 +27,9 @@ const MOOD_COLOR: Readonly<Record<string, string>> = {
   Grieving: "text-indigo-700",
 };
 
-export function PortraitCard({ character, selected, onSelect, bio, onRevealBio }: Props) {
+export function PortraitCard({ character, selected, onSelect, bio, onRevealBio, tick }: Props) {
   const moodClass = MOOD_COLOR[character.mood] ?? "text-stone-500";
+  const locked = tick < character.moodLockUntilTick;
   return (
     <div className="flex flex-col gap-1">
       <button
@@ -44,6 +48,15 @@ export function PortraitCard({ character, selected, onSelect, bio, onRevealBio }
         </div>
         <div className="font-medium text-stone-800">{character.name}</div>
         <div className={`text-xs ${moodClass}`}>{character.mood}</div>
+        {locked && (
+          <div
+            className="rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900"
+            data-testid={`portrait-moodlock-${character.id}`}
+            title={`Mood-locked (Defensive) until tick ${character.moodLockUntilTick} after a faux pas.`}
+          >
+            🔒 Locked
+          </div>
+        )}
       </button>
       <details
         data-testid={`portrait-bio-${character.id}`}

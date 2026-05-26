@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // LedgerView (via FamilyTreeTab → SocialWebView) and the ballroom pull the
@@ -11,6 +11,7 @@ import { makeCharacter, makeGameState, makeHouse } from "./game/__test-utils__/f
 import type { ElopementSprintState } from "./game/entities";
 import { type CharacterId, PLAYER_HOUSE_ID, type SchemeId } from "./game/rng.seeds";
 import { createStore } from "./game/store";
+import { elopementBus } from "./runtime/events/elopement";
 
 afterEach(cleanup);
 
@@ -62,5 +63,37 @@ describe("App shell (P14)", () => {
     expect(screen.getByTestId("elopement-overlay")).toBeTruthy();
     expect(screen.queryByTestId("ledger-view")).toBeNull();
     expect(screen.queryByTestId("map-view")).toBeNull();
+  });
+
+  it("surfaces the elopement Won/Lost banner on ElopementResolved (P20)", () => {
+    const store = createStore({ seed: "app" });
+    store.getState().replaceState(
+      makeGameState({
+        houses: new Map([
+          [PLAYER_HOUSE_ID, makeHouse({ id: PLAYER_HOUSE_ID, headOfHouseCharacterId: HEAD })],
+        ]),
+        characters: new Map([[HEAD, makeCharacter({ id: HEAD, role: "HeadOfHouse" })]]),
+      }),
+    );
+    render(<App store={store} seed="app" />);
+    expect(screen.queryByTestId("elopement-outcome-banner")).toBeNull();
+
+    // The banner lives on App's persistent chrome (not the overlay) so it
+    // survives the overlay unmount at elopement → null.
+    act(() => {
+      elopementBus.publish({
+        kind: "ElopementResolved",
+        tick: 5,
+        schemeId: "scheme-elope" as SchemeId,
+        outcome: "Won",
+        marriageMinted: true,
+        reputationDelta: -25,
+        scandalDelta: 0,
+      });
+    });
+
+    const banner = screen.getByTestId("elopement-outcome-banner");
+    expect(banner.getAttribute("data-outcome")).toBe("Won");
+    expect(banner.textContent).toContain("successful");
   });
 });
