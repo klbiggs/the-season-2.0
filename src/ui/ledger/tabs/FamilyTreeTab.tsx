@@ -41,6 +41,29 @@ function CharacterRow({ c }: { c: Character }) {
       <span className="w-24 text-stone-500">{c.role}</span>
       <span className="w-24 text-stone-500">{c.archetype}</span>
       <span className="w-20 text-stone-500">{c.mood}</span>
+      <span className="w-16 text-stone-500" title="Happiness (0-100)">
+        hap {c.happiness}
+      </span>
+      <span className="w-20 text-stone-500" title="Composure / max">
+        comp {c.composure}/{c.maxComposure}
+      </span>
+      {c.temptationHookUnlocked && (
+        <span
+          data-testid={`tempted-${c.id}`}
+          title="Temptation hook unlocked (Dull-spouse drain crossed threshold)"
+          className="rounded bg-rose-100 px-1.5 py-0.5 text-xs text-rose-800"
+        >
+          tempted
+        </span>
+      )}
+      {c.dullSpouseExposureStartTick !== null && (
+        <span
+          title="Dull-spouse exposure (happiness drains while exposed)"
+          className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800"
+        >
+          dull-spouse since t{c.dullSpouseExposureStartTick}
+        </span>
+      )}
       {c.equippedArtifactIds.length > 0 && (
         <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-800">
           {c.equippedArtifactIds.length} equipped
@@ -59,11 +82,22 @@ function CharacterRow({ c }: { c: Character }) {
 }
 
 export function FamilyTreeTab({ store }: Props) {
-  const { characters, houses, pendingTutorTraitChoices, tick } = store(
+  const {
+    characters,
+    houses,
+    pendingTutorTraitChoices,
+    marriages,
+    proposalsLog,
+    tutorAssignmentsLog,
+    tick,
+  } = store(
     useShallow((s) => ({
       characters: s.characters,
       houses: s.houses,
       pendingTutorTraitChoices: s.pendingTutorTraitChoices,
+      marriages: s.marriages,
+      proposalsLog: s.proposalsLog,
+      tutorAssignmentsLog: s.tutorAssignmentsLog,
       tick: s.tick,
     })),
   );
@@ -99,6 +133,23 @@ export function FamilyTreeTab({ store }: Props) {
   const pendingChoices = [...pendingTutorTraitChoices.entries()].filter(
     ([childId]) => characters.get(childId)?.houseId === PLAYER_HOUSE_ID,
   );
+
+  const inPlayerHouse = (id: CharacterId): boolean =>
+    characters.get(id)?.houseId === PLAYER_HOUSE_ID;
+  // Marriages with at least one player-house spouse, lex-sorted by id.
+  const playerMarriages = [...marriages.values()]
+    .filter((m) => inPlayerHouse(m.spouseAId) || inPlayerHouse(m.spouseBId))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  // proposalsLog is keyed by TARGET; the player's proposals are filtered by
+  // PROPOSER (byCharacterId) — the target is an Independent NPC. At v1 every
+  // proposal is player-made (proposal.ts), so this is forward-compat for P8 rivals.
+  const playerProposals = [...proposalsLog.entries()]
+    .filter(([, e]) => inPlayerHouse(e.byCharacterId))
+    .sort(([a], [b]) => a.localeCompare(b));
+  // tutorAssignmentsLog is keyed by CHILD (player-house); key-deref filter.
+  const playerTutorLog = [...tutorAssignmentsLog.entries()]
+    .filter(([childId]) => inPlayerHouse(childId))
+    .sort(([a], [b]) => a.localeCompare(b));
 
   const onReconcile = (siblingCharacterId: CharacterId) => {
     const r = reconcileSibling(siblingCharacterId);
@@ -137,6 +188,46 @@ export function FamilyTreeTab({ store }: Props) {
               <CharacterRow key={c.id} c={c} />
             ))}
           </ul>
+
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wide">
+              Marriages
+            </h3>
+            {playerMarriages.length === 0 ? (
+              <p className="text-sm text-stone-500">No marriages yet.</p>
+            ) : (
+              <ul data-testid="family-marriages-list" className="space-y-1">
+                {playerMarriages.map((m) => {
+                  const a = characters.get(m.spouseAId)?.name ?? "—";
+                  const b = characters.get(m.spouseBId)?.name ?? "—";
+                  return (
+                    <li
+                      key={m.id}
+                      data-testid={`marriage-row-${m.id}`}
+                      className={`flex items-center gap-3 rounded-md border border-stone-200 px-3 py-2 text-sm ${
+                        m.dissolved ? "opacity-60" : ""
+                      }`}
+                    >
+                      <span className="flex-1 font-medium text-stone-800">
+                        {a} <span className="text-stone-400">&amp;</span> {b}
+                      </span>
+                      <span className="w-20 text-stone-400">t{m.marriedAtTick}</span>
+                      {m.viaElopement && (
+                        <span className="rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-800">
+                          eloped
+                        </span>
+                      )}
+                      {m.dissolved && (
+                        <span className="rounded bg-stone-200 px-1.5 py-0.5 text-xs text-stone-600">
+                          dissolved{m.dissolvedAtTick !== null ? ` t${m.dissolvedAtTick}` : ""}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
 
           {siblingRivals.length > 0 && (
             <div className="space-y-2">
@@ -245,6 +336,63 @@ export function FamilyTreeTab({ store }: Props) {
                         </button>
                       ))}
                     </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {playerProposals.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wide">
+                Recent Proposals
+              </h3>
+              <ul data-testid="proposals-log-list" className="space-y-1">
+                {playerProposals.map(([targetId, entry]) => (
+                  <li
+                    key={targetId}
+                    data-testid={`proposal-log-row-${targetId}`}
+                    className="flex items-center gap-3 rounded-md border border-stone-200 px-3 py-2 text-sm"
+                  >
+                    <span className="flex-1 font-medium text-stone-800">
+                      {characters.get(targetId)?.name ?? targetId}
+                    </span>
+                    <span
+                      className={`w-24 ${entry.outcome === "Accepted" ? "text-green-700" : "text-rose-700"}`}
+                    >
+                      {entry.outcome}
+                    </span>
+                    <span className="w-16 text-stone-400">t{entry.tick}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {playerTutorLog.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wide">
+                Tutor Assignments
+              </h3>
+              <ul data-testid="tutor-assignments-log-list" className="space-y-1">
+                {playerTutorLog.map(([childId, entry]) => (
+                  <li
+                    key={childId}
+                    data-testid={`tutor-log-row-${childId}`}
+                    className="flex items-center gap-3 rounded-md border border-stone-200 px-3 py-2 text-sm"
+                  >
+                    <span className="flex-1 font-medium text-stone-800">
+                      {characters.get(childId)?.name ?? childId}
+                    </span>
+                    <span className="flex-1 text-stone-600">
+                      {characters.get(entry.tutorCharacterId)?.name ?? entry.tutorCharacterId}
+                    </span>
+                    <span className="w-16 text-stone-400">t{entry.assignedAtTick}</span>
+                    {entry.reassignmentCount > 0 && (
+                      <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs text-stone-500">
+                        ×{entry.reassignmentCount}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>

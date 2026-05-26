@@ -1,12 +1,14 @@
-// P6: Spymaster mail-intercept affordance. At P6 the rule layer ships
-// fully but classifyArchetype is stubbed at "None" until P7 — so the
-// button is functionally disabled until P7 produces real archetypes.
-// Tooltip explains the dependency.
+// P6: Spymaster mail-intercept affordance. The button is gated on a living
+// Spymaster archetype in the player house (classifyArchetype ships at P7), so
+// it is enabled whenever such a character exists. P21 surfaces the rule-layer
+// rejection via a toast (was a swallowed console.warn).
 
+import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { SPYMASTER_INTERCEPT_WEALTH_COST } from "../../game/constants";
 import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import type { SeasonStore } from "../../game/store";
+import { ActionRejectionToast } from "../map/ActionRejectionToast";
 
 type Props = {
   store: SeasonStore;
@@ -15,6 +17,7 @@ type Props = {
 export function SpymasterInterceptCard({ store }: Props) {
   const { characters } = store(useShallow((s) => ({ characters: s.characters })));
   const spymasterIntercept = store((s) => s.spymasterIntercept);
+  const [toast, setToast] = useState<string | null>(null);
 
   // Mirror the rule layer's NoLivingSpymaster check so the button reflects
   // whether the rule would accept the action.
@@ -36,17 +39,18 @@ export function SpymasterInterceptCard({ store }: Props) {
         title={
           hasSpymaster
             ? `Drop the lex-smallest inbound courier targeting your house. Costs ${SPYMASTER_INTERCEPT_WEALTH_COST} wealth.`
-            : "Requires a living Spymaster archetype in your family — available after P7 ships archetype classification."
+            : "Requires a living Spymaster archetype in your family."
         }
         onClick={() => {
           const result = spymasterIntercept();
           if (!result.ok) {
-            console.warn("spymasterIntercept rejected:", result.reason);
+            setToast(`Cannot intercept: ${result.reason.kind}.`);
           }
         }}
       >
         Intercept Inbound Mail ({SPYMASTER_INTERCEPT_WEALTH_COST} wealth)
       </button>
+      {toast !== null && <ActionRejectionToast message={toast} onDismiss={() => setToast(null)} />}
     </div>
   );
 }

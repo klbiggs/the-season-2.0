@@ -323,7 +323,7 @@ P14 is also the FIRST phase to **remove load-bearing UI surfaces** rather than a
 
 **Out of scope.**
 
-- Real character portraits (initial-letter glyph at v1 — P16 ships procedural portraits).
+- Real character portraits (initial-letter glyph at v1 — procedural portraits are a v1.5 item, §11.2-J; P16 deferred them). <!-- P21 §11.3-1 fix: P16 did not ship portraits; the deferral is the single authority. -->
 - URL routing for tab selection (Ledger tab state is React-local; no `?tab=whispers` query param). v1.5 candidate if playtest reveals deep-linking demand.
 - Activity / Event log tab (no aggregated "everything that happened recently" view). The TopBar chip row covers global events at P13; per-domain history lives inside each tab's own sub-sections. v1.5 candidate.
 - Sortable / filterable tables. Every list is lex-sorted by id at render time; no column-sort UI. v1.5 candidate.

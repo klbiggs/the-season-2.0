@@ -14,10 +14,12 @@
 // bypass flag") implies the action targets the BLOCKADE, not a person —
 // the button reads `targetCharacterId: null`.
 
+import { useState } from "react";
 import { SCHEME_KINDS, SCHEME_PREREQUISITES, SCHEME_TUNING } from "../../game/constants";
 import type { CharacterId } from "../../game/rng.seeds";
 import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import type { SeasonStore } from "../../game/store";
+import { ActionRejectionToast } from "../map/ActionRejectionToast";
 
 type Props = {
   store: SeasonStore;
@@ -29,6 +31,7 @@ export function SchemeButtons({ store, selectedTargetId }: Props) {
   const characters = store((s) => s.characters);
   const era = store((s) => s.era);
   const startScheme = store((s) => s.startScheme);
+  const [toast, setToast] = useState<string | null>(null);
 
   const playerHouse = houses.get(PLAYER_HOUSE_ID);
   if (playerHouse === undefined) return null;
@@ -80,11 +83,10 @@ export function SchemeButtons({ store, selectedTargetId }: Props) {
           const onClick = () => {
             const result = startScheme({ kind, targetCharacterId: targetForKind });
             if (!result.ok) {
-              // Rule-layer rejection — UI feedback would surface via a
-              // toast/banner in a real polish pass. For P5 minimal-UI scope
-              // we trust the disabled-state to gate; rejections only happen
-              // on races (UI not refreshed since action issued).
-              console.warn(`startScheme(${kind}) rejected:`, result.reason);
+              // P21: surface the rule-layer rejection. Disabled-state gates the
+              // common cases; this covers the race-rejections it can't (UI not
+              // refreshed since the action was issued).
+              setToast(`Cannot start ${kind}: ${result.reason.kind}.`);
             }
           };
 
@@ -105,6 +107,7 @@ export function SchemeButtons({ store, selectedTargetId }: Props) {
           );
         })}
       </div>
+      {toast !== null && <ActionRejectionToast message={toast} onDismiss={() => setToast(null)} />}
     </div>
   );
 }

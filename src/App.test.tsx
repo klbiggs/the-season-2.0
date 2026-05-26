@@ -9,9 +9,16 @@ vi.mock("react-force-graph-2d", () => ({ default: () => null }));
 import { App } from "./App";
 import { makeCharacter, makeGameState, makeHouse } from "./game/__test-utils__/factories";
 import type { ElopementSprintState } from "./game/entities";
-import { type CharacterId, PLAYER_HOUSE_ID, type SchemeId } from "./game/rng.seeds";
+import {
+  type CharacterId,
+  type HouseId,
+  INDEPENDENT_HOUSE_ID,
+  PLAYER_HOUSE_ID,
+  type SchemeId,
+} from "./game/rng.seeds";
 import { createStore } from "./game/store";
 import { elopementBus } from "./runtime/events/elopement";
+import { schemeBus } from "./runtime/events/scheme";
 
 afterEach(cleanup);
 
@@ -95,5 +102,98 @@ describe("App shell (P14)", () => {
     const banner = screen.getByTestId("elopement-outcome-banner");
     expect(banner.getAttribute("data-outcome")).toBe("Won");
     expect(banner.textContent).toContain("successful");
+  });
+});
+
+describe("App scheme-outcome notification (P21)", () => {
+  const RIVAL_HOUSE = "house-rival" as HouseId;
+  const OTHER = "other-npc" as CharacterId;
+
+  function mountApp() {
+    const store = createStore({ seed: "app" });
+    store.getState().replaceState(
+      makeGameState({
+        houses: new Map([
+          [PLAYER_HOUSE_ID, makeHouse({ id: PLAYER_HOUSE_ID, headOfHouseCharacterId: HEAD })],
+        ]),
+        characters: new Map([
+          [HEAD, makeCharacter({ id: HEAD, role: "HeadOfHouse", name: "Lord Player" })],
+          [
+            TARGET,
+            makeCharacter({ id: TARGET, houseId: INDEPENDENT_HOUSE_ID, name: "Miss Ashford" }),
+          ],
+          [OTHER, makeCharacter({ id: OTHER, houseId: RIVAL_HOUSE, name: "Rival Heir" })],
+        ]),
+      }),
+    );
+    render(<App store={store} seed="app" />);
+    return store;
+  }
+
+  it("shows a banner for a player-launched scheme completing", () => {
+    mountApp();
+    expect(screen.queryByTestId("scheme-outcome-banner")).toBeNull();
+    act(() => {
+      schemeBus.publish({
+        kind: "SchemeCompleted",
+        tick: 3,
+        schemeId: "s-1" as SchemeId,
+        schemeKind: "Sabotage",
+        ownerHouseId: PLAYER_HOUSE_ID,
+        targetCharacterId: TARGET,
+      });
+    });
+    const banner = screen.getByTestId("scheme-outcome-banner");
+    expect(banner.textContent).toContain("Your Sabotage against Miss Ashford succeeded");
+  });
+
+  it("shows a banner for a rival scheme completing against a player-house target", () => {
+    mountApp();
+    act(() => {
+      schemeBus.publish({
+        kind: "SchemeCompleted",
+        tick: 4,
+        schemeId: "s-2" as SchemeId,
+        schemeKind: "Sabotage",
+        ownerHouseId: RIVAL_HOUSE,
+        targetCharacterId: HEAD,
+      });
+    });
+    expect(screen.getByTestId("scheme-outcome-banner").textContent).toContain(
+      "A rival's Sabotage against Lord Player succeeded",
+    );
+  });
+
+  it("does NOT show a banner for a rival scheme irrelevant to the player", () => {
+    mountApp();
+    act(() => {
+      schemeBus.publish({
+        kind: "SchemeCompleted",
+        tick: 5,
+        schemeId: "s-3" as SchemeId,
+        schemeKind: "Sabotage",
+        ownerHouseId: RIVAL_HOUSE,
+        targetCharacterId: OTHER,
+      });
+    });
+    expect(screen.queryByTestId("scheme-outcome-banner")).toBeNull();
+  });
+
+  it("dismisses the banner", () => {
+    mountApp();
+    act(() => {
+      schemeBus.publish({
+        kind: "SeductionDiscovered",
+        tick: 6,
+        schemeId: "s-4" as SchemeId,
+        ownerHouseId: PLAYER_HOUSE_ID,
+        targetCharacterId: TARGET,
+      });
+    });
+    expect(screen.getByTestId("scheme-outcome-banner")).toBeTruthy();
+    act(() => {
+      screen.getByTestId("scheme-outcome-dismiss").click();
+    });
+    expect(screen.queryByTestId("scheme-outcome-banner")).toBeNull();
   });
 });

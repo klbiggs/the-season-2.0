@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { DuelOutcome, Grievance } from "../../../game/entities";
+import type { Duel, DuelOutcome, Grievance } from "../../../game/entities";
 import { type GrievanceId, type HouseId, PLAYER_HOUSE_ID } from "../../../game/rng.seeds";
 import type { SeasonStore } from "../../../game/store";
 import { houseDisplayName } from "../houseName";
@@ -22,11 +22,12 @@ const OUTCOME_PROSE: Readonly<Record<DuelOutcome, string>> = {
 };
 
 export function GrievancesTab({ store }: Props) {
-  const { houses, characters, elopement } = store(
+  const { houses, characters, elopement, duels } = store(
     useShallow((s) => ({
       houses: s.houses,
       characters: s.characters,
       elopement: s.elopement,
+      duels: s.duels,
     })),
   );
   const demandSatisfaction = store((s) => s.demandSatisfaction);
@@ -37,6 +38,16 @@ export function GrievancesTab({ store }: Props) {
   const grievances = playerHouse?.grievances ?? [];
   const outstanding = grievances.filter((g) => g.resolved === false);
   const resolved = grievances.filter((g) => g.resolved === true);
+
+  // Duels involving a player-house character (challenger OR defender), lex-sorted
+  // by id. v1 only ever mints player-involved duels (demandSatisfaction is the
+  // sole source); the filter is defensive but cheap.
+  const playerInvolvedDuel = (d: Duel): boolean =>
+    characters.get(d.challengerCharacterId)?.houseId === PLAYER_HOUSE_ID ||
+    characters.get(d.defenderCharacterId)?.houseId === PLAYER_HOUSE_ID;
+  const duelHistory = [...duels.values()]
+    .filter(playerInvolvedDuel)
+    .sort((a, b) => a.id.localeCompare(b.id));
 
   const canDemand = (g: Grievance): boolean => {
     if (g.defendantCharacterId === null) return false;
@@ -134,6 +145,39 @@ export function GrievancesTab({ store }: Props) {
                 </span>
               </li>
             ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wide">Duels</h3>
+        {duelHistory.length === 0 ? (
+          <p className="text-sm text-stone-500">No duels fought.</p>
+        ) : (
+          <ul data-testid="grievances-duels-list" className="space-y-1">
+            {duelHistory.map((d) => {
+              const challenger = characters.get(d.challengerCharacterId)?.name ?? "—";
+              const defender = characters.get(d.defenderCharacterId)?.name ?? "—";
+              return (
+                <li
+                  key={d.id}
+                  data-testid={`duel-row-${d.id}`}
+                  className="flex items-center gap-3 rounded-md border border-stone-200 px-3 py-2 text-sm"
+                >
+                  <span className="flex-1 font-medium text-stone-800">
+                    {challenger} <span className="text-stone-400">vs</span> {defender}
+                  </span>
+                  <span className="w-20 text-stone-500">{d.status}</span>
+                  <span className="w-32 text-stone-600">{d.outcome ?? "—"}</span>
+                  <span className="w-20 text-stone-500">{d.loserCasualty}</span>
+                  <span className="w-28 text-stone-400">
+                    t{d.initiatedAtTick}
+                    {d.resolvedAtTick !== null ? `→t${d.resolvedAtTick}` : ""}
+                  </span>
+                  <span className="w-16 text-stone-400">{d.exchangesElapsed}/12</span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

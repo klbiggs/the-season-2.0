@@ -989,3 +989,28 @@ First v1.1-track phase. UI-only: wired already-built store actions to UI afforda
 - src/ui/ballroom/BallroomView.tsx — propose control + gate readout + turn-result + faux-pas banner + mood-lock; src/ui/ballroom/PortraitCard.tsx — `portrait-moodlock-*` badge
 - src/ui/socialWeb/SocialWebView.tsx — onNodeClick propose + overlay (spec-override); src/ui/shared/TopBar.tsx — scandal/generation/ancestorSummary; src/App.tsx — elopement Won/Lost banner; src/ui/map/MapView.tsx — Pass a Year control
 - src/main.tsx — `window.__store` DEV-only e2e seam; tests/e2e/coreloop.spec.ts — marry→conceive→succeed golden path
+
+## P21 — closed 2026-05-26
+
+**Decisions made:**
+- Duels + marriages render as SUB-SECTIONS in existing tabs (duels → GrievancesTab `grievances-duels-list`; marriages → FamilyTreeTab `family-marriages-list`), NOT new tabs. Holds the strip at 10; matches the P14 fold-into-existing-tab convention.
+- Couriers readout lives in StaffTab (`staff-couriers-list`, in-flight + collapsed resolved history) beside the SpymasterInterceptCard it makes legible.
+- Scheme-outcome notification covers player-launched schemes AND rival schemes completing against a player-house target. Relevance predicate: `ownerHouseId === PLAYER` OR (non-null `targetCharacterId` whose resolved `houseId === PLAYER`). SchemeFailed carries no target → player-owned-only by nature.
+- Notification surface = App-chrome dismissible `<output>` banner (`scheme-outcome-banner`), single most-recent / manual dismiss — mirrors the P20 elopement banner. Transient launch/entry rejections use the 3s auto-dismiss `ActionRejectionToast` instead.
+- proposalsLog is keyed by TARGET (an Independent NPC); the player's proposals are filtered by PROPOSER (`byCharacterId`), NOT key-deref — key-deref would exclude every player proposal. (Plan's LOW instruction said key-deref; corrected during impl, commented inline at FamilyTreeTab.tsx.)
+
+**Open questions hit:**
+- None (UI phase; no §10 OQ block). The two forks above were P21 design decisions, recorded in the subplan's Decisions section.
+
+**Deferred / next-up:**
+- Rival-against-player notification stays read-only over already-published schemeBus events (no new "what the player knows" design surface). Wider modelling → v1.5.
+- Live-browser golden path NOT run this phase — verification is jsdom component tests (P21 ships no Playwright path, unlike P20). 13 new tests across 5 new files.
+- Enter-ballroom rejection test exercises the PlayerExiled gate (same toast code path as the SessionAlreadyOpen race the plan names).
+
+**Files of note:**
+- src/ui/ledger/tabs/GrievancesTab.tsx — duels history sub-section (player-involved filter; nullable cells → em-dash)
+- src/ui/ledger/tabs/FamilyTreeTab.tsx — marriages sub-section + happiness/composure/temptation row cells + proposal/tutor log line-lists
+- src/ui/ledger/tabs/StaffTab.tsx — now a reading component (useShallow couriers+tick); CourierRoute helper
+- src/App.tsx — describeSchemeNotice() + schemeBus subscription (3 events) + `scheme-outcome-banner` (`<output>`, not `div role=status` — Biome a11y)
+- src/ui/ballroom/SchemeButtons.tsx, src/ui/ledger/SpymasterInterceptCard.tsx, src/ui/map/LocationDetailsPanel.tsx — rejection toasts via shared ActionRejectionToast
+- §11.3 doc fixes: plans/phases/14-ledger-social-web.md:326 (portraits → v1.5), plans/phases/13-global-events-era.md:16 (officer "see P16 correction"), plans/MASTER.md §11.3 (4 items marked resolved)

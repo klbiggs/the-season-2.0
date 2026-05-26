@@ -260,7 +260,7 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P19 | Pre-ship cleanup: delete migration ladder | [`phases/19-migration-ladder-cleanup.md`](./phases/19-migration-ladder-cleanup.md) | all prior | ✅ done |
 | — | **Post-v1 (skeleton — scoped from §11; not yet detailed)** | | | |
 | P20 | v1.1 — Core-Loop Reachability & Legibility | [`phases/20-coreloop-reachability.md`](./phases/20-coreloop-reachability.md) | P7, P9, P4, P14 | ✅ done |
-| P21 | v1.1 — Ledger Completeness & Notifications | [`phases/21-ledger-completeness.md`](./phases/21-ledger-completeness.md) | P14, P20 | 📋 planned (v1.1) |
+| P21 | v1.1 — Ledger Completeness & Notifications | [`phases/21-ledger-completeness.md`](./phases/21-ledger-completeness.md) | P14, P20 | ✅ done |
 | P22 | v1.5 — Society & World Surfacing | [`phases/22-society-surfacing.md`](./phases/22-society-surfacing.md) | P14, P16, P18 | 📋 planned (v1.5) |
 | P23 | v1.5 — Marriage, Family & Lifespan Depth | [`phases/23-marriage-family-depth.md`](./phases/23-marriage-family-depth.md) | P7, P8, P16 | 📋 planned (v1.5) |
 | P24 | v1.5 — Covert Operations & Material Assets Depth | [`phases/24-covert-material-depth.md`](./phases/24-covert-material-depth.md) | P5, P6, P9, P10, P15 | 📋 planned (v1.5) |
@@ -488,10 +488,12 @@ Severity: **CRITICAL** = blocks a core loop; **HIGH** = important info/payoff hi
 
 ### 11.3 Plan / doc inconsistencies
 
-1. **Portraits contradiction.** `14-…:326` says real portraits are "owned by P16"; `16-…:51` lists portrait generation as out of scope. Portraits remain a glyph placeholder and a v1.5 item (11.2-J). Reconcile one note.
-2. **Stale `BallroomView` comment** (`src/ui/ballroom/BallroomView.tsx:68`) claims faux-pas handling that does not exist (11.1 MEDIUM).
-3. **Stale `SpymasterInterceptCard` comment** claims the button is "disabled until P7"; P7 shipped archetypes, so it works whenever a living Spymaster exists.
-4. **`MilitaryOfficer` "inert at v1" vs P16.** The P13 plan calls the officer trait inert with no v1 acquisition path; P16's BohemianRake society profile is the first designed officer path. CLAUDE.md carries the correction; the P13 plan does not.
+> **All four resolved at P21** (see [`phases/21-ledger-completeness.md`](./phases/21-ledger-completeness.md) §11.3 doc/comment fixes).
+
+1. **Portraits contradiction.** `14-…:326` says real portraits are "owned by P16"; `16-…:51` lists portrait generation as out of scope. Portraits remain a glyph placeholder and a v1.5 item (11.2-J). Reconcile one note. **✅ Resolved at P21:** `14-…:326` amended to make the v1.5 deferral the single authority.
+2. **Stale `BallroomView` comment** (`src/ui/ballroom/BallroomView.tsx:68`) claims faux-pas handling that does not exist (11.1 MEDIUM). **✅ Resolved at P20** (the P20 faux-pas wiring made the comment true, `BallroomView.tsx:103-104`).
+3. **Stale `SpymasterInterceptCard` comment** claims the button is "disabled until P7"; P7 shipped archetypes, so it works whenever a living Spymaster exists. **✅ Resolved at P21:** header comment rewritten + the stale "— available after P7" tooltip clause dropped (gate text already said "family"); the card's own swallowed rejection now surfaces a toast.
+4. **`MilitaryOfficer` "inert at v1" vs P16.** The P13 plan calls the officer trait inert with no v1 acquisition path; P16's BohemianRake society profile is the first designed officer path. CLAUDE.md carries the correction; the P13 plan does not. **✅ Resolved at P21:** a "see P16 correction" pointer note added to the P13 plan's `MilitaryOfficer` discussion.
 
 ---
 

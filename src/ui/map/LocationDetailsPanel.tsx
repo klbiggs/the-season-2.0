@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   LOCATION_DESCRIPTIONS,
   LOCATION_LABELS,
@@ -8,6 +9,7 @@ import { getLocationDelta } from "../../game/rules/locationEffects";
 import { eligiblePromenadePartners } from "../../game/rules/promenade";
 import type { SeasonStore } from "../../game/store";
 import { conversationOrchestrator } from "../../runtime/conversationOrchestrator";
+import { ActionRejectionToast } from "./ActionRejectionToast";
 
 // Right-side details panel. Shows the current location's name, description,
 // per-tick deltas, and available actions. Conditional rendering per location:
@@ -34,6 +36,7 @@ export function LocationDetailsPanel({
   onEnterPromenade,
 }: Props) {
   const house = store((s) => s.houses.get(PLAYER_HOUSE_ID));
+  const [toast, setToast] = useState<string | null>(null);
   const consecutiveTicks = house?.consecutiveTicksAtCurrentLocation ?? 0;
   const wealth = house?.wealth ?? 0;
   const reputation = house?.reputation ?? 0;
@@ -173,6 +176,9 @@ export function LocationDetailsPanel({
             onClick={() => {
               const result = store.getState().enterBallroom();
               if (result.ok) onEnterBallroom();
+              // P21: surface the rejection (was swallowed). Realistic reachable
+              // case is the SessionAlreadyOpen race.
+              else setToast(`Cannot enter the ballroom: ${result.reason.kind}.`);
             }}
             className="px-3 py-2 rounded bg-purple-700 text-white hover:bg-purple-800 text-sm"
             data-testid="location-details-enter-ballroom"
@@ -200,6 +206,7 @@ export function LocationDetailsPanel({
           </button>
         )}
       </div>
+      {toast !== null && <ActionRejectionToast message={toast} onDismiss={() => setToast(null)} />}
     </aside>
   );
 }

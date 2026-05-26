@@ -4,10 +4,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("react-force-graph-2d", () => ({ default: () => null }));
 
-import { makeCharacter, makeGameState, makeHouse } from "../../../game/__test-utils__/factories";
+import {
+  makeCharacter,
+  makeGameState,
+  makeHouse,
+  makeMarriage,
+} from "../../../game/__test-utils__/factories";
 import type { SiblingRivalState } from "../../../game/entities";
 import {
   type CharacterId,
+  INDEPENDENT_HOUSE_ID,
+  type MarriageId,
   PLAYER_HOUSE_ID,
   type SiblingRivalActorId,
   type TraitId,
@@ -107,6 +114,94 @@ describe("FamilyTreeTab", () => {
     render(<FamilyTreeTab store={store} />);
     expect(screen.getByTestId(`assign-tutor-select-${CHILD}`)).toBeTruthy();
     expect(screen.getByTestId(`tutor-trait-choice-${CHILD}`)).toBeTruthy();
+  });
+
+  it("renders player-involved marriages with elopement/dissolved badges (P21)", () => {
+    const store = createStore({ seed: "f" });
+    const SPOUSE = "spouse-npc" as CharacterId;
+    const marriage = makeMarriage({
+      id: "m-0001" as MarriageId,
+      spouseAId: HEAD,
+      spouseBId: SPOUSE,
+      marriedAtTick: 3,
+      viaElopement: true,
+    });
+    const state = makeGameState({
+      houses: new Map([
+        [PLAYER_HOUSE_ID, makeHouse({ id: PLAYER_HOUSE_ID, headOfHouseCharacterId: HEAD })],
+      ]),
+      characters: new Map([
+        [HEAD, makeCharacter({ id: HEAD, role: "HeadOfHouse", name: "Lord Player" })],
+        [SPOUSE, makeCharacter({ id: SPOUSE, houseId: INDEPENDENT_HOUSE_ID, name: "Lady NPC" })],
+      ]),
+      marriages: new Map([[marriage.id, marriage]]),
+    });
+    store.getState().replaceState(state);
+    render(<FamilyTreeTab store={store} />);
+    const row = screen.getByTestId(`marriage-row-${marriage.id}`);
+    expect(row.textContent).toContain("Lord Player");
+    expect(row.textContent).toContain("Lady NPC");
+    expect(row.textContent).toContain("eloped");
+  });
+
+  it("surfaces happiness/composure + a tempted pill on the character row (P21)", () => {
+    const store = createStore({ seed: "f" });
+    const state = makeGameState({
+      houses: new Map([
+        [PLAYER_HOUSE_ID, makeHouse({ id: PLAYER_HOUSE_ID, headOfHouseCharacterId: HEAD })],
+      ]),
+      characters: new Map([
+        [
+          HEAD,
+          makeCharacter({
+            id: HEAD,
+            role: "HeadOfHouse",
+            happiness: 42,
+            composure: 70,
+            maxComposure: 100,
+            temptationHookUnlocked: true,
+            dullSpouseExposureStartTick: 12,
+          }),
+        ],
+      ]),
+    });
+    store.getState().replaceState(state);
+    render(<FamilyTreeTab store={store} />);
+    const row = screen.getByTestId(`family-row-${HEAD}`);
+    expect(row.textContent).toContain("hap 42");
+    expect(row.textContent).toContain("comp 70/100");
+    expect(screen.getByTestId(`tempted-${HEAD}`)).toBeTruthy();
+    expect(row.textContent).toContain("dull-spouse since t12");
+  });
+
+  it("renders proposal + tutor-assignment logs (P21 LOW)", () => {
+    const store = createStore({ seed: "f" });
+    const TARGET = "target-npc" as CharacterId;
+    const state = makeGameState({
+      houses: new Map([
+        [PLAYER_HOUSE_ID, makeHouse({ id: PLAYER_HOUSE_ID, headOfHouseCharacterId: HEAD })],
+      ]),
+      characters: new Map([
+        [HEAD, makeCharacter({ id: HEAD, role: "HeadOfHouse" })],
+        [TARGET, makeCharacter({ id: TARGET, houseId: INDEPENDENT_HOUSE_ID, name: "Miss Target" })],
+        [CHILD, makeCharacter({ id: CHILD, role: "Dependent", age: 10, name: "Young One" })],
+        [TUTOR, makeCharacter({ id: TUTOR, archetype: "Tutor", age: 40, name: "Mr Tutor" })],
+      ]),
+      // keyed by target; proposer (byCharacterId) is the player head
+      proposalsLog: new Map([
+        [TARGET, { outcome: "Accepted" as const, tick: 7, byCharacterId: HEAD }],
+      ]),
+      // keyed by child
+      tutorAssignmentsLog: new Map([
+        [CHILD, { tutorCharacterId: TUTOR, assignedAtTick: 4, reassignmentCount: 0 }],
+      ]),
+    });
+    store.getState().replaceState(state);
+    render(<FamilyTreeTab store={store} />);
+    expect(screen.getByTestId(`proposal-log-row-${TARGET}`).textContent).toContain("Miss Target");
+    expect(screen.getByTestId(`proposal-log-row-${TARGET}`).textContent).toContain("Accepted");
+    expect(screen.getByTestId(`tutor-log-row-${CHILD}`).textContent).toContain("Young One");
+    expect(screen.getByTestId(`tutor-log-row-${CHILD}`).textContent).toContain("Mr Tutor");
   });
 
   it("toggles into the Social Web sub-view (matrix #10)", () => {
