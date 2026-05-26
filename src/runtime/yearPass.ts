@@ -19,10 +19,12 @@
 
 import type { CharacterId, HouseId } from "../game/rng";
 import { applyAgingStep } from "../game/rules/aging";
+import { applyBetrothalHonorStep } from "../game/rules/betrothal";
 import { applyConceptionStep } from "../game/rules/conception";
 import { evaluateDynastyPerks } from "../game/rules/dynastyLegacies";
 import { applyMaturationStep } from "../game/rules/maturation";
 import { buildSiblingRivalPromotionStep } from "../game/rules/siblingRivals";
+import { applySocietyMarriageStep } from "../game/rules/societyMarriage";
 import { applySocietyReplenishmentStep } from "../game/rules/societyReplenishment";
 import { applySuccessionStep } from "../game/rules/succession";
 import type { GameState } from "../game/store";
@@ -57,10 +59,19 @@ export function runYearPassPure(state: GameState): GameState {
   const STEPS: readonly YearPassStep[] = [
     applyAgingStep,
     applyMaturationStep,
+    // P23 slot: auto-honor Pending betrothals whose both parties are now adults.
+    // RNG-free deterministic mint; placed after maturation (a party who just
+    // turned 18 qualifies this pass) and before succession.
+    applyBetrothalHonorStep,
     applySuccessionStep,
     buildSiblingRivalPromotionStep(preSuccessionHeads),
     applyConceptionStep,
-    // P22 slot 6: top up the procedural society cohort (RNG-consuming; uses the
+    // P23 slot: pair society singles into new soc-house-<n> dynasties
+    // (RNG-consuming; uses the Independent rng stream — interleaves
+    // deterministically with replenishment below). After conception (no
+    // same-pass conception for the new marriage; dt=0); before replenishment.
+    applySocietyMarriageStep,
+    // P22 slot: top up the procedural society cohort (RNG-consuming; uses the
     // Independent rng stream). Must precede the RNG-free terminal eval below.
     applySocietyReplenishmentStep,
     // P15 terminal slot: dynasty-perk evaluation against fully post-succession

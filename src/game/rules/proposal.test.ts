@@ -47,6 +47,8 @@ function makeProposalState(
     targetAge?: number;
     targetMarried?: boolean;
     targetHouse?: HouseId;
+    targetHostility?: number; // P23: rival-house hostility (alliance gates)
+    playerWealth?: number; // P23: player wealth (alliance dowry gate)
     targetIsSelf?: boolean;
     affection?: number;
   } = {},
@@ -82,12 +84,14 @@ function makeProposalState(
     reputation: opts.playerReputation ?? 50,
     scandal: opts.playerScandal ?? 0,
     exiled: opts.playerExiled ?? false,
+    wealth: opts.playerWealth ?? 100,
   });
   const targetHouseId = opts.targetHouse ?? INDEPENDENT_HOUSE_ID;
   const targetHouse = makeHouse({
     id: targetHouseId,
     headOfHouseCharacterId: targetId,
     exiled: opts.targetExiled ?? false,
+    hostility: opts.targetHostility ?? 0,
   });
 
   const characters =
@@ -190,11 +194,34 @@ describe("applyProposalPure — predicate rejection matrix (gates 1-13)", () => 
     if (!outcome.ok) expect(outcome.reason.kind).toBe("TargetIsSameHouse");
   });
 
-  it("Gate 8: CrossHouseMarriageNotSupported (synthetic third house)", () => {
-    const { state, targetId } = makeProposalState({ targetHouse: "rivalA" as HouseId });
+  it("Gate 8 (P23): a society sub-house target routes to the love-match path (affection-gated)", () => {
+    // A minted soc-house-<n> is a society house → love-match. With no affection
+    // the love-match path rejects on the affection gate (NOT a cross-house gate).
+    const { state, targetId } = makeProposalState({ targetHouse: "soc-house-0" as HouseId });
     const { outcome } = applyProposalPure(state, targetId);
     expect(outcome.ok).toBe(false);
-    if (!outcome.ok) expect(outcome.reason.kind).toBe("CrossHouseMarriageNotSupported");
+    if (!outcome.ok) expect(outcome.reason.kind).toBe("InsufficientAffection");
+  });
+
+  it("Alliance gate: RivalTooHostile when the rival's hostility exceeds the ceiling", () => {
+    const { state, targetId } = makeProposalState({
+      targetHouse: "rival-ashford" as HouseId,
+      targetHostility: 80,
+    });
+    const { outcome } = applyProposalPure(state, targetId);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.reason.kind).toBe("RivalTooHostile");
+  });
+
+  it("Alliance gate: InsufficientWealthForDowry when wealth < dowry", () => {
+    const { state, targetId } = makeProposalState({
+      targetHouse: "rival-ashford" as HouseId,
+      targetHostility: 10,
+      playerWealth: 10,
+    });
+    const { outcome } = applyProposalPure(state, targetId);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.reason.kind).toBe("InsufficientWealthForDowry");
   });
 
   it("Gate 9: TargetTooYoung rejection", () => {
@@ -327,6 +354,57 @@ describe("applyProposalPure — acceptance + roll-rejection paths", () => {
 
   it("PROPOSAL_TICK_COST is documented constant = 1 (asserted via module-load)", () => {
     expect(PROPOSAL_TICK_COST).toBe(1);
+  });
+});
+
+describe("applyProposalPure — P23 rival political alliance", () => {
+  it("alliance accepts with NO affection (1 RNG draw advances)", () => {
+    const { state, targetId } = makeProposalState({
+      targetHouse: "rival-ashford" as HouseId,
+      targetHostility: 0, // slope at the ceiling → very likely accept
+      playerWealth: 100,
+    });
+    const before = state.rng.get(PLAYER_HOUSE_ID)?.callCount ?? 0;
+    const { nextState, outcome } = applyProposalPure(state, targetId);
+    expect(outcome.ok).toBe(true);
+    expect(nextState.rng.get(PLAYER_HOUSE_ID)?.callCount).toBe(before + 1);
+    if (outcome.ok && outcome.accepted) {
+      expect(outcome.via).toBe("Alliance");
+    }
+  });
+
+  it("alliance acceptance drops the rival's hostility, pays the dowry, mints a marriage", () => {
+    const { state, targetId } = makeProposalState({
+      targetHouse: "rival-ashford" as HouseId,
+      targetHostility: 30,
+      playerWealth: 100,
+    });
+    const { nextState, outcome } = applyProposalPure(state, targetId);
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok && outcome.accepted) {
+      expect(outcome.via).toBe("Alliance");
+      // hostility 30 − 40 → clamp 0.
+      expect(nextState.houses.get("rival-ashford" as HouseId)?.hostility).toBe(0);
+      // wealth 100 − 60 dowry → 40.
+      expect(nextState.houses.get(PLAYER_HOUSE_ID)?.wealth).toBe(40);
+      expect(nextState.marriages.get(outcome.marriageId)).toBeDefined();
+      expect(outcome.dowryPaid).toBe(60);
+      expect(outcome.allianceHostilityDrop).toBe(40);
+    }
+  });
+
+  it("alliance roll-rejection pays NO dowry (atomic gating), only +scandal", () => {
+    const { state, targetId } = makeProposalState({
+      targetHouse: "rival-ashford" as HouseId,
+      targetHostility: 30,
+      playerWealth: 100,
+    });
+    const { nextState, outcome } = applyProposalPure(state, targetId);
+    if (outcome.ok && !outcome.accepted) {
+      // No dowry deducted on rejection.
+      expect(nextState.houses.get(PLAYER_HOUSE_ID)?.wealth).toBe(100);
+      expect(nextState.houses.get(PLAYER_HOUSE_ID)?.scandal).toBe(PROPOSAL_REJECTION_SCANDAL_DELTA);
+    }
   });
 });
 

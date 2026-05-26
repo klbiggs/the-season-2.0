@@ -11,7 +11,11 @@
 
 import { ADULTHOOD_AGE_IN_YEARS, TUTOR_REASSIGNMENT_WEALTH_COST } from "../constants";
 import type { Character, GameState, TutorAssignmentLogEntry } from "../entities";
-import { ARCHETYPE_MATURATION_TRAIT_POOL } from "../fixtures/archetypes";
+import {
+  ARCHETYPE_MATURATION_TRAIT_POOL,
+  type Archetype,
+  classifyArchetype,
+} from "../fixtures/archetypes";
 import { type CharacterId, PLAYER_HOUSE_ID, type TraitId } from "../rng";
 
 export type AssignTutorRejection =
@@ -40,7 +44,14 @@ export type ChooseTutorBonusTraitRejection =
   | { kind: "ChildDead" };
 
 export type ChooseTutorBonusTraitOutcome =
-  | { ok: true; nextState: GameState }
+  | {
+      ok: true;
+      nextState: GameState;
+      // P23: mid-life reclassify info — set when granting the bonus trait
+      // changed the child's archetype (the wrapper direct-publishes
+      // ArchetypeReclassified with trigger "TraitAcquisition").
+      archetypeChanged: { from: Archetype; to: Archetype } | null;
+    }
   | { ok: false; reason: ChooseTutorBonusTraitRejection };
 
 export function applyAssignTutorPure(
@@ -174,11 +185,11 @@ export function applyChooseTutorBonusTraitPure(
   const newTraits = child.traits.includes(chosenTraitId)
     ? child.traits // silent no-op on duplicate; traits-list ordering preserved
     : [...child.traits, chosenTraitId];
-  const updated: Character = {
-    ...child,
-    traits: newTraits,
-    tutorBonusTraitGranted: true,
-  };
+  // P23 (item D): mid-life reclassify — granting a trait can change the child's
+  // archetype (e.g., a Spinster gaining Cunning → Spymaster). Recompute here.
+  const withTrait: Character = { ...child, traits: newTraits, tutorBonusTraitGranted: true };
+  const newArchetype = classifyArchetype(withTrait);
+  const updated: Character = { ...withTrait, archetype: newArchetype };
   newChars.set(childCharacterId, updated);
 
   const newPending = new Map(state.pendingTutorTraitChoices);
@@ -191,6 +202,8 @@ export function applyChooseTutorBonusTraitPure(
       characters: newChars,
       pendingTutorTraitChoices: newPending,
     },
+    archetypeChanged:
+      newArchetype !== child.archetype ? { from: child.archetype, to: newArchetype } : null,
   };
 }
 

@@ -17,6 +17,7 @@ import {
   type CharacterId,
   type FactionId,
   type HouseId,
+  PLAYER_HOUSE_ID,
   type RngState,
   type TraitId,
   createRngState,
@@ -267,4 +268,65 @@ export function buildRivalActorState(seed: RivalHouseSeed): RivalActorState {
 // bootstrap and migration paths.
 export function buildRivalRngState(campaignSeed: string, houseId: HouseId): RngState {
   return createRngState(`${campaignSeed}|${houseId}`);
+}
+
+// ── P23: society houses ───────────────────────────────────────────────────
+//
+// A "society house" is any house that is neither the player nor a rival —
+// INDEPENDENT (the unattached singles pool) plus every procedurally-minted
+// `soc-house-<n>` dynasty formed by applySocietyMarriageStep. Society houses
+// participate in the house-generic lifecycle phases (mood drift, conception,
+// succession, economy, aging) automatically. Home is rivals.ts (game-other,
+// UI-importable) so houseName.ts / BallroomView can import it; NEVER rng.ts
+// (UI value-import of rng is banned per the P14 boundary pin).
+export const SOCIETY_HOUSE_ID_PREFIX = "soc-house-";
+
+export function isSocietyHouse(houseId: HouseId): boolean {
+  return houseId !== PLAYER_HOUSE_ID && !RIVAL_HOUSE_IDS_SET.has(houseId);
+}
+
+// The 3 non-crown factions society houses may carry (faction-crown is reserved
+// for player + Independent). Hash-picked over this list for Ton-view color
+// variety. Order is FROZEN — reordering re-rolls every society house's faction.
+export const SOCIETY_FACTION_POOL: readonly FactionId[] = [
+  "faction-court" as FactionId,
+  "faction-ton" as FactionId,
+  "faction-country" as FactionId,
+];
+
+// Build a freshly-minted society House entity. Neutral economic defaults; one
+// spouse is HeadOfHouse (passed in). All P8-P15 array/counter fields empty/zero
+// — mirrors buildRivalHouse field-for-field so the schema stays in sync.
+export function buildSocietyHouse(
+  houseId: HouseId,
+  headCharacterId: CharacterId,
+  factionId: FactionId,
+): House {
+  return {
+    id: houseId,
+    wealth: 80,
+    reputation: 45,
+    scandal: 0,
+    headOfHouseCharacterId: headCharacterId,
+    generation: 0,
+    ancestorSummary: [],
+    heirless: false,
+    currentLocation: "Capital",
+    consecutiveTicksAtCurrentLocation: 0,
+    lastAudienceTick: null,
+    wardrobeLastRefreshTick: null,
+    blockadeBypassEarned: false,
+    grievances: [],
+    exiled: false,
+    hostility: 0,
+    factionId,
+    siblingRivals: [],
+    inheritedSecrets: [],
+    bloodFeuds: [],
+    courierResearchEarned: false,
+    awardedDynastyPerks: [],
+    consecutiveHeirsNaturalDeath: 0,
+    cumulativeSuccessfulSeductions: 0,
+    cumulativeWeaponizedWhispers: 0,
+  };
 }

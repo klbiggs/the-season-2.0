@@ -6,6 +6,7 @@
 
 import type {
   ArtifactInstance,
+  Betrothal,
   Character,
   FlavorContentEntry,
   ForgeryRecord,
@@ -17,6 +18,7 @@ import type {
 } from "../entities";
 import type {
   ArtifactInstanceId,
+  BetrothalId,
   CharacterId,
   FactionId,
   FlavorContentId,
@@ -63,6 +65,8 @@ export function makeGameState(overrides: Partial<GameState> = {}): GameState {
     globalEvents: new Map<GlobalEventId, GlobalEvent>(),
     // P18 default — empty flavor content at fresh state.
     flavorText: new Map<FlavorContentId, FlavorContentEntry>(),
+    // P23 default — empty betrothal registry at fresh state.
+    betrothals: new Map<BetrothalId, Betrothal>(),
     ...overrides,
   };
 }

@@ -17,12 +17,8 @@ import { type ConversationFailure, makePairKey } from "../../game/conversation/t
 import type { Character } from "../../game/entities";
 import { flavorStubFor } from "../../game/fixtures/flavorStubs";
 import type { Mood } from "../../game/fixtures/moods";
-import {
-  type CharacterId,
-  type FlavorContentId,
-  INDEPENDENT_HOUSE_ID,
-  PLAYER_HOUSE_ID,
-} from "../../game/rng.seeds";
+import { isSocietyHouse } from "../../game/fixtures/rivals";
+import { type CharacterId, type FlavorContentId, PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import type { ProposalOutcome } from "../../game/rules/proposal";
 import type { SeasonStore } from "../../game/store";
 import { conversationBus } from "../../runtime/events/conversation";
@@ -60,11 +56,11 @@ export function BallroomView({ store, onExit }: Props) {
   };
   const revealNpcBio = store((s) => s.revealNpcBio);
 
-  // Independent's living NPCs are the ballroom roster at P4 (P8 may
-  // augment with rival-house NPCs).
-  const npcs = [...characters.values()].filter(
-    (c) => c.houseId === INDEPENDENT_HOUSE_ID && c.alive,
-  );
+  // P23: the ballroom roster is every alive SOCIETY-house NPC (INDEPENDENT +
+  // minted soc-house-<n> dynasties) so society members who married into a
+  // sub-house stay conversable. Rivals stay off the roster (non-conversable
+  // until P25); the player's own house is excluded.
+  const npcs = [...characters.values()].filter((c) => isSocietyHouse(c.houseId) && c.alive);
 
   // Session-local React state
   const [selectedTargetId, setSelectedTargetId] = useState(npcs[0]?.id ?? null);

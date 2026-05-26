@@ -25,6 +25,7 @@ import {
   type TraitId,
   drawInt,
 } from "../rng";
+import { applyLifespanModifiers } from "./lifespan";
 
 // Shared id convention. The legacy-emit filter (persist/schema.ts) excludes
 // characters whose id starts with this prefix from pre-P16 save formats.
@@ -69,10 +70,13 @@ function buildProceduralNpcCharacter(
   rng = agePick.rngState;
   const age = agePick.next + PROCEDURAL_NPC_MIN_AGE;
 
-  // Draw 4: deathAge (always > age since age <= MAX_AGE < LIFESPAN_RANGE[0]).
+  // Draw 4: base deathAge offset (always > age since age <= MAX_AGE <
+  // LIFESPAN_RANGE[0]). P23: modifiers applied AFTER the trait loop below — the
+  // pooled traits (draws 5+) are drawn after this, so finalizing inline here
+  // would miss them. Draw order is unchanged; only finalization is deferred.
   const deathPick = drawInt(rng, LIFESPAN_RANGE[1] - LIFESPAN_RANGE[0] + 1);
   rng = deathPick.rngState;
-  const deathAge = deathPick.next + LIFESPAN_RANGE[0];
+  const baseDeathAge = deathPick.next + LIFESPAN_RANGE[0];
 
   // Draws 5..(4+PROCEDURAL_NPC_TRAIT_DRAWS): pooled traits (dedup vs guaranteed
   // + prior; collision consumes the draw without adding a trait).
@@ -83,6 +87,10 @@ function buildProceduralNpcCharacter(
     const candidate = profile.pooled[pick.next];
     if (candidate !== undefined && !traits.includes(candidate)) traits.push(candidate);
   }
+
+  // P23: finalize deathAge with trait + gender lifespan modifiers (no draw).
+  // effectiveGender (draw 2) + the full trait list are both resolved here.
+  const deathAge = applyLifespanModifiers(baseDeathAge, effectiveGender, traits);
 
   // Draw 7: given name (effective gender).
   const givenBank = GIVEN_NAMES[era][effectiveGender];

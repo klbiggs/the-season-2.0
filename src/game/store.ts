@@ -19,6 +19,7 @@ import {
   makePairKey,
 } from "./conversation/types";
 import {
+  type Betrothal,
   type Character,
   CharacterSchema,
   type CourierPayload,
@@ -46,6 +47,7 @@ import { PATRONESSES_FIXTURE } from "./fixtures/patronesses";
 import {
   type ArtifactInstanceId,
   type BallSessionId,
+  type BetrothalId,
   type CharacterId,
   type CourierPayloadId,
   type DuelId,
@@ -230,6 +232,9 @@ export function createInitialState(
     // P18: empty flavor content at fresh state. Entries land at runtime via
     // flavorOrchestrator's success path (recordFlavorText); no seeding helper.
     flavorText: new Map<FlavorContentId, FlavorContentEntry>(),
+    // P23: empty betrothal registry at fresh state. Entries land via
+    // arrangeBetrothal; no seeding helper.
+    betrothals: new Map<BetrothalId, Betrothal>(),
   };
 }
 
@@ -301,6 +306,16 @@ export type StoreActions = {
     childCharacterId: CharacterId,
     chosenTraitId: TraitId,
   ) => { ok: true } | { ok: false; reason: ChooseTutorBonusTraitRejection };
+  // P23: pre-adulthood betrothals. Both FREE actions (no tick advance) — mirror
+  // assignTutor's modal-state gate shape. arrange direct-publishes
+  // BetrothalArranged; break direct-publishes BetrothalBroken.
+  arrangeBetrothal: (
+    partyAId: CharacterId,
+    partyBId: CharacterId,
+  ) => { ok: true; betrothalId: BetrothalId } | { ok: false; reason: ArrangeBetrothalRejection };
+  breakBetrothal: (
+    betrothalId: BetrothalId,
+  ) => { ok: true } | { ok: false; reason: BreakBetrothalRejection };
   // P8: demand-satisfaction → duel. Free action (no tick advance). Reads the
   // grievance from the player's house (only the player can demand satisfaction
   // at v1 — rival-perpetrated grievances live on PLAYER_HOUSE_ID's grievances
@@ -412,6 +427,12 @@ export type StoreState = GameState & StoreActions;
 
 export type SeasonStore = UseBoundStore<StoreApi<StoreState>>;
 
+import {
+  type ArrangeBetrothalRejection,
+  type BreakBetrothalRejection,
+  applyArrangeBetrothalPure,
+  applyBreakBetrothalPure,
+} from "../game/rules/betrothal";
 // P7 imports.
 // P9 elopement imports.
 import {
@@ -438,6 +459,7 @@ import { elopementBus, publishElopementTransitions } from "../runtime/events/elo
 import {
   familyBus,
   publishArchetypeReclassificationsFromSuccession,
+  publishBetrothalTransitions,
   publishChildMaturationTransitions,
   publishMarriageTransitions,
   publishTemptationLatchTransitions,
@@ -546,6 +568,10 @@ function overwriteFromGameState(draft: GameState, next: GameState): void {
   // advancing action silently CLEARS state.flavorText (so a scandal column or
   // backstory recorded mid-campaign would vanish on the next tick).
   draft.flavorText = next.flavorText;
+  // P23 addition — betrothal registry. Without this line, every tick-advancing
+  // action silently CLEARS state.betrothals (so an arranged betrothal would
+  // vanish on the next tick, and the auto-honor step would never fire).
+  draft.betrothals = next.betrothals;
 }
 
 export function createStore({ seed }: { seed: string }): SeasonStore {
@@ -589,6 +615,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // tick phases (aging+orphan-prune for marriage dissolution via
         // Assassination; happiness-phase slot 8 for temptation latch).
         publishMarriageTransitions(before, after);
+        publishBetrothalTransitions(before, after);
         publishTemptationLatchTransitions(before, after);
         // P9: applySchemeResolutionPhase can mount state.elopement on a
         // discovered Seduction. Diff helper publishes ElopementStarted on
@@ -651,6 +678,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // tick-advance). Marriage dissolutions (branch 3 of pruneOrphaned-
         // ConversationKeys) and temptation latch flips also fire here.
         publishMarriageTransitions(before, after);
+        publishBetrothalTransitions(before, after);
         publishTemptationLatchTransitions(before, after);
         publishChildMaturationTransitions(before, after);
         publishArchetypeReclassificationsFromSuccession(before, after);
@@ -719,6 +747,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // wrapper's advanceTickPure chain. CLAUDE.md "5/5/6 publisher trio"
         // claimed these fired on P3 wrappers but the calls were missing.
         publishMarriageTransitions(stateBefore, afterTick);
+        publishBetrothalTransitions(stateBefore, afterTick);
         publishTemptationLatchTransitions(stateBefore, afterTick);
         // P9: applySchemeResolutionPhase can mount state.elopement on a
         // discovered Seduction during this wrapper's advanceTickPure chain.
@@ -791,6 +820,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishWhisperTransitions(stateBefore, afterTick);
         // P9 followup: see travel wrapper for rationale (CLAUDE.md 5/5/6 pin).
         publishMarriageTransitions(stateBefore, afterTick);
+        publishBetrothalTransitions(stateBefore, afterTick);
         publishTemptationLatchTransitions(stateBefore, afterTick);
         publishElopementTransitions(stateBefore, afterTick);
         publishArtifactTransitions(stateBefore, afterTick);
@@ -839,6 +869,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // wrapper's advanceTickPure chain. CLAUDE.md "5/5/6 publisher trio"
         // claimed these fired on P3 wrappers but the calls were missing.
         publishMarriageTransitions(stateBefore, afterTick);
+        publishBetrothalTransitions(stateBefore, afterTick);
         publishTemptationLatchTransitions(stateBefore, afterTick);
         // P9: applySchemeResolutionPhase can mount state.elopement on a
         // discovered Seduction during this wrapper's advanceTickPure chain.
@@ -891,6 +922,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // wrapper's advanceTickPure chain. CLAUDE.md "5/5/6 publisher trio"
         // claimed these fired on P3 wrappers but the calls were missing.
         publishMarriageTransitions(stateBefore, afterTick);
+        publishBetrothalTransitions(stateBefore, afterTick);
         publishTemptationLatchTransitions(stateBefore, afterTick);
         // P9: applySchemeResolutionPhase can mount state.elopement on a
         // discovered Seduction during this wrapper's advanceTickPure chain.
@@ -1556,6 +1588,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           });
         }
         publishMarriageTransitions(stateBefore, tickAdvanced);
+        publishBetrothalTransitions(stateBefore, tickAdvanced);
         publishTemptationLatchTransitions(stateBefore, tickAdvanced);
         publishCharacterDeaths(stateBefore, tickAdvanced);
         publishWhisperTransitions(stateBefore, tickAdvanced);
@@ -1610,6 +1643,62 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           traitId: chosenTraitId,
           tick: stateBefore.tick,
         });
+        // P23: mid-life reclassify (item D) — if the bonus trait changed the
+        // child's archetype, direct-publish with the contextual trigger.
+        if (result.archetypeChanged !== null) {
+          familyBus.publish({
+            kind: "ArchetypeReclassified",
+            characterId: childCharacterId,
+            from: result.archetypeChanged.from,
+            to: result.archetypeChanged.to,
+            trigger: "TraitAcquisition",
+            tick: stateBefore.tick,
+          });
+        }
+        return { ok: true };
+      },
+      // P23: arrange a pre-adulthood betrothal. Free action; modal-state gates
+      // mirror assignTutor. Direct-publishes BetrothalArranged.
+      arrangeBetrothal: (partyAId: CharacterId, partyBId: CharacterId) => {
+        const stateBefore = get();
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (stateBefore.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        const result = applyArrangeBetrothalPure(stateBefore, partyAId, partyBId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((draft) => {
+          overwriteFromGameState(draft, result.nextState);
+        });
+        const b = result.nextState.betrothals.get(result.betrothalId);
+        familyBus.publish({
+          kind: "BetrothalArranged",
+          betrothalId: result.betrothalId,
+          partyAId: b?.partyAId ?? partyAId,
+          partyBId: b?.partyBId ?? partyBId,
+          tick: stateBefore.tick,
+        });
+        return { ok: true, betrothalId: result.betrothalId };
+      },
+      // P23: break a Pending betrothal. Free action; modal-state gates.
+      // Direct-publishes BetrothalBroken (so the tick-advance diff helper, which
+      // sees an already-Broken before/after on the next tick, won't double-fire).
+      breakBetrothal: (betrothalId: BetrothalId) => {
+        const stateBefore = get();
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (stateBefore.elopement !== null) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        const result = applyBreakBetrothalPure(stateBefore, betrothalId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((draft) => {
+          overwriteFromGameState(draft, result.nextState);
+        });
+        familyBus.publish({ kind: "BetrothalBroken", betrothalId, tick: stateBefore.tick });
         return { ok: true };
       },
       // P8: demand-satisfaction → duel. Free action (no tick advance). Looks
@@ -1728,6 +1817,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           publishCharacterDeaths(before, after);
           publishWhisperTransitions(before, after);
           publishMarriageTransitions(before, after);
+          publishBetrothalTransitions(before, after);
           publishTemptationLatchTransitions(before, after);
         }
         return {
@@ -1955,6 +2045,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishSchemeTransitions(before, after);
         publishWhisperTransitions(before, after);
         publishMarriageTransitions(before, after);
+        publishBetrothalTransitions(before, after);
         publishTemptationLatchTransitions(before, after);
         publishElopementTransitions(before, after);
         publishArtifactTransitions(before, after);
@@ -2070,6 +2161,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishSchemeTransitions(stateBefore, afterTick);
         publishWhisperTransitions(stateBefore, afterTick);
         publishMarriageTransitions(stateBefore, afterTick);
+        publishBetrothalTransitions(stateBefore, afterTick);
         publishTemptationLatchTransitions(stateBefore, afterTick);
         publishElopementTransitions(stateBefore, afterTick);
         publishArtifactTransitions(stateBefore, afterTick);
@@ -2251,5 +2343,7 @@ export function selectGameState(state: StoreState): GameState {
     globalEvents: state.globalEvents,
     // P18 addition — generated flavor content. Quint-sync 3rd surface.
     flavorText: state.flavorText,
+    // P23 addition — betrothal registry. Quad-sync 3rd surface (selector).
+    betrothals: state.betrothals,
   };
 }

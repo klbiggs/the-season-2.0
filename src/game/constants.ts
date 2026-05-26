@@ -576,6 +576,57 @@ export const TEMPTATION_DISCOUNTED_SCANDAL = 5;
 // Spec §3 "Tutor Influence" (line 471-476).
 export const TUTOR_REASSIGNMENT_WEALTH_COST = 5;
 
+// ── P23: Marriage, Family & Lifespan Depth ────────────────────────────────
+
+// Trait + gender lifespan modifiers (§10 Q18). Applied ONLY at conception +
+// procedural generation (never re-rolls existing characters/fixtures). The base
+// roll stays LIFESPAN_RANGE = [70,95]; modifiers + clamp land within the wider
+// CharacterSchema.deathAge bound [DEATH_AGE_MIN, DEATH_AGE_MAX]. Keep these two
+// literals in sync with the entities.ts deathAge .min()/.max().
+export const DEATH_AGE_MIN = 55;
+export const DEATH_AGE_MAX = 100;
+// Gender skew: women historically outlived men; small symmetric skew (tunable).
+export const LIFESPAN_GENDER_SKEW: Readonly<Record<"Female" | "Male", number>> = {
+  Female: 2,
+  Male: -2,
+};
+// Per-trait lifespan delta (designer-tunable). Keys are validated against
+// TRAITS_ALL by a module-load assertion in src/game/rules/lifespan.ts (kept
+// there, not here, to avoid a constants→fixtures/traits import cycle).
+export const LIFESPAN_TRAIT_MODIFIERS: ReadonlyMap<TraitId, number> = new Map<TraitId, number>([
+  ["Rustic" as TraitId, 5],
+  ["Sophisticated" as TraitId, 3],
+  ["Intellectual" as TraitId, 2],
+  ["Pious" as TraitId, 3],
+  ["ImpoverishedNobility" as TraitId, -5],
+  ["Dull" as TraitId, -3],
+  ["Melancholic" as TraitId, -4],
+  ["Hedonistic" as TraitId, -3],
+  ["Brash" as TraitId, -2],
+]);
+
+// Maturation random-archetype trait pick (§11.2-B). When a maturing character
+// classifies to a non-None archetype, this is the per-character probability of
+// gaining one random trait from that archetype's pool (independent of tutor).
+export const MATURATION_RANDOM_TRAIT_PROBABILITY = 0.25;
+
+// Cross-house rival political-alliance marriage (§10 Q16). No affection gate;
+// a wealth dowry + a hostility ceiling + an inverse-hostility acceptance roll.
+export const ALLIANCE_DOWRY_WEALTH_COST = 60;
+export const ALLIANCE_MAX_HOSTILITY = 60; // cannot ally a rival above this hostility
+export const ALLIANCE_HOSTILITY_DROP = 40; // hostility reduction on acceptance (alliance bond)
+export const ALLIANCE_ACCEPTANCE_FLOOR = 0.4;
+export const ALLIANCE_ACCEPTANCE_CEILING = 0.9;
+
+// Pre-adulthood betrothals (§10 Q17). Auto-honor at adulthood; explicit break
+// costs scandal (+ a hostility bump if the jilted party is a rival).
+export const BETROTHAL_BREAK_SCANDAL = 10;
+export const BETROTHAL_BREAK_RIVAL_HOSTILITY_BUMP = 15;
+
+// Society marriages (§11.2-B). Per-year cap on new society marriages minted by
+// applySocietyMarriageStep (each mints a new society house).
+export const SOCIETY_MARRIAGES_PER_YEAR = 2;
+
 // ── P8: Rival Houses, Patronesses & Duels ─────────────────────────────────
 
 // Spec §3 "Rival Houses" (lines 400-406).

@@ -14,6 +14,7 @@ import { ELOPEMENT_LOSS_SCANDAL_DELTA } from "../constants";
 import { parsePairKey } from "../conversation/types";
 import type {
   ArtifactInstance,
+  Betrothal,
   Character,
   ElopementSprintState,
   GameState,
@@ -21,11 +22,35 @@ import type {
   RivalActorState,
   ThiefAttempt,
 } from "../entities";
+import { classifyArchetype } from "../fixtures/archetypes";
 import { RIVAL_HOUSE_IDS_SET } from "../fixtures/rivals";
+import type { Role } from "../fixtures/roles";
 import { PLAYER_HOUSE_ID } from "../rng";
-import type { ArtifactInstanceId, CharacterId, HouseId, ThiefAttemptId } from "../rng";
+import type {
+  ArtifactInstanceId,
+  BetrothalId,
+  CharacterId,
+  HouseId,
+  ThiefAttemptId,
+  TraitId,
+} from "../rng";
 import { clamp } from "../util/clamp";
 import { recordPlayerHeadNaturalDeath } from "./dynastyLegacies";
+
+// P23: re-widow role recompute (mirrors maturation.computeMaturationRole minus
+// the Exile/marriageId branches — the survivor is being made unwed here).
+function recomputeWidowRole(c: Character): Role {
+  if (c.gender === "Female") return "Spinster";
+  if (
+    c.gender === "Male" &&
+    (c.traits.includes("Frivolous" as TraitId) ||
+      c.traits.includes("Romantic" as TraitId) ||
+      c.traits.includes("Jaded" as TraitId))
+  ) {
+    return "Bohemian";
+  }
+  return "Dependent";
+}
 
 // === VERBATIM MIGRATION of the heir-promotion safety block from
 // applyAgingStep's top-of-function comment (aging.ts:8-14 pre-P5). The
@@ -334,6 +359,44 @@ export function pruneOrphanedConversationKeys(
     }
   }
 
+  // ── P23 BRANCH 11: re-widowing role flip ──
+  // For each marriage dissolving THIS pass (exactly one spouse newly dead), the
+  // SURVIVING spouse — if role "Spouse" — re-enters the marriage market: null
+  // their marriageId (cleanly unwed for the classifier's marriageId===null
+  // branches), recompute role (Spinster/Bohemian/Dependent), reclassify
+  // archetype. Reads/writes the branch-1/2 newChars accumulator. The
+  // Spouse→non-Spouse + marriageId→null signature is what publishArchetype-
+  // ReclassificationsFromSuccession keys on to label "RoleFlip" (NOT
+  // "Succession" — a widow must not trigger a succession scandal column).
+  for (const [, m] of state.marriages) {
+    if (m.dissolved) continue; // only marriages active before this pass
+    const aDead = newlyDeadCharIds.has(m.spouseAId);
+    const bDead = newlyDeadCharIds.has(m.spouseBId);
+    if (aDead === bDead) continue; // both dead or neither → no lone survivor
+    const survivorId = aDead ? m.spouseBId : m.spouseAId;
+    const survivor = (charactersChanged ? newChars : state.characters).get(survivorId);
+    if (survivor === undefined || !survivor.alive || survivor.role !== "Spouse") continue;
+    const newRole = recomputeWidowRole(survivor);
+    const widowed: Character = { ...survivor, marriageId: null, role: newRole };
+    const reclassified: Character = { ...widowed, archetype: classifyArchetype(widowed) };
+    if (!charactersChanged) {
+      newChars = new Map(state.characters);
+      charactersChanged = true;
+    }
+    newChars.set(survivorId, reclassified);
+  }
+
+  // ── P23 BRANCH 12: betrothal auto-break on party death ──
+  // A Pending betrothal naming a newly-dead party flips to Broken (no scandal —
+  // death is not a jilt). Lazy-clone the betrothals Map.
+  let newBetrothals: Map<BetrothalId, Betrothal> | null = null;
+  for (const [bid, b] of state.betrothals) {
+    if (b.status !== "Pending") continue;
+    if (!newlyDeadCharIds.has(b.partyAId) && !newlyDeadCharIds.has(b.partyBId)) continue;
+    if (newBetrothals === null) newBetrothals = new Map(state.betrothals);
+    newBetrothals.set(bid, { ...b, status: "Broken", resolvedAtTick: state.tick });
+  }
+
   return {
     ...state,
     conversationHistory: histFiltered,
@@ -341,6 +404,7 @@ export function pruneOrphanedConversationKeys(
     ...(whispersChanged ? { whispers: newWhispers } : {}),
     ...(charactersChanged ? { characters: newChars } : {}),
     ...(marriagesChanged ? { marriages: newMarriages } : {}),
+    ...(newBetrothals !== null ? { betrothals: newBetrothals } : {}),
     ...(newRivalActors !== null ? { rivalActors: newRivalActors } : {}),
     ...(newHouses !== null ? { houses: newHouses } : {}),
     ...(newElopement !== undefined ? { elopement: newElopement } : {}),

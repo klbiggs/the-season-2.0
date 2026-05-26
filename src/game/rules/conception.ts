@@ -25,6 +25,7 @@ import { childCharacterId } from "../fixtures/names";
 import { TRAITS_ALL } from "../fixtures/traits";
 import { type CharacterId, type RngState, type TraitId, drawInt, drawNext } from "../rng";
 import { getCharacterOrThrow } from "../util/lookups";
+import { applyLifespanModifiers } from "./lifespan";
 
 // Exact 4-draw budget per call, deterministic regardless of branch taken:
 //   1. First union index (drawNext consumed; pool may be empty)
@@ -133,11 +134,12 @@ export function applyConceptionStep(state: GameState): GameState {
     const { traits, rngState: postTraits } = inheritTraits(unionTraits, noveltyPool, rngState);
     rngState = postTraits;
 
-    // 5th draw: deathAge.
+    // 5th draw: base deathAge offset. P23: modifiers applied AFTER the gender
+    // draw (deferred finalization — no new draw, draw order unchanged).
     const range = LIFESPAN_RANGE[1] - LIFESPAN_RANGE[0] + 1;
     const { next: deathOffset, rngState: postDeath } = drawInt(rngState, range);
     rngState = postDeath;
-    const deathAge = deathOffset + LIFESPAN_RANGE[0];
+    const baseDeathAge = deathOffset + LIFESPAN_RANGE[0];
 
     // P7 6th draw: gender (50/50 split). Inserted AFTER deathAge so the
     // existing P1 4+1 draw budget for trait inheritance + deathAge is
@@ -146,6 +148,10 @@ export function applyConceptionStep(state: GameState): GameState {
     const { next: genderRoll, rngState: postGender } = drawNext(rngState);
     rngState = postGender;
     const gender: "Female" | "Male" = genderRoll < 0.5 ? "Female" : "Male";
+
+    // P23: finalize deathAge with trait + gender lifespan modifiers (no draw).
+    // traits (draws 1-4) + gender (draw 6) are both resolved by this point.
+    const deathAge = applyLifespanModifiers(baseDeathAge, gender, traits);
 
     // P16 7th draw: given name from the LIVE-era bank by gender, appended at the
     // tail so the P1/P7 6-draw prefix (traits + deathAge + gender) is unchanged.

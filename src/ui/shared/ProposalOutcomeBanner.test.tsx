@@ -18,7 +18,10 @@ const ALL_REJECTIONS: ProposalRejection[] = [
   { kind: "TargetAlreadyMarried" },
   { kind: "TargetIsPlayerHead" },
   { kind: "TargetIsSameHouse" },
-  { kind: "CrossHouseMarriageNotSupported" },
+  { kind: "TargetHouseInvalid" },
+  { kind: "TargetBetrothedToAnother" },
+  { kind: "RivalTooHostile", current: 80, max: 60 },
+  { kind: "InsufficientWealthForDowry", current: 10, required: 60 },
   { kind: "TargetNotFound" },
   { kind: "InsufficientAffection", current: 40, required: 80 },
   { kind: "InsufficientReputation", current: 20, required: 40 },
@@ -38,6 +41,7 @@ describe("ProposalOutcomeBanner", () => {
     const outcome: ProposalOutcome = {
       ok: true,
       accepted: true,
+      via: "LoveMatch",
       marriageId: "m-x" as MarriageId,
       spouseRoleFlipped: "c-x" as CharacterId,
     };

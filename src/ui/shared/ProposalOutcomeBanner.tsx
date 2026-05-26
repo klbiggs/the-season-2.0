@@ -5,11 +5,12 @@
 //
 // Determinism legibility (plan Implementation notes / proposal.ts:13-16): an
 // Accepted or roll-rejected outcome consumed a tick + 1 PRNG draw; a predicate
-// rejection (gates 1-13) consumed neither — so only the first two note "a
-// season passes." The rejection switch is exhaustive over all 14
-// ProposalRejection variants; the inlined `const _: never = reason` guard is
-// the compile-time coverage safeguard (no shared assertNever helper exists in
-// the repo).
+// rejection consumed neither — so only the first two note "a season passes."
+// The rejection switch is exhaustive over every ProposalRejection variant
+// (P23 added TargetHouseInvalid / TargetBetrothedToAnother / RivalTooHostile /
+// InsufficientWealthForDowry and removed CrossHouseMarriageNotSupported); the
+// inlined `const _: never = reason` guard is the compile-time coverage
+// safeguard (no shared assertNever helper exists in the repo).
 
 import type { ProposalOutcome, ProposalRejection } from "../../game/rules/proposal";
 
@@ -35,8 +36,14 @@ function rejectionProse(reason: ProposalRejection): string {
       return "You cannot propose to yourself.";
     case "TargetIsSameHouse":
       return "You cannot marry within your own house.";
-    case "CrossHouseMarriageNotSupported":
-      return "A match with a rival house is not yet possible.";
+    case "TargetHouseInvalid":
+      return "No match with their house is possible.";
+    case "TargetBetrothedToAnother":
+      return "They are already betrothed to another.";
+    case "RivalTooHostile":
+      return `That rival house is too hostile for an alliance (hostility ${reason.current}; must be ${reason.max} or below).`;
+    case "InsufficientWealthForDowry":
+      return `You cannot afford the alliance dowry (${reason.current} / ${reason.required} required).`;
     case "TargetNotFound":
       return "No such person could be found.";
     case "InsufficientAffection":
@@ -71,7 +78,10 @@ export function ProposalOutcomeBanner({ outcome, targetName, onDismiss }: Props)
 
   if (outcome.ok && outcome.accepted) {
     tone = "success";
-    text = `${who} accepted your proposal — a marriage is made. (A season passes.)`;
+    text =
+      outcome.via === "Alliance"
+        ? `${who} accepted your alliance — a marriage seals the bond, their house's hostility falls, and the dowry is paid. (A season passes.)`
+        : `${who} accepted your proposal — a marriage is made. (A season passes.)`;
   } else if (outcome.ok) {
     tone = "warn";
     text = `${who} declined your proposal. (+${outcome.scandalDelta} scandal; a season passes.)`;

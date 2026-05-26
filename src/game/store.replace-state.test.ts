@@ -218,6 +218,7 @@ describe("P18 quint-sync: state.flavorText (overwriteFromGameState 7th surface)"
     const synth = {
       ...createInitialState("p18-quint-A"),
       flavorText: new Map([[entry.id, entry]]),
+      betrothals: new Map(),
     };
     store.getState().replaceState(synth);
     expect(store.getState().flavorText.size).toBe(1);
@@ -229,10 +230,49 @@ describe("P18 quint-sync: state.flavorText (overwriteFromGameState 7th surface)"
     const synth = {
       ...createInitialState("p18-quint-B"),
       flavorText: new Map([[entry.id, entry]]),
+      betrothals: new Map(),
     };
     store.getState().replaceState(synth);
     store.getState().advanceTick();
     expect(store.getState().flavorText.has(entry.id)).toBe(true);
     expect(store.getState().flavorText.get(entry.id)).toEqual(entry);
+  });
+});
+
+describe("P23 quad-sync: state.betrothals (overwriteFromGameState mirror surface)", () => {
+  // Without `draft.betrothals = next.betrothals` in overwriteFromGameState, the
+  // next tick-advancing action would silently CLEAR an arranged betrothal — and
+  // the auto-honor year-pass step would never fire.
+  const betrothal = {
+    id: "child-a:child-b:0:0" as import("./rng").BetrothalId,
+    partyAId: "child-a" as import("./rng").CharacterId,
+    partyBId: "child-b" as import("./rng").CharacterId,
+    arrangedAtTick: 0,
+    status: "Pending" as const,
+    resolvedAtTick: null,
+    honoredMarriageId: null,
+  };
+
+  it("replaceState carries a non-empty betrothals Map through", () => {
+    const store = createStore({ seed: "p23-quad-A" });
+    const synth = {
+      ...createInitialState("p23-quad-A"),
+      betrothals: new Map([[betrothal.id, betrothal]]),
+    };
+    store.getState().replaceState(synth);
+    expect(store.getState().betrothals.size).toBe(1);
+    expect(store.getState().betrothals.get(betrothal.id)).toEqual(betrothal);
+  });
+
+  it("advanceTick preserves a seeded betrothal entry through the mirror writes", () => {
+    const store = createStore({ seed: "p23-quad-B" });
+    const synth = {
+      ...createInitialState("p23-quad-B"),
+      betrothals: new Map([[betrothal.id, betrothal]]),
+    };
+    store.getState().replaceState(synth);
+    store.getState().advanceTick();
+    expect(store.getState().betrothals.has(betrothal.id)).toBe(true);
+    expect(store.getState().betrothals.get(betrothal.id)).toEqual(betrothal);
   });
 });

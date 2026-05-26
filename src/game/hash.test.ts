@@ -61,6 +61,7 @@ describe("hashableState", () => {
     expect(Object.keys(projected).sort()).toEqual([
       "affectionMap",
       "artifactInstances",
+      "betrothals",
       "campaignName",
       "characters",
       "conversationHistory",
@@ -138,6 +139,7 @@ describe("hashState — Map reorder invariance", () => {
         thiefAttempts: new Map(),
         globalEvents: new Map(),
         flavorText: new Map(),
+        betrothals: new Map(),
       }),
     ).toBe(
       hashState({
@@ -168,6 +170,7 @@ describe("hashState — Map reorder invariance", () => {
         thiefAttempts: new Map(),
         globalEvents: new Map(),
         flavorText: new Map(),
+        betrothals: new Map(),
       }),
     );
   });

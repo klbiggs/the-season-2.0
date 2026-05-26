@@ -29,18 +29,11 @@ import {
   ELOPEMENT_PUSH_PLAYER_ADVANCE,
   ELOPEMENT_TRACK_LENGTH,
 } from "../constants";
-import type {
-  Character,
-  ElopementSprintState,
-  GameState,
-  House,
-  MarriageRecord,
-  Scheme,
-} from "../entities";
-import { makeMarriageId } from "../fixtures/marriageIdFactory";
-import type { CharacterId, HouseId, MarriageId } from "../rng";
+import type { Character, ElopementSprintState, GameState, House, Scheme } from "../entities";
+import type { HouseId } from "../rng";
 import { PLAYER_HOUSE_ID } from "../rng";
 import { clamp } from "../util/clamp";
+import { mintMarriage } from "./mintMarriage";
 
 // ── Public helpers ────────────────────────────────────────────────────────
 
@@ -303,43 +296,20 @@ export function resolveElopementTerminal(state: GameState, outcome: "Won" | "Los
   return { ...state, houses: newHouses, elopement: null };
 }
 
-// Internal helper — mints the viaElopement marriage, updates both characters'
-// marriageId + role, returns final state with elopement: null.
+// Internal helper — mints the viaElopement marriage via the shared P23
+// mintMarriage core (id + record + both marriageId + target role flip), then
+// layers the elopement-specific bits: the rep-halved houses + elopement: null.
+// Opts out of Dull-exposure to preserve pre-P23 elopement behavior (an
+// elopement union does not seed a Dull-spouse temptation latch).
 function mintMarriageAndCommit(
   state: GameState,
   newHouses: Map<HouseId, House>,
   aggressor: Character,
   target: Character,
 ): GameState {
-  const marriageId: MarriageId = makeMarriageId(state, aggressor.id, target.id);
-  const [lex0, lex1]: [CharacterId, CharacterId] =
-    aggressor.id < target.id ? [aggressor.id, target.id] : [target.id, aggressor.id];
-  const newMarriage: MarriageRecord = {
-    id: marriageId,
-    spouseAId: lex0,
-    spouseBId: lex1,
-    marriedAtTick: state.tick,
-    dissolved: false,
-    dissolvedAtTick: null,
+  const { nextState } = mintMarriage(state, aggressor.id, target.id, {
     viaElopement: true,
-  };
-  const newMarriages = new Map(state.marriages);
-  newMarriages.set(marriageId, newMarriage);
-
-  const newChars = new Map(state.characters);
-  // Target's role flips Spinster/Dependent → Spouse (mirrors applyProposalPure
-  // at proposal.ts:212-218). Others (already-married widows) keep their role.
-  const targetRole =
-    target.role === "Spinster" || target.role === "Dependent" ? "Spouse" : target.role;
-  newChars.set(target.id, { ...target, role: targetRole, marriageId });
-  // Aggressor (player-house elopee): role stays (HeadOfHouse / Heir / etc.).
-  newChars.set(aggressor.id, { ...aggressor, marriageId });
-
-  return {
-    ...state,
-    houses: newHouses,
-    characters: newChars,
-    marriages: newMarriages,
-    elopement: null,
-  };
+    applyDullExposure: false,
+  });
+  return { ...nextState, houses: newHouses, elopement: null };
 }

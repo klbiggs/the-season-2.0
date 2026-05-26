@@ -3,6 +3,7 @@ import { bootstrapNpcMountFamily } from "../game/bootstrap";
 import { ConversationPairKeySchema, ExchangeSchema } from "../game/conversation/types";
 import {
   ArtifactInstanceSchema,
+  BetrothalSchema,
   CharacterSchema,
   CourierPayloadSchema,
   DuelSchema,
@@ -26,6 +27,7 @@ import {
 } from "../game/entities";
 import {
   ArtifactInstanceIdSchema,
+  BetrothalIdSchema,
   CharacterIdSchema,
   CourierPayloadIdSchema,
   DuelIdSchema,
@@ -80,6 +82,9 @@ export const SaveV1Schema = z.object({
   thiefAttempts: z.array(z.tuple([ThiefAttemptIdSchema, ThiefAttemptSchema])),
   globalEvents: z.array(z.tuple([GlobalEventIdSchema, GlobalEventSchema])),
   flavorText: z.array(z.tuple([FlavorContentIdSchema, FlavorContentEntrySchema])),
+  // P23: betrothal registry. Save-format z.array(z.tuple) mirror of the
+  // in-memory z.map (same bridge as marriages/flavorText).
+  betrothals: z.array(z.tuple([BetrothalIdSchema, BetrothalSchema])),
 });
 export type SaveV1 = z.infer<typeof SaveV1Schema>;
 
@@ -114,6 +119,7 @@ export function toSaveV1(state: GameState): SaveV1 {
     thiefAttempts: serializeRegistry(state.thiefAttempts),
     globalEvents: serializeRegistry(state.globalEvents),
     flavorText: serializeRegistry(state.flavorText),
+    betrothals: serializeRegistry(state.betrothals),
   });
 }
 
@@ -155,6 +161,7 @@ export function fromSaveV1Bare(save: SaveV1): GameState {
     thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
     globalEvents: deserializeRegistry(save.globalEvents) as GameState["globalEvents"],
     flavorText: deserializeRegistry(save.flavorText) as GameState["flavorText"],
+    betrothals: deserializeRegistry(save.betrothals) as GameState["betrothals"],
   };
 }
 

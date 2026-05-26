@@ -33,6 +33,7 @@ import { MoodSchema } from "./fixtures/moods";
 import { RoleSchema } from "./fixtures/roles";
 import {
   ArtifactInstanceIdSchema,
+  BetrothalIdSchema,
   BloodFeudIdSchema,
   CharacterIdSchema,
   CourierPayloadIdSchema,
@@ -212,7 +213,11 @@ export const CharacterSchema = z.object({
   // fixtures construct mid-life states with negative birthTick.
   birthTick: z.number().int(),
   age: z.number().int().nonnegative(),
-  deathAge: z.number().int().min(70).max(95),
+  // P23: widened from [70,95] to [DEATH_AGE_MIN, DEATH_AGE_MAX] so trait +
+  // gender lifespan modifiers (applyLifespanModifiers) fit. Base roll stays
+  // [70,95]; modifiers + clamp land within the wider bound. Fixtures (74-85)
+  // unchanged. Keep these literals in sync with constants.ts DEATH_AGE_MIN/MAX.
+  deathAge: z.number().int().min(55).max(100),
   alive: z.boolean(),
   diedAtTick: z.number().int().nullable(),
   mood: MoodSchema,
@@ -313,6 +318,20 @@ export const MarriageRecordSchema = z.object({
   viaElopement: z.boolean().default(false),
 });
 export type MarriageRecord = z.infer<typeof MarriageRecordSchema>;
+
+// P23: pre-adulthood betrothal. Lifecycle Pending → Honored | Broken. Honored
+// auto-mints a marriage at adulthood (applyBetrothalHonorStep); Broken on an
+// explicit break action (scandal cost) or on either party's death (no scandal).
+export const BetrothalSchema = z.object({
+  id: BetrothalIdSchema,
+  partyAId: CharacterIdSchema, // lex-smaller of the two at arrange time
+  partyBId: CharacterIdSchema, // lex-larger of the two at arrange time
+  arrangedAtTick: z.number().int().nonnegative(),
+  status: z.enum(["Pending", "Honored", "Broken"]),
+  resolvedAtTick: z.number().int().nullable(), // tick of Honored/Broken; null while Pending
+  honoredMarriageId: MarriageIdSchema.nullable(), // set when Honored
+});
+export type Betrothal = z.infer<typeof BetrothalSchema>;
 
 // P5: Scheme entity. Spec §4 line 543 + §6 line 567 — references BOTH the
 // aggressor character AND the aggressor's owning house. accumulatedAffection
@@ -642,5 +661,11 @@ export const GameStateSchema = z.object({
   // hashableState (hash.ts), selectGameState (store.ts), overwriteFromGameState
   // (store.ts), + createInitialState (store.ts). Per CLAUDE.md non-negotiable.
   flavorText: z.map(FlavorContentIdSchema, FlavorContentEntrySchema),
+  // P23 addition — pre-adulthood betrothals, keyed by BetrothalId. Gameplay
+  // state (not LLM text); fresh state empty. Quad-sync surfaces: GameStateSchema
+  // (here), hashableState (hash.ts), selectGameState (store.ts),
+  // overwriteFromGameState (store.ts), + createInitialState (store.ts). Per
+  // CLAUDE.md non-negotiable.
+  betrothals: z.map(BetrothalIdSchema, BetrothalSchema),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

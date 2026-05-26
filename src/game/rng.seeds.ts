@@ -39,6 +39,7 @@ export type {
   SiblingRivalActorId,
   FactionId,
   FactionPairKey,
+  BetrothalId,
 } from "./rng";
 
 export const DEFAULT_SEED = "the-season-default";

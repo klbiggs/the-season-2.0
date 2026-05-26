@@ -61,6 +61,7 @@ function makeState(overrides: Partial<GameState>): GameState {
     thiefAttempts: new Map(),
     globalEvents: new Map(),
     flavorText: new Map(),
+    betrothals: new Map(),
     ...overrides,
   };
 }

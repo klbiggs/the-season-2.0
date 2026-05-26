@@ -1041,3 +1041,39 @@ First v1.1-track phase. UI-only: wired already-built store actions to UI afforda
 - src/ui/socialWeb/SocialWebView.tsx:58 — `buildSocialGraphData` inbound edges (`direction` field + directional arrow)
 - src/ui/ledger/tabs/FamilyTreeTab.tsx — 3-mode segmented control + monogram + bio expander
 - src/persist/dexie.ts:117 — public `resetSave()`; src/ui/shared/SettingsMenu.tsx — dev-only Reset Save button
+
+## P23 — Marriage, Family & Lifespan Depth — closed 2026-05-26
+
+**Decisions made (5 design forks + 1 scope call, all via AskUserQuestion):**
+- Rival cross-house marriage = **political-alliance** path (no affection; reputation + wealth dowry + hostility-ceiling gates; inverse-hostility acceptance roll; acceptance drops the rival's hostility). Society/Independent marriages keep the affection love-match path. Rivals stay non-conversable (deferred to P25).
+- Betrothals = **auto-honor at adulthood** (deterministic mint at year-pass; explicit break costs scandal + a rival hostility bump; death auto-breaks with no scandal). `TargetTooYoung` STAYS on direct proposals — betrothal is the only pre-adult path (no child marriage).
+- Lifespans = **trait-modifier table + gender skew**, applied at conception + procedural generation only (never re-rolls fixtures); `deathAge` schema bound widened `[70,95]` → `[55,100]`; no new RNG draw (finalization defers past the gender + trait draws).
+- Tutor-reassignment-after-adulthood = **NOT added** (spec §3 L476 lock kept; skeleton sub-item dropped as spec-conflicting).
+- Society dynasties = **FULL build** (user chose the largest option): society NPCs pair into new `soc-house-<n>` houses with a head; conception + succession reuse the house-generic lifecycle for free.
+- The `CrossHouseMarriageNotSupported` rejection was removed; routing is by `isSocietyHouse` (society) vs `RIVAL_HOUSE_IDS_SET` (alliance).
+
+**Open questions hit:**
+- §10 Q4 / Q16 / Q17 / Q18 all resolved at P23 (see MASTER §10). Q4's v1 "succession + maturation only" latch is now superseded going forward.
+- Item G ("society NPCs as HeadOfHouse") was tagged `[non-goal v1]` in §11.2-B and conflicts with the single-INDEPENDENT-house model; user explicitly chose to build it in full. It is cleanly isolated in `societyMarriage.ts` + the `isSocietyHouse` generalization (revertible as its own phase if desired).
+
+**Convergence:** `/converge-plan` converged in 3 fresh cycles (2 clean passes); advisory triage folded 10 reviewer findings into the plan body (Hedonist→Hedonistic trait-id fix; RoleFlip-not-Succession publisher hazard; lifespan-finalization ordering past BOTH gender AND traits; the `mintMarriage` helper extraction; ProposalOutcomeBanner edit-list).
+
+**Correctness note worth remembering:** the re-widow archetype reclassify MUST publish `trigger: "RoleFlip"`, NOT `"Succession"` — both `ArchetypeReclassified` subscribers (flavorOrchestrator, semanticIndex) act ONLY on `"Succession"`, so a mislabeled widow would wrongly fire a succession scandal column + semantic-index entry. Detected by the precise signature (Spouse→non-Spouse + marriageId nulled) in `publishArchetypeReclassificationsFromSuccession`.
+
+**Deferred / next-up:**
+- Rivals as conversation targets + bespoke rival personas + rival succession/economy → P25.
+- A kin-aware NPC-bio prompt for society sub-dynasty members (reuses P22's third-person-gossip framing as-is).
+- Society→society affection edges / society-initiated proposals (no society affection model exists).
+
+**Files of note:**
+- src/game/rules/proposal.ts — house-class routing + alliance branch (RivalTooHostile / InsufficientWealthForDowry / TargetBetrothedToAnother / TargetHouseInvalid; ProposalOutcome.via)
+- src/game/rules/mintMarriage.ts — NEW shared marriage-mint core (proposal + elopement + betrothal-honor + society-marriage all funnel through it)
+- src/game/rules/betrothal.ts — arrange/break/honor pure rules; src/game/fixtures/betrothalIdFactory.ts
+- src/game/rules/lifespan.ts — applyLifespanModifiers (+ TRAITS_ALL validity assertion)
+- src/game/rules/societyMarriage.ts — applySocietyMarriageStep (mints soc-house-<n> + seeded RNG); src/game/fixtures/rivals.ts — isSocietyHouse / SOCIETY_HOUSE_ID_PREFIX / SOCIETY_FACTION_POOL / buildSocietyHouse
+- src/game/rules/aging.ts:branch-11/12 — re-widowing role flip + betrothal auto-break (death cascade)
+- src/game/rules/maturation.ts — net-new per-house rng accumulator (random-archetype trait pick)
+- src/runtime/yearPass.ts — STEPS 7→9 ([aging, maturation, betrothalHonor, succession, siblingPromotion, conception, societyMarriage, societyReplenishment, evaluateDynastyPerks])
+- src/runtime/events/family.ts — BetrothalArranged/Honored/Broken + publishBetrothalTransitions (13/13/11 set); ArchetypeReclassified.trigger widened + RoleFlip detection
+- src/ui/society/SocietyView.tsx — Propose affordance + betrothal panel (sanctioned mutations on the Ton roster)
+- src/ui/ballroom/BallroomView.tsx — roster → isSocietyHouse; src/ui/ledger/houseName.ts — "House <Surname>" for society sub-dynasties

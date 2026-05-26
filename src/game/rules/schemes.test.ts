@@ -81,6 +81,7 @@ function synthStateWith(overrides: Partial<GameState> = {}): GameState {
     thiefAttempts: new Map(),
     globalEvents: new Map(),
     flavorText: new Map(),
+    betrothals: new Map(),
     ...overrides,
   };
 }
@@ -604,6 +605,7 @@ describe("two-pass resolver — Chaperone preempts Seduction", () => {
       thiefAttempts: new Map(),
       globalEvents: new Map(),
       flavorText: new Map(),
+      betrothals: new Map(),
     };
     // Launch Seduction first (tick=0)
     const sed = tryStartScheme(state, PLAYER_HOUSE_ID, {
@@ -724,6 +726,7 @@ describe("selectAggressor — validation walk == aggressor walk invariant", () =
       thiefAttempts: new Map(),
       globalEvents: new Map(),
       flavorText: new Map(),
+      betrothals: new Map(),
     };
     const result = tryStartScheme(state, PLAYER_HOUSE_ID, {
       kind: "Chaperone",

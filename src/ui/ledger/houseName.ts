@@ -3,7 +3,12 @@
 // Independent houses are named by convention. Shared by GrievancesTab (rival
 // perpetrators) and RivalsTab.
 
-import { RIVAL_HOUSES_FIXTURE } from "../../game/fixtures/rivals";
+import { dynastySurnameForHouse } from "../../game/fixtures/nameBanks";
+import {
+  RIVAL_HOUSES_FIXTURE,
+  SOCIETY_HOUSE_ID_PREFIX,
+  isSocietyHouse,
+} from "../../game/fixtures/rivals";
 import { type HouseId, INDEPENDENT_HOUSE_ID, PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 
 const RIVAL_NAME_BY_ID = new Map<HouseId, string>(
@@ -13,5 +18,9 @@ const RIVAL_NAME_BY_ID = new Map<HouseId, string>(
 export function houseDisplayName(houseId: HouseId): string {
   if (houseId === PLAYER_HOUSE_ID) return "Your House";
   if (houseId === INDEPENDENT_HOUSE_ID) return "The Independent House";
+  // P23: minted society sub-dynasties read as "House <DynastySurname>".
+  if (houseId.startsWith(SOCIETY_HOUSE_ID_PREFIX) && isSocietyHouse(houseId)) {
+    return `House ${dynastySurnameForHouse(houseId)}`;
+  }
   return RIVAL_NAME_BY_ID.get(houseId) ?? houseId;
 }

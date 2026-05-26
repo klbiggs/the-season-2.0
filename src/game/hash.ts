@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { ConversationPairKey, Exchange } from "./conversation/types";
 import type {
   ArtifactInstance,
+  Betrothal,
   Character,
   CourierPayload,
   Duel,
@@ -24,6 +25,7 @@ import type {
 } from "./entities";
 import type {
   ArtifactInstanceId,
+  BetrothalId,
   CharacterId,
   CourierPayloadId,
   DuelId,
@@ -96,6 +98,8 @@ export function hashableState(state: GameState): {
   // authored text) — harness never generates it, so it stays empty and hashes
   // identically across replay runs. Lex-sorted via serializeRegistry.
   flavorText: Array<[FlavorContentId, FlavorContentEntry]>;
+  // P23: betrothal registry. Gameplay state; lex-sorted via serializeRegistry.
+  betrothals: Array<[BetrothalId, Betrothal]>;
 } {
   return {
     tick: state.tick,
@@ -138,6 +142,8 @@ export function hashableState(state: GameState): {
     globalEvents: serializeRegistry(state.globalEvents),
     // P18: generated flavor content. Lex-sorted via serializeRegistry.
     flavorText: serializeRegistry(state.flavorText),
+    // P23: betrothal registry. Lex-sorted via serializeRegistry.
+    betrothals: serializeRegistry(state.betrothals),
   };
 }
 

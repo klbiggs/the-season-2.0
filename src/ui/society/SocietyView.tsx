@@ -7,19 +7,27 @@
 // SPEC / TRIP-HAZARD: this FULLY lifts the P16 "social web is player-house-only"
 // trip-hazard — but only for THIS view. The player-perspective Social Web
 // (SocialWebView) stays player-anchored; the Ton view is a separate surface.
-// Reading-only: the only mutation here is the fire-and-forget revealNpcBio bio
-// reveal (no tick, no gameplay state).
+//
+// P23 SANCTIONED MUTATION: the Ton view now carries a per-row "Propose" action
+// (the reachability surface for cross-house marriage — love-match for society
+// rows, political alliance for rival rows; the rule routes by house class). This
+// is a deliberate authorized mutation affordance on a roster (same precedent as
+// P20's Social-Web propose deviation). Besides this + the fire-and-forget
+// revealNpcBio reveal, the view is read-only.
 
 import { useMemo, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import { useShallow } from "zustand/react/shallow";
+import { ADULTHOOD_AGE_IN_YEARS } from "../../game/constants";
 import { type ConversationPairKey, parsePairKey } from "../../game/conversation/types";
 import type { Character, House } from "../../game/entities";
 import { flavorStubFor } from "../../game/fixtures/flavorStubs";
-import type { CharacterId, FlavorContentId, HouseId } from "../../game/rng.seeds";
+import type { BetrothalId, CharacterId, FlavorContentId, HouseId } from "../../game/rng.seeds";
 import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
+import type { ProposalOutcome } from "../../game/rules/proposal";
 import type { SeasonStore } from "../../game/store";
 import { houseDisplayName } from "../ledger/houseName";
+import { ProposalOutcomeBanner } from "../shared/ProposalOutcomeBanner";
 import { monogramLetter, monogramStyle } from "../shared/monogram";
 import type { SocialGraphData, SocialLink, SocialNode } from "../socialWeb/SocialWebView";
 import { PLAYER_NODE_COLOR, factionColor } from "../socialWeb/colors";
@@ -93,11 +101,15 @@ function SocietyRow({
   factionId,
   bio,
   onRevealBio,
+  onPropose,
+  onBetroth,
 }: {
   c: Character;
   factionId: House["factionId"] | undefined;
   bio: string;
   onRevealBio: () => void;
+  onPropose: () => void;
+  onBetroth: (() => void) | null;
 }) {
   const mono = monogramStyle(c.id, factionId);
   const traits = c.traits.slice(0, 4);
@@ -136,6 +148,24 @@ function SocietyRow({
           ))}
           {overflow > 0 && <span className="text-xs text-stone-400">+{overflow} more</span>}
         </span>
+        <button
+          type="button"
+          onClick={onPropose}
+          data-testid={`society-propose-${c.id}`}
+          className="shrink-0 rounded border border-stone-300 px-2 py-0.5 text-xs font-medium text-stone-700 hover:bg-stone-100"
+        >
+          Propose
+        </button>
+        {onBetroth !== null && (
+          <button
+            type="button"
+            onClick={onBetroth}
+            data-testid={`society-betroth-${c.id}`}
+            className="shrink-0 rounded border border-stone-300 px-2 py-0.5 text-xs font-medium text-stone-700 hover:bg-stone-100"
+          >
+            Betroth
+          </button>
+        )}
       </div>
       <details
         data-testid={`society-bio-${c.id}`}
@@ -154,16 +184,59 @@ function SocietyRow({
 }
 
 export function SocietyView({ store }: Props) {
-  const { characters, houses, affectionMap, flavorText } = store(
+  const { characters, houses, affectionMap, flavorText, betrothals } = store(
     useShallow((s) => ({
       characters: s.characters,
       houses: s.houses,
       affectionMap: s.affectionMap,
       flavorText: s.flavorText,
+      betrothals: s.betrothals,
     })),
   );
   const revealNpcBio = store((s) => s.revealNpcBio);
+  const proposeMarriage = store((s) => s.proposeMarriage);
+  const arrangeBetrothal = store((s) => s.arrangeBetrothal);
+  const breakBetrothal = store((s) => s.breakBetrothal);
   const [spatial, setSpatial] = useState(false);
+  // P23: last propose outcome + the target's name, for the outcome banner.
+  const [proposal, setProposal] = useState<{ outcome: ProposalOutcome; name: string } | null>(null);
+  // P23: selected player pre-adult child for arranging a betrothal + a status line.
+  const [betrothChildId, setBetrothChildId] = useState<CharacterId | "">("");
+  const [betrothalNote, setBetrothalNote] = useState<string | null>(null);
+
+  // Eligible player children to betroth: alive, pre-adult, unmarried, not
+  // already Pending-betrothed.
+  const pendingPartyIds = useMemo(() => {
+    const s = new Set<CharacterId>();
+    for (const b of betrothals.values()) {
+      if (b.status !== "Pending") continue;
+      s.add(b.partyAId);
+      s.add(b.partyBId);
+    }
+    return s;
+  }, [betrothals]);
+  const eligibleChildren = [...characters.values()].filter(
+    (c) =>
+      c.houseId === PLAYER_HOUSE_ID &&
+      c.alive &&
+      c.age < ADULTHOOD_AGE_IN_YEARS &&
+      c.marriageId === null &&
+      !pendingPartyIds.has(c.id),
+  );
+  const pendingBetrothals = [...betrothals.values()].filter((b) => b.status === "Pending");
+
+  function onBetroth(npc: Character): void {
+    if (betrothChildId === "") {
+      setBetrothalNote("Select one of your children first.");
+      return;
+    }
+    const result = arrangeBetrothal(betrothChildId as CharacterId, npc.id);
+    setBetrothalNote(
+      result.ok
+        ? `Betrothal arranged with ${npc.name}.`
+        : `Could not arrange betrothal: ${result.reason.kind}.`,
+    );
+  }
 
   const graphData = useMemo(
     () => buildSocietyGraphData(characters, houses, affectionMap),
@@ -202,6 +275,72 @@ export function SocietyView({ store }: Props) {
         >
           {spatial ? "View as List" : "View as Web"}
         </button>
+      </div>
+
+      {proposal !== null && (
+        <ProposalOutcomeBanner
+          outcome={proposal.outcome}
+          targetName={proposal.name}
+          onDismiss={() => setProposal(null)}
+        />
+      )}
+
+      {/* P23: betrothal panel — pick one of your pre-adult children, then click
+          "Betroth" on a pre-adult society/rival child below. Auto-honors at
+          adulthood (year-pass). */}
+      <div
+        data-testid="betrothal-panel"
+        className="space-y-1 rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-sm"
+      >
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-stone-700">Arrange a betrothal:</span>
+          <select
+            data-testid="betroth-child-select"
+            value={betrothChildId}
+            onChange={(e) => setBetrothChildId(e.target.value as CharacterId | "")}
+            className="rounded border border-stone-300 px-1.5 py-0.5 text-xs"
+          >
+            <option value="">— your child —</option>
+            {eligibleChildren.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.age}y)
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-stone-500">
+            then click "Betroth" on a young society or rival member below.
+          </span>
+        </div>
+        {betrothalNote !== null && (
+          <p data-testid="betrothal-note" className="text-xs text-stone-600">
+            {betrothalNote}
+          </p>
+        )}
+        {pendingBetrothals.length > 0 && (
+          <ul className="mt-1 space-y-0.5">
+            {pendingBetrothals.map((b) => (
+              <li key={b.id} className="flex items-center gap-2 text-xs text-stone-600">
+                <span>
+                  {characters.get(b.partyAId)?.name ?? b.partyAId} ⟷{" "}
+                  {characters.get(b.partyBId)?.name ?? b.partyBId} (pending)
+                </span>
+                <button
+                  type="button"
+                  data-testid={`betroth-break-${b.id}`}
+                  onClick={() => {
+                    const r = breakBetrothal(b.id as BetrothalId);
+                    setBetrothalNote(
+                      r.ok ? "Betrothal broken." : `Could not break: ${r.reason.kind}.`,
+                    );
+                  }}
+                  className="rounded border border-stone-300 px-1.5 py-0.5 font-medium text-stone-700 hover:bg-stone-100"
+                >
+                  Break
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {spatial ? (
@@ -251,6 +390,8 @@ export function SocietyView({ store }: Props) {
                     factionId={house.factionId}
                     bio={bioFor(c)}
                     onRevealBio={() => revealNpcBio(c.id)}
+                    onPropose={() => setProposal({ outcome: proposeMarriage(c.id), name: c.name })}
+                    onBetroth={c.age < ADULTHOOD_AGE_IN_YEARS ? () => onBetroth(c) : null}
                   />
                 ))}
               </ul>

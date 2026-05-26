@@ -12,21 +12,22 @@
 //
 // Plan: plans/phases/07-family-succession.md "Maturation step".
 
-import { ADULTHOOD_AGE_IN_YEARS } from "../constants";
+import { ADULTHOOD_AGE_IN_YEARS, MATURATION_RANDOM_TRAIT_PROBABILITY } from "../constants";
 import type { Character, GameState } from "../entities";
 import { ARCHETYPE_MATURATION_TRAIT_POOL, classifyArchetype } from "../fixtures/archetypes";
+import { isSocietyHouse } from "../fixtures/rivals";
 import type { Role } from "../fixtures/roles";
-import { INDEPENDENT_HOUSE_ID, PLAYER_HOUSE_ID, type TraitId } from "../rng";
+import { PLAYER_HOUSE_ID, type TraitId, drawInt, drawNext } from "../rng";
 
 // Role-decision branch per spec §3 + plan's role-assignment rules. Pure
 // function on a single Character; reads no GameState (parent-aliveness not
 // needed at v1). First-match-wins.
 function computeMaturationRole(c: Character): Role {
-  // Branch 1: cross-house / orphaned → Exile. At P7 every character belongs
-  // to PLAYER_HOUSE_ID or INDEPENDENT_HOUSE_ID, so this branch is effectively
-  // dead code on the live fixture; kept for synthetic test coverage and
-  // P8+ multi-house extensibility.
-  if (c.houseId !== PLAYER_HOUSE_ID && c.houseId !== INDEPENDENT_HOUSE_ID) {
+  // Branch 1: a rival-house child → Exile. P23: society-house children
+  // (INDEPENDENT + minted soc-house-<n>) get the NORMAL Spinster/Bohemian/
+  // Dependent rules — only rival-house children (none exist at v1; rivals
+  // don't conceive) fall to the Exile branch. Player + society children skip it.
+  if (c.houseId !== PLAYER_HOUSE_ID && !isSocietyHouse(c.houseId)) {
     return "Exile";
   }
   // Branch 2: unwed adult female → Spinster.
@@ -52,6 +53,11 @@ export function applyMaturationStep(state: GameState): GameState {
   let newChars = state.characters;
   let touched = false;
   const pendingChoices = new Map(state.pendingTutorTraitChoices);
+  // P23 (item F): net-new rng accumulator. The random-archetype-trait draw
+  // reads/writes the maturing character's OWN house rng (maturation iterates
+  // lex-charId across houses, so a single shared stream would be wrong).
+  const rng = new Map(state.rng);
+  let rngChanged = false;
   const sortedCharIds = [...state.characters.keys()].sort();
 
   for (const charId of sortedCharIds) {
@@ -84,11 +90,38 @@ export function applyMaturationStep(state: GameState): GameState {
     const pool = ARCHETYPE_MATURATION_TRAIT_POOL[tutorArchetype];
     const pendsChoice = tutorAlive && pool !== null && c.assignedTutorCharacterId !== null;
 
+    // P23 (item F): random-archetype trait pick. When the maturing character
+    // classifies to a non-None archetype, roll once on their OWN house rng; on
+    // success grant one random trait from that archetype's pool (deduped).
+    // Budget: 1 gate draw per non-None-classified char + 1 pick draw on success.
+    // None-classified characters draw nothing.
+    let finalTraits = c.traits;
+    if (reclassified !== "None") {
+      const houseRng = rng.get(c.houseId);
+      if (houseRng !== undefined) {
+        const gate = drawNext(houseRng);
+        let cursor = gate.rngState;
+        if (gate.next < MATURATION_RANDOM_TRAIT_PROBABILITY) {
+          const archetypePool = ARCHETYPE_MATURATION_TRAIT_POOL[reclassified];
+          if (archetypePool !== null) {
+            const picked = drawInt(cursor, archetypePool.length);
+            cursor = picked.rngState;
+            const traitId = archetypePool[picked.next];
+            if (traitId !== undefined && !c.traits.includes(traitId)) {
+              finalTraits = [...c.traits, traitId];
+            }
+          }
+        }
+        rng.set(c.houseId, cursor);
+        rngChanged = true;
+      }
+    }
+
     if (!touched) {
       newChars = new Map(state.characters);
       touched = true;
     }
-    newChars.set(charId, { ...c, role: newRole, archetype: reclassified });
+    newChars.set(charId, { ...c, role: newRole, archetype: reclassified, traits: finalTraits });
 
     if (pendsChoice && c.assignedTutorCharacterId !== null && pool !== null) {
       pendingChoices.set(charId, {
@@ -106,5 +139,10 @@ export function applyMaturationStep(state: GameState): GameState {
   }
 
   if (!touched) return state;
-  return { ...state, characters: newChars, pendingTutorTraitChoices: pendingChoices };
+  return {
+    ...state,
+    characters: newChars,
+    pendingTutorTraitChoices: pendingChoices,
+    ...(rngChanged ? { rng } : {}),
+  };
 }

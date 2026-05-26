@@ -62,6 +62,8 @@ export type GlobalEventId = string & { readonly __brand: "GlobalEventId" };
 // "scandal:<generationCount>") — the keyed underlying types are all ":"-free,
 // so the composite cannot collide (asserted at the factory site).
 export type FlavorContentId = string & { readonly __brand: "FlavorContentId" };
+// P23: brand for the betrothal registry (state.betrothals Map key).
+export type BetrothalId = string & { readonly __brand: "BetrothalId" };
 
 // P3 (B1 fix): PLAYER_HOUSE_ID lives here, not in rng.seeds.ts, so that
 // src/game/rules/** can import it. rules → game-other is disallowed per
@@ -130,6 +132,9 @@ export const GlobalEventIdSchema = z.string().transform((s) => s as GlobalEventI
 // P18: brand schema for FlavorContentId. state.flavorText is z.map(K, V)
 // keyed on this brand. Same `.transform` pattern.
 export const FlavorContentIdSchema = z.string().transform((s) => s as FlavorContentId);
+// P23: brand schema for BetrothalId. state.betrothals is z.map(K, V) keyed on
+// this brand. Same `.transform` pattern.
+export const BetrothalIdSchema = z.string().transform((s) => s as BetrothalId);
 
 export const RngStateSchema = z.object({
   seed: z.string(),

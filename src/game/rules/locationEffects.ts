@@ -23,6 +23,7 @@ import {
   RUSTIC_TRAIT_TICKS_AT_RURAL_ESTATE,
 } from "../constants";
 import type { GameState } from "../entities";
+import { classifyArchetype } from "../fixtures/archetypes";
 import type { LocationId } from "../fixtures/locations";
 import { PLAYER_HOUSE_ID, type RngState, type TraitId, drawNext } from "../rng";
 import { hasDynastyPerk } from "./dynastyLegacies";
@@ -100,7 +101,13 @@ export function applyLocationEffectsPhase(state: GameState): GameState {
 
   const characters = new Map(state.characters);
   if (traits !== head.traits) {
-    characters.set(head.id, { ...head, traits });
+    // P23 (item D): mid-life reclassify on trait acquisition. Gaining Rustic at
+    // Country → CountryExile (classifier branch 4 is role/marriage-agnostic);
+    // a finishing-school trait may likewise shift the head's archetype. The
+    // succession diff publisher isn't wired to advanceTick, so this is a pure
+    // state effect (the ledger reflects it next render).
+    const withTraits = { ...head, traits };
+    characters.set(head.id, { ...withTraits, archetype: classifyArchetype(withTraits) });
   }
 
   const houses = new Map(state.houses);
