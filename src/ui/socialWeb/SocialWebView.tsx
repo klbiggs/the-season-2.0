@@ -43,6 +43,11 @@ export type SocialLink = {
   source: string;
   target: string;
   weight: number; // affection / 100, in [0, 1]
+  // P22: "outbound" = player house → NPC (the player's affection); "inbound" =
+  // an NPC house → the player head (their affection toward the player, written
+  // house-level by forgery-surface / blood-feud rules). Inbound links render
+  // with a directional arrow so the asymmetry reads at a glance.
+  direction: "outbound" | "inbound";
 };
 
 export type SocialGraphData = {
@@ -51,10 +56,14 @@ export type SocialGraphData = {
 };
 
 // Pure derivation — exported for unit tests (verification matrix #11). Nodes:
-// every alive player-house character PLUS every affection target. Links: every
-// player-OUTBOUND affectionMap entry (parsed.houseId === PLAYER_HOUSE_ID),
-// drawn from the player head to the target. NPC-side affection keys exist in
-// affectionMap but are intentionally excluded at v1 (player-perspective web).
+// every alive player-house character PLUS every affection target PLUS (P22) the
+// head of every NPC house that holds inbound affection toward the player. Links:
+//   - OUTBOUND: player-house affectionMap entries (parsed.houseId === PLAYER),
+//     player head → target.
+//   - INBOUND (P22): non-player affectionMap entries (parsed.houseId !== PLAYER)
+//     — these are house-keyed against the player head (artifacts.ts:398,
+//     inheritedSecrets.ts:209), so the edge runs from the holder house's head
+//     node → the player head. Previously dropped at the player-outbound guard.
 export function buildSocialGraphData(
   characters: ReadonlyMap<CharacterId, Character>,
   houses: ReadonlyMap<HouseId, House>,
@@ -70,10 +79,32 @@ export function buildSocialGraphData(
   const links: SocialLink[] = [];
   for (const [key, affection] of affectionMap) {
     const { houseId, characterId } = parsePairKey(key);
-    if (houseId !== PLAYER_HOUSE_ID) continue;
-    nodeIds.add(characterId);
-    if (playerHead !== null && characterId !== playerHead) {
-      links.push({ source: playerHead, target: characterId, weight: affection / 100 });
+    if (houseId === PLAYER_HOUSE_ID) {
+      // Outbound: player head → the affection target.
+      nodeIds.add(characterId);
+      if (playerHead !== null && characterId !== playerHead) {
+        links.push({
+          source: playerHead,
+          target: characterId,
+          weight: affection / 100,
+          direction: "outbound",
+        });
+      }
+    } else {
+      // Inbound: the holder house's head → the player head (characterId). The
+      // partial lift of the P16 "player-house-only" trip-hazard — only NPC
+      // heads that actually hold inbound affection enter the player web.
+      const holderHead = houses.get(houseId)?.headOfHouseCharacterId ?? null;
+      if (holderHead !== null && holderHead !== characterId) {
+        nodeIds.add(holderHead);
+        nodeIds.add(characterId);
+        links.push({
+          source: holderHead,
+          target: characterId,
+          weight: affection / 100,
+          direction: "inbound",
+        });
+      }
     }
   }
 
@@ -171,8 +202,12 @@ export function SocialWebView({ store }: Props) {
           cues.has(node.id as CharacterId) ? REACTING_NODE_COLOR : node.color
         }
         nodeRelSize={6}
-        linkColor={() => "#57534e"}
+        // P22: inbound links (NPC → player) render in a distinct teal with a
+        // directional arrow; outbound links keep the neutral stone color.
+        linkColor={(link: SocialLink) => (link.direction === "inbound" ? "#0d9488" : "#57534e")}
         linkWidth={(link: SocialLink) => Math.max(1, link.weight * 4)}
+        linkDirectionalArrowLength={(link: SocialLink) => (link.direction === "inbound" ? 4 : 0)}
+        linkDirectionalArrowRelPos={1}
         backgroundColor="#1c1917"
         onNodeClick={onNodeClick}
       />

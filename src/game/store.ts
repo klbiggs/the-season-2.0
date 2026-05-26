@@ -1851,8 +1851,12 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
       revealNpcBio: (characterId) => {
         // UI-triggered (the "Who is this?" expander). Fire-and-forget; flag-
         // gated + idempotent inside ensureFlavor. No tick, no mutation here.
+        // P22: the player-house gate was lifted so player-family members can
+        // also reveal a bio (FamilyTreeTab expander). The NpcBio prompt's
+        // society-gossip framing is mildly off for one's own kin but acceptable
+        // (flavor is gameplay-inert prose); FlavorContentKind "NpcBio" unchanged.
         const character = get().characters.get(characterId);
-        if (character === undefined || character.houseId === PLAYER_HOUSE_ID) return;
+        if (character === undefined) return;
         ensureFlavor(`bio:${characterId}` as FlavorContentId, {
           kind: "NpcBio",
           character,

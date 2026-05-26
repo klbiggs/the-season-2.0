@@ -112,14 +112,23 @@ function asInvalidSaveSchemaError(cause: unknown): SaveLoadError {
   throw cause;
 }
 
-// Test-only: reset the singleton + delete the DB. Used by Vitest cleanup so
-// tests don't leak state across files.
-export async function _resetForTests(): Promise<void> {
+// Browser-side dev save reset: close the live connection + delete the whole
+// IndexedDB database. This is the ONLY real reset path — there is no
+// `reset-save` npm script because Node cannot reach browser IndexedDB (P19 D3).
+// Surfaced via the dev-only Settings "Reset Save" button; also reused by the
+// Vitest cleanup helper below.
+export async function resetSave(): Promise<void> {
   if (dbInstance !== null) {
     dbInstance.close();
     dbInstance = null;
   }
   await Dexie.delete(DB_NAME);
+}
+
+// Test-only: reset the singleton + delete the DB. Used by Vitest cleanup so
+// tests don't leak state across files.
+export async function _resetForTests(): Promise<void> {
+  await resetSave();
 }
 
 // Test-only: write a hand-crafted record into IndexedDB. Used by Playwright

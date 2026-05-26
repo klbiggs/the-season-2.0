@@ -10,8 +10,8 @@
 // so a house's surname never changes when the era flips. Newborn children take
 // `${givenName} ${dynastySurnameForHouse(houseId)}`.
 
-import type { HouseId } from "../rng";
-import { fnv1a32 } from "./hashCharIdToGender";
+import type { CharacterId, HouseId } from "../rng";
+import { fnv1a32, hashCharIdToGender } from "./hashCharIdToGender";
 
 type Era = "Earlier" | "Later";
 type Gender = "Female" | "Male";
@@ -231,4 +231,16 @@ export function honorificFor(gender: Gender): string {
 export function dynastySurnameForHouse(houseId: HouseId): string {
   const bank = SURNAMES.Earlier;
   return bank[fnv1a32(houseId) % bank.length] as string;
+}
+
+// P22: founder name. Same scheme as descendants (`${given} ${dynastySurname}`,
+// no regnal numeral) so the founder is not the odd one out. Gender + given name
+// are HASH-picked over the founder id (founding-era bank), NOT RNG draws — the
+// bootstrap draw budget stays at 1 (player deathAge only). Surname = the house
+// dynasty surname, so founder and descendants share it.
+export function founderName(characterId: CharacterId, houseId: HouseId): string {
+  const gender = hashCharIdToGender(characterId);
+  const bank = GIVEN_NAMES.Earlier[gender];
+  const given = bank[fnv1a32(characterId) % bank.length] as string;
+  return `${given} ${dynastySurnameForHouse(houseId)}`;
 }

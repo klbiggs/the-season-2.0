@@ -216,7 +216,49 @@ describe("FamilyTreeTab", () => {
     );
     render(<FamilyTreeTab store={store} />);
     expect(screen.queryByTestId("social-web-view")).toBeNull();
-    fireEvent.click(screen.getByTestId("social-web-toggle"));
+    fireEvent.click(screen.getByTestId("family-mode-web"));
     expect(screen.getByTestId("social-web-view")).toBeTruthy();
+  });
+
+  it("toggles into the Ton (society) sub-view showing non-player houses (P22)", () => {
+    const NPC = "indy-npc" as CharacterId;
+    const store = createStore({ seed: "f" });
+    store.getState().replaceState(
+      makeGameState({
+        houses: new Map([
+          [PLAYER_HOUSE_ID, makeHouse({ id: PLAYER_HOUSE_ID, headOfHouseCharacterId: HEAD })],
+          [INDEPENDENT_HOUSE_ID, makeHouse({ id: INDEPENDENT_HOUSE_ID })],
+        ]),
+        characters: new Map([
+          [HEAD, makeCharacter({ id: HEAD, role: "HeadOfHouse" })],
+          [NPC, makeCharacter({ id: NPC, houseId: INDEPENDENT_HOUSE_ID })],
+        ]),
+      }),
+    );
+    render(<FamilyTreeTab store={store} />);
+    expect(screen.queryByTestId("society-view")).toBeNull();
+    fireEvent.click(screen.getByTestId("family-mode-society"));
+    expect(screen.getByTestId("society-view")).toBeTruthy();
+    // The Independent NPC surfaces in the Ton roster (not the player family list).
+    expect(screen.getByTestId(`society-row-${NPC}`)).toBeTruthy();
+  });
+
+  it("opening a family member's bio expander calls revealNpcBio (P22 gate lift)", () => {
+    const store = createStore({ seed: "f" });
+    store.getState().replaceState(
+      makeGameState({
+        houses: new Map([
+          [PLAYER_HOUSE_ID, makeHouse({ id: PLAYER_HOUSE_ID, headOfHouseCharacterId: HEAD })],
+        ]),
+        characters: new Map([[HEAD, makeCharacter({ id: HEAD, role: "HeadOfHouse" })]]),
+      }),
+    );
+    const spy = vi.spyOn(store.getState(), "revealNpcBio");
+    render(<FamilyTreeTab store={store} />);
+    const details = screen.getByTestId(`family-bio-${HEAD}`) as HTMLDetailsElement;
+    // jsdom doesn't auto-fire onToggle on summary click; set open + dispatch it.
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    expect(spy).toHaveBeenCalledWith(HEAD);
   });
 });

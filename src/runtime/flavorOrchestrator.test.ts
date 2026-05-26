@@ -163,15 +163,17 @@ describe("revealNpcBio (UI-triggered bio generation)", () => {
     expect(store.getState().flavorText.has(`bio:${npcId}` as FlavorContentId)).toBe(false);
   });
 
-  it("skips a player-house character (bios are for NPCs)", async () => {
+  it("generates a bio for a player-house member too (P22 gate lift)", async () => {
+    // P22 lifted the player-house early-return in revealNpcBio so the Family Tree
+    // bio expander works for the player's own kin (FlavorContentKind unchanged).
     __setFlavorContentEnabledForTests(true);
     const player = [...store.getState().characters.values()].find(
       (c) => c.houseId === PLAYER_HOUSE_ID,
     );
     if (player === undefined) throw new Error("no player character");
+    const id = `bio:${player.id}` as FlavorContentId;
     store.getState().revealNpcBio(player.id);
-    await new Promise((r) => setTimeout(r, 10));
-    expect(store.getState().flavorText.has(`bio:${player.id}` as FlavorContentId)).toBe(false);
+    await vi.waitFor(() => expect(store.getState().flavorText.has(id)).toBe(true));
   });
 });
 

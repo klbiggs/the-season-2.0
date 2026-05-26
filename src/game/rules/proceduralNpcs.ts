@@ -131,17 +131,42 @@ function buildProceduralNpcCharacter(
   return { character, rngState: rng };
 }
 
+// `startIndex` (P22) offsets the `proc-npc-<i>` id suffix so replenishment
+// batches mint non-colliding ids after the bootstrap cohort. Bootstrap passes 0
+// (default); replenishment passes the count of all existing `proc-npc-` entries.
 export function generateSocietyNpcs(
   rngState: RngState,
   era: Era,
   count: number,
+  startIndex = 0,
 ): { characters: Character[]; rngState: RngState } {
   let rng = rngState;
   const characters: Character[] = [];
   for (let i = 0; i < count; i++) {
-    const built = buildProceduralNpcCharacter(rng, era, i);
+    const built = buildProceduralNpcCharacter(rng, era, startIndex + i);
     characters.push(built.character);
     rng = built.rngState;
   }
   return { characters, rngState: rng };
+}
+
+// P22 society-replenishment counters. Both walk state.characters for the
+// `proc-npc-` prefix — no stored counter field (characters are never deleted,
+// so the total count is the highest-minted-index + 1, contiguous from 0).
+//   - aliveProceduralNpcCount: alive cohort size → drives the replenishment floor.
+//   - totalProceduralNpcCount: all minted (alive + dead) → the next id startIndex.
+export function aliveProceduralNpcCount(characters: ReadonlyMap<CharacterId, Character>): number {
+  let n = 0;
+  for (const c of characters.values()) {
+    if (c.id.startsWith(PROCEDURAL_NPC_ID_PREFIX) && c.alive) n++;
+  }
+  return n;
+}
+
+export function totalProceduralNpcCount(characters: ReadonlyMap<CharacterId, Character>): number {
+  let n = 0;
+  for (const c of characters.values()) {
+    if (c.id.startsWith(PROCEDURAL_NPC_ID_PREFIX)) n++;
+  }
+  return n;
 }

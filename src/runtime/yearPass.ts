@@ -23,6 +23,7 @@ import { applyConceptionStep } from "../game/rules/conception";
 import { evaluateDynastyPerks } from "../game/rules/dynastyLegacies";
 import { applyMaturationStep } from "../game/rules/maturation";
 import { buildSiblingRivalPromotionStep } from "../game/rules/siblingRivals";
+import { applySocietyReplenishmentStep } from "../game/rules/societyReplenishment";
 import { applySuccessionStep } from "../game/rules/succession";
 import type { GameState } from "../game/store";
 
@@ -42,6 +43,10 @@ type YearPassStep = (state: GameState) => GameState;
 //     (post-succession house.headOfHouseCharacterId).
 //   - promotion-before-conception (NEW at P11): no actual ordering dependency,
 //     but slot 4 keeps STEPS append-only per CLAUDE.md.
+//   - replenishment-after-aging (NEW at P22): a society NPC who died this pass
+//     (aging marks alive=false) must lower the floor count the SAME pass.
+//     Placed at the penultimate slot — it consumes RNG (state.rng[independent]),
+//     so it must precede the RNG-free evaluateDynastyPerks terminal step.
 
 export function runYearPassPure(state: GameState): GameState {
   // P11: capture per-house head ids BEFORE STEPS run. The promotion step
@@ -55,9 +60,13 @@ export function runYearPassPure(state: GameState): GameState {
     applySuccessionStep,
     buildSiblingRivalPromotionStep(preSuccessionHeads),
     applyConceptionStep,
-    // P15 slot 6: dynasty-perk evaluation against fully post-succession state
-    // (§7 "succession-driven perks must compute against post-succession state").
-    // RNG-free; same function as PHASES slot 15 (one function, two terminal slots).
+    // P22 slot 6: top up the procedural society cohort (RNG-consuming; uses the
+    // Independent rng stream). Must precede the RNG-free terminal eval below.
+    applySocietyReplenishmentStep,
+    // P15 terminal slot: dynasty-perk evaluation against fully post-succession
+    // state (§7 "succession-driven perks must compute against post-succession
+    // state"). RNG-free; same function as PHASES slot 15 (one function, two
+    // terminal slots), so it may follow the RNG-consuming replenishment step.
     evaluateDynastyPerks,
   ];
   return STEPS.reduce<GameState>((acc, step) => step(acc), state);

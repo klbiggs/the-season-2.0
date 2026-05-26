@@ -1014,3 +1014,30 @@ First v1.1-track phase. UI-only: wired already-built store actions to UI afforda
 - src/App.tsx — describeSchemeNotice() + schemeBus subscription (3 events) + `scheme-outcome-banner` (`<output>`, not `div role=status` — Biome a11y)
 - src/ui/ballroom/SchemeButtons.tsx, src/ui/ledger/SpymasterInterceptCard.tsx, src/ui/map/LocationDetailsPanel.tsx — rejection toasts via shared ActionRejectionToast
 - §11.3 doc fixes: plans/phases/14-ledger-social-web.md:326 (portraits → v1.5), plans/phases/13-global-events-era.md:16 (officer "see P16 correction"), plans/MASTER.md §11.3 (4 items marked resolved)
+
+## P22 — Society & World Surfacing — closed 2026-05-26
+
+**Decisions made:**
+- Three forks confirmed with the user up front: **portraits = deterministic colored monogram** (not identicon/dep), **replenishment = top-up-to-floor** (floor = `PROCEDURAL_NPC_COUNT`, capped at `SOCIETY_MAX_ARRIVALS_PER_YEAR=3`/year, current era), **founder = full procedural name** (`${given} ${dynastySurnameForHouse}`, no regnal numeral).
+- **Bumps nothing** (P14 reading-only / P20 UI-wiring precedent + one pure rule): no save-version bump, no new `GameState` field, no quad-sync change. Only `state.characters` grows (already in `serializeRegistry`); replenishment reuses the existing `state.rng[INDEPENDENT_HOUSE_ID]` stream; id-minting + floor-counting derive from existing state.
+- Founder rename + replenishment draws re-baseline the replay harness automatically — `replay-harness.test.ts:33` computes the baseline at runtime (self-referential), so there was no hardcoded hash to edit (a convergence-review finding that was a phantom artifact in the first draft).
+- `revealNpcBio` player-house gate lifted so player kin can reveal bios; `FlavorContentKind "NpcBio"` unchanged. The bio prompt's third-person-gossip framing is mildly off for one's own kin but acceptable (flavor is gameplay-inert).
+- Plan converged via `/converge-plan` in 3 fresh cycles (calibration + 2 clean passes, zero blockers); all 6 accumulated review findings folded into the plan body before implementation.
+- **Follow-up beyond original scope (user-requested):** added a dev-only Settings "Reset Save" button + public `resetSave()` in `dexie.ts`, and corrected the stale `npm run reset-save` references in MASTER §6 (the script never existed — Node can't reach browser IndexedDB; P19 D3).
+
+**Open questions hit:**
+- §10 **V1.5 (Society view)** row — resolved exactly as its recommended default (third Family-Tree mode + list/spatial sub-toggle). MASTER §10 updated.
+
+**Deferred / next-up:**
+- Replenishment is not browser-demonstrated (needs ~15+ simulated years for society deaths to open a deficit); covered by `societyReplenishment.test` (39 tests incl. a 30-run determinism block).
+- Society marriages / society-as-HeadOfHouse → P23; rival economy/succession/replenishment → P25; identicon/external-avatar portraits not pursued (chose monogram).
+
+**Files of note:**
+- src/game/rules/societyReplenishment.ts — `applySocietyReplenishmentStep` (year-pass STEPS slot 6, RNG-consuming, guarded on `state.rng.get(INDEPENDENT_HOUSE_ID)` so synthetic fixtures no-op)
+- src/runtime/yearPass.ts — STEPS grew 6→7; replenishment penultimate, `evaluateDynastyPerks` stays RNG-free terminal
+- src/game/rules/proceduralNpcs.ts:134 — `generateSocietyNpcs` widened with `startIndex`; `aliveProceduralNpcCount` / `totalProceduralNpcCount`
+- src/game/fixtures/nameBanks.ts:236 — `founderName` (hash-picked, no RNG draw); src/game/fixtures/names.ts — `STARTING_HEAD_NAME` repurposed to the derived value
+- src/ui/society/SocietyView.tsx — Ton view + `buildSocietyGraphData`; src/ui/shared/monogram.ts — UI-local cosmetic hash
+- src/ui/socialWeb/SocialWebView.tsx:58 — `buildSocialGraphData` inbound edges (`direction` field + directional arrow)
+- src/ui/ledger/tabs/FamilyTreeTab.tsx — 3-mode segmented control + monogram + bio expander
+- src/persist/dexie.ts:117 — public `resetSave()`; src/ui/shared/SettingsMenu.tsx — dev-only Reset Save button

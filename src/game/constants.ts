@@ -1018,6 +1018,11 @@ export const PROCEDURAL_PROFILE_WEIGHTS = {
   CountryExile: 10,
 } as const;
 
+// P22: ongoing society replenishment (year-pass step). Each year-pass tops the
+// alive `proc-npc-` cohort back toward PROCEDURAL_NPC_COUNT, capped at this many
+// new arrivals per pass (so a plague year doesn't flood the ton in one step).
+export const SOCIETY_MAX_ARRIVALS_PER_YEAR = 3;
+
 if (PROCEDURAL_NPC_COUNT <= 0) throw new Error("PROCEDURAL_NPC_COUNT must be positive");
 if (PROCEDURAL_NPC_MIN_AGE < ADULTHOOD_AGE_IN_YEARS)
   throw new Error(

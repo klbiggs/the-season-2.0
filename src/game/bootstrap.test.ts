@@ -37,11 +37,15 @@ describe("seedStartingFamily", () => {
     expect(house.id).toBe(PLAYER_HOUSE_ID);
     expect(house.heirless).toBe(false);
   });
-  it("seeds head as HeadOfHouse with birthTick=0, age=25, name='Player I'", () => {
+  it("seeds head as HeadOfHouse with birthTick=0, age=25, derived founder name (P22)", () => {
     const seeded = seedStartingFamily(createRngState("alpha"), "alpha");
     const { character } = getPlayer(seeded);
     expect(character.id).toBe(STARTING_HEAD_CHARACTER_ID);
+    // P22: founder is no longer "Player I" — it derives from the dynasty name
+    // banks (STARTING_HEAD_NAME computes founderName) and carries a surname.
     expect(character.name).toBe(STARTING_HEAD_NAME);
+    expect(character.name).not.toBe("Player I");
+    expect(character.name).toContain(" "); // "<Given> <Surname>"
     expect(character.role).toBe("HeadOfHouse");
     expect(character.birthTick).toBe(0);
     expect(character.age).toBe(25);

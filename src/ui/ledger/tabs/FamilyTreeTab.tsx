@@ -2,6 +2,11 @@
 // birth), with the P11 sibling-rival sub-section, P7 tutor affordances, and a
 // toggle into the spatial Social Web sub-view (Q9 "coexist" resolution). All
 // mutations route through existing store actions.
+//
+// P22: the binary Family↔Web toggle became a 3-mode segmented control adding
+// "The Ton" (SocietyView). CharacterRow gained a deterministic colored monogram
+// and a "Who is this?" bio expander (the revealNpcBio gate was lifted so player
+// kin can also generate a bio).
 
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -11,72 +16,114 @@ import {
   SIBLING_RIVAL_RECONCILIATION_REPUTATION_COST,
   SIBLING_RIVAL_RECONCILIATION_WEALTH_COST,
 } from "../../../game/constants";
-import type { Character } from "../../../game/entities";
-import { type CharacterId, PLAYER_HOUSE_ID, type TraitId } from "../../../game/rng.seeds";
+import type { Character, House } from "../../../game/entities";
+import { flavorStubFor } from "../../../game/fixtures/flavorStubs";
+import {
+  type CharacterId,
+  type FlavorContentId,
+  PLAYER_HOUSE_ID,
+  type TraitId,
+} from "../../../game/rng.seeds";
 import type { SeasonStore } from "../../../game/store";
+import { monogramLetter, monogramStyle } from "../../shared/monogram";
 import { SocialWebView } from "../../socialWeb/SocialWebView";
+import { SocietyView } from "../../society/SocietyView";
 
 type Props = {
   store: SeasonStore;
 };
 
+type FamilyMode = "family" | "web" | "society";
+
 const MAX_INLINE_TRAITS = 6;
 
-function CharacterRow({ c }: { c: Character }) {
+function CharacterRow({
+  c,
+  factionId,
+  bio,
+  onRevealBio,
+}: {
+  c: Character;
+  factionId: House["factionId"] | undefined;
+  bio: string;
+  onRevealBio: () => void;
+}) {
   const traits = c.traits.slice(0, MAX_INLINE_TRAITS);
   const overflow = c.traits.length - traits.length;
+  const mono = monogramStyle(c.id, factionId);
   return (
     <li
       data-testid={`family-row-${c.id}`}
-      className={`flex items-center gap-2 rounded-md border border-stone-200 px-3 py-2 text-sm ${c.alive ? "" : "opacity-60"}`}
+      className={`rounded-md border border-stone-200 px-3 py-2 text-sm ${c.alive ? "" : "opacity-60"}`}
     >
-      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-stone-200 text-xs font-semibold text-stone-700">
-        {c.name.charAt(0)}
-      </span>
-      <span className="w-40 font-medium text-stone-800">
-        {c.name}
-        {c.alive ? "" : " †"}
-      </span>
-      <span className="w-12 text-stone-500">{c.age}y</span>
-      <span className="w-24 text-stone-500">{c.role}</span>
-      <span className="w-24 text-stone-500">{c.archetype}</span>
-      <span className="w-20 text-stone-500">{c.mood}</span>
-      <span className="w-16 text-stone-500" title="Happiness (0-100)">
-        hap {c.happiness}
-      </span>
-      <span className="w-20 text-stone-500" title="Composure / max">
-        comp {c.composure}/{c.maxComposure}
-      </span>
-      {c.temptationHookUnlocked && (
+      <div className="flex items-center gap-2">
         <span
-          data-testid={`tempted-${c.id}`}
-          title="Temptation hook unlocked (Dull-spouse drain crossed threshold)"
-          className="rounded bg-rose-100 px-1.5 py-0.5 text-xs text-rose-800"
+          className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold"
+          style={{
+            backgroundColor: mono.backgroundColor,
+            color: "#1c1917",
+            boxShadow: `0 0 0 2px ${mono.ringColor}`,
+          }}
         >
-          tempted
+          {monogramLetter(c.name)}
         </span>
-      )}
-      {c.dullSpouseExposureStartTick !== null && (
-        <span
-          title="Dull-spouse exposure (happiness drains while exposed)"
-          className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800"
-        >
-          dull-spouse since t{c.dullSpouseExposureStartTick}
+        <span className="w-40 font-medium text-stone-800">
+          {c.name}
+          {c.alive ? "" : " †"}
         </span>
-      )}
-      {c.equippedArtifactIds.length > 0 && (
-        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-800">
-          {c.equippedArtifactIds.length} equipped
+        <span className="w-12 text-stone-500">{c.age}y</span>
+        <span className="w-24 text-stone-500">{c.role}</span>
+        <span className="w-24 text-stone-500">{c.archetype}</span>
+        <span className="w-20 text-stone-500">{c.mood}</span>
+        <span className="w-16 text-stone-500" title="Happiness (0-100)">
+          hap {c.happiness}
         </span>
-      )}
-      <span className="flex flex-1 flex-wrap justify-end gap-1">
-        {traits.map((t) => (
-          <span key={t} className="rounded bg-stone-100 px-1.5 py-0.5 text-xs text-stone-600">
-            {t}
+        <span className="w-20 text-stone-500" title="Composure / max">
+          comp {c.composure}/{c.maxComposure}
+        </span>
+        {c.temptationHookUnlocked && (
+          <span
+            data-testid={`tempted-${c.id}`}
+            title="Temptation hook unlocked (Dull-spouse drain crossed threshold)"
+            className="rounded bg-rose-100 px-1.5 py-0.5 text-xs text-rose-800"
+          >
+            tempted
           </span>
-        ))}
-        {overflow > 0 && <span className="text-xs text-stone-400">+{overflow} more</span>}
-      </span>
+        )}
+        {c.dullSpouseExposureStartTick !== null && (
+          <span
+            title="Dull-spouse exposure (happiness drains while exposed)"
+            className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800"
+          >
+            dull-spouse since t{c.dullSpouseExposureStartTick}
+          </span>
+        )}
+        {c.equippedArtifactIds.length > 0 && (
+          <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-800">
+            {c.equippedArtifactIds.length} equipped
+          </span>
+        )}
+        <span className="flex flex-1 flex-wrap justify-end gap-1">
+          {traits.map((t) => (
+            <span key={t} className="rounded bg-stone-100 px-1.5 py-0.5 text-xs text-stone-600">
+              {t}
+            </span>
+          ))}
+          {overflow > 0 && <span className="text-xs text-stone-400">+{overflow} more</span>}
+        </span>
+      </div>
+      <details
+        data-testid={`family-bio-${c.id}`}
+        className="mt-1 text-xs text-stone-500"
+        onToggle={(e) => {
+          if (e.currentTarget.open) onRevealBio();
+        }}
+      >
+        <summary className="cursor-pointer select-none text-stone-400 hover:text-stone-600">
+          Who is this?
+        </summary>
+        <p className="mt-1 italic leading-relaxed text-stone-600">{bio}</p>
+      </details>
     </li>
   );
 }
@@ -89,6 +136,7 @@ export function FamilyTreeTab({ store }: Props) {
     marriages,
     proposalsLog,
     tutorAssignmentsLog,
+    flavorText,
     tick,
   } = store(
     useShallow((s) => ({
@@ -98,16 +146,23 @@ export function FamilyTreeTab({ store }: Props) {
       marriages: s.marriages,
       proposalsLog: s.proposalsLog,
       tutorAssignmentsLog: s.tutorAssignmentsLog,
+      flavorText: s.flavorText,
       tick: s.tick,
     })),
   );
   const reconcileSibling = store((s) => s.reconcileSibling);
   const assignTutor = store((s) => s.assignTutor);
   const chooseTutorBonusTrait = store((s) => s.chooseTutorBonusTrait);
+  const revealNpcBio = store((s) => s.revealNpcBio);
 
-  const [showWeb, setShowWeb] = useState(false);
+  const [mode, setMode] = useState<FamilyMode>("family");
 
   const playerHouse = houses.get(PLAYER_HOUSE_ID);
+  const playerFactionId = playerHouse?.factionId;
+  const bioFor = (c: Character): string => {
+    const id = `bio:${c.id}` as FlavorContentId;
+    return flavorText.get(id)?.text ?? flavorStubFor(id, { character: c });
+  };
   const modalBlocked = playerHouse?.exiled === true || store.getState().elopement !== null;
 
   const members = [...characters.values()]
@@ -164,28 +219,54 @@ export function FamilyTreeTab({ store }: Props) {
     if (!r.ok) console.warn(`chooseTutorBonusTrait rejected: ${r.reason.kind}`);
   };
 
+  // P22: 3-mode segmented control. "family" = text roster; "web" = the player-
+  // perspective Social Web; "society" = the Ton view (society + rivals).
+  const MODES: ReadonlyArray<{ key: FamilyMode; label: string }> = [
+    { key: "family", label: "Family" },
+    { key: "web", label: "Social Web" },
+    { key: "society", label: "The Ton" },
+  ];
+
   return (
     <section data-testid="ledger-tab-family-tree" className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-stone-800">Family Tree</h2>
-        <button
-          type="button"
-          onClick={() => setShowWeb((v) => !v)}
-          data-testid="social-web-toggle"
-          aria-pressed={showWeb}
-          className="rounded-full border border-stone-300 px-3 py-1 text-sm font-medium text-stone-700 hover:bg-stone-100"
+        <div
+          data-testid="family-mode-toggle"
+          className="inline-flex overflow-hidden rounded-full border border-stone-300 text-sm font-medium"
         >
-          {showWeb ? "View Family List" : "View Social Web"}
-        </button>
+          {MODES.map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => setMode(m.key)}
+              data-testid={`family-mode-${m.key}`}
+              aria-pressed={mode === m.key}
+              className={`px-3 py-1 ${
+                mode === m.key ? "bg-stone-800 text-white" : "text-stone-700 hover:bg-stone-100"
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {showWeb ? (
+      {mode === "web" ? (
         <SocialWebView store={store} />
+      ) : mode === "society" ? (
+        <SocietyView store={store} />
       ) : (
         <>
           <ul data-testid="family-list" className="space-y-1">
             {members.map((c) => (
-              <CharacterRow key={c.id} c={c} />
+              <CharacterRow
+                key={c.id}
+                c={c}
+                factionId={playerFactionId}
+                bio={bioFor(c)}
+                onRevealBio={() => revealNpcBio(c.id)}
+              />
             ))}
           </ul>
 

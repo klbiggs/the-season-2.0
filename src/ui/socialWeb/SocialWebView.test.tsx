@@ -37,7 +37,8 @@ function fixture(): {
   ]);
   const houses = new Map<HouseId, House>([
     [PLAYER_HOUSE_ID, makeHouse({ id: PLAYER_HOUSE_ID, headOfHouseCharacterId: head.id })],
-    [RIVAL_HOUSE, makeHouse({ id: RIVAL_HOUSE })],
+    // P22: rival head = npc-1 so an inbound (NPC → player) edge has a real source.
+    [RIVAL_HOUSE, makeHouse({ id: RIVAL_HOUSE, headOfHouseCharacterId: npc.id })],
   ]);
   return { characters, houses };
 }
@@ -56,19 +57,21 @@ describe("buildSocialGraphData (matrix #11)", () => {
     const affectionMap = new Map([[makePairKey(PLAYER_HOUSE_ID, "npc-1" as CharacterId), 80]]);
     const { links } = buildSocialGraphData(characters, houses, affectionMap);
     expect(links).toHaveLength(1);
-    expect(links[0]).toMatchObject({ source: "head", target: "npc-1" });
+    expect(links[0]).toMatchObject({ source: "head", target: "npc-1", direction: "outbound" });
     expect(links[0]?.weight).toBeCloseTo(0.8);
   });
 
-  it("excludes NPC-side affection keys (player-outbound only)", () => {
+  it("renders NPC→player affection as an inbound link, holder head → player head (P22)", () => {
     const { characters, houses } = fixture();
     const affectionMap = new Map([
-      [makePairKey(PLAYER_HOUSE_ID, "npc-1" as CharacterId), 80],
-      [makePairKey(RIVAL_HOUSE, "head" as CharacterId), 50], // NPC → player; excluded
+      [makePairKey(PLAYER_HOUSE_ID, "npc-1" as CharacterId), 80], // outbound
+      [makePairKey(RIVAL_HOUSE, "head" as CharacterId), 50], // inbound: rival head npc-1 → player head
     ]);
     const { links } = buildSocialGraphData(characters, houses, affectionMap);
-    expect(links).toHaveLength(1);
-    expect(links[0]?.source).toBe("head");
+    expect(links).toHaveLength(2);
+    const inbound = links.find((l) => l.direction === "inbound");
+    expect(inbound).toMatchObject({ source: "npc-1", target: "head", direction: "inbound" });
+    expect(inbound?.weight).toBeCloseTo(0.5);
   });
 
   it("colors player-house nodes gold and others by faction", () => {

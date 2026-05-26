@@ -47,8 +47,17 @@ test("ledger (P14): Family Tree toggles into the Social Web sub-view", async ({ 
   await page.getByTestId("open-ledger-btn").click();
   await page.getByTestId("ledger-tabbtn-family-tree").click();
   await expect(page.getByTestId("social-web-view")).toHaveCount(0);
-  await page.getByTestId("social-web-toggle").click();
+  await page.getByTestId("family-mode-web").click();
   await expect(page.getByTestId("social-web-view")).toBeVisible();
+});
+
+test("ledger (P22): Family Tree toggles into the Ton (society) sub-view", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("open-ledger-btn").click();
+  await page.getByTestId("ledger-tabbtn-family-tree").click();
+  await expect(page.getByTestId("society-view")).toHaveCount(0);
+  await page.getByTestId("family-mode-society").click();
+  await expect(page.getByTestId("society-view")).toBeVisible();
 });
 
 test("ledger (P14): equipping a starter artifact updates the TopBar reputation readout", async ({
