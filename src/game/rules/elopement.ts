@@ -1,23 +1,24 @@
-// P9 pure rules: elopement sprint resolution.
+// P9/P24a pure rules: elopement sprint resolution.
 //
 // Per CLAUDE.md non-negotiable #1, this module imports only from constants,
 // fixtures, rng, util, and other rules modules. Every function returns new
 // state via hand-rolled shallow clones — no Immer inside src/game/rules/**.
 //
-// The Q3 verdict pins these semantics:
-// - Win applies reputation-halve always.
-// - Marriage minted ONLY when both eloping char and target are "available for
-//   remarriage" (matches applyProposalPure gates 10/11: marriageId null OR
-//   the referenced marriage is dissolved=true).
-// - The win-time predicate re-reads aggressor + target via state.characters
-//   at resolver entry (NOT cached at sprint-start) so same-tick proposeMarriage
-//   races (per PHASES ordering contract) are observed.
+// P24a: sprints live in `state.elopements: Map<ElopementId, ElopementSprintState>`
+// (was a nullable singleton). The player runs interactive sprints (Push / Fresh
+// Horses / Surrender, keyed by ElopementId); rival/society sprints auto-resolve
+// in applyElopementAutoResolvePhase. Terminal sprints PERSIST in the Map with
+// `resolved: true` (never-delete) — termination is detected via the flag, NOT
+// map-absence. `isPlayerControlled` gates the interactive overlay + the modal
+// "suspend time" rule (hasActivePlayerElopement).
 //
-// The Q4 verdict requires every player-elected mutation wrapper to gate on
-// state.elopement === null. The store-action wrappers handle that — these
-// pure rules are the only legal mutations while a sprint is active.
+// Q3 verdict semantics (preserved): Won halves the initiator house's reputation
+// always; a marriage is minted only when both parties are available for
+// remarriage (matches applyProposalPure gates) — UNLESS the player elected
+// abandon-on-win, which dissolves the prior marriage first (C3 / Q25).
 
 import {
+  ELOPEMENT_AUTO_FRESH_HORSES_PROBABILITY,
   ELOPEMENT_FATHER_START_TILE,
   ELOPEMENT_FRESH_HORSES_MAX_USES,
   ELOPEMENT_FRESH_HORSES_PLAYER_ADVANCE,
@@ -28,22 +29,84 @@ import {
   ELOPEMENT_PUSH_FATHER_ADVANCE,
   ELOPEMENT_PUSH_PLAYER_ADVANCE,
   ELOPEMENT_TRACK_LENGTH,
+  PURSUIT_SPEED_ELOPER_TRAIT_MODIFIERS,
+  PURSUIT_SPEED_PURSUER_TRAIT_MODIFIERS,
 } from "../constants";
-import type { Character, ElopementSprintState, GameState, House, Scheme } from "../entities";
-import type { HouseId } from "../rng";
-import { PLAYER_HOUSE_ID } from "../rng";
+import type {
+  Character,
+  ElopementOutcome,
+  ElopementSprintState,
+  GameState,
+  Scheme,
+} from "../entities";
+import { makeElopementId } from "../fixtures/elopementIdFactory";
+import { TRAITS_ALL } from "../fixtures/traits";
+import type { ElopementId, TraitId } from "../rng";
+import { drawNext, getOrThrow, PLAYER_HOUSE_ID } from "../rng";
 import { clamp } from "../util/clamp";
 import { mintMarriage } from "./mintMarriage";
 
+// Module-load assertion: every pursuit-speed trait-id key is a real trait
+// (mirrors the LIFESPAN_TRAIT_MODIFIERS validity guard in lifespan.ts).
+const TRAIT_ID_SET = new Set<string>(TRAITS_ALL);
+for (const t of [
+  ...PURSUIT_SPEED_ELOPER_TRAIT_MODIFIERS.keys(),
+  ...PURSUIT_SPEED_PURSUER_TRAIT_MODIFIERS.keys(),
+]) {
+  if (!TRAIT_ID_SET.has(t)) {
+    throw new Error(`PURSUIT_SPEED_*_TRAIT_MODIFIERS key "${t}" is not a valid trait id`);
+  }
+}
+
 // ── Public helpers ────────────────────────────────────────────────────────
 
-// Mirrors applyProposalPure's widow-remarriage semantics (proposal.ts:127-138):
-// a character with a non-null marriageId pointing at a dissolved marriage IS
-// available to re-marry. Q3 verdict requires harmonization.
+// Mirrors applyProposalPure's widow-remarriage semantics: a character with a
+// non-null marriageId pointing at a dissolved marriage IS available to re-marry.
 export function isAvailableForRemarriage(c: Character, state: GameState): boolean {
   if (c.marriageId === null) return true;
   const m = state.marriages.get(c.marriageId);
   return m !== undefined && m.dissolved === true;
+}
+
+// The modal "suspend time" predicate (supersedes the P9 `state.elopement !== null`
+// gate): time is suspended only while an unresolved PLAYER-controlled sprint
+// exists. Non-player (auto-resolving) sprints run during normal tick advancement.
+export function hasActivePlayerElopement(state: GameState): boolean {
+  for (const e of state.elopements.values()) {
+    if (e.isPlayerControlled && !e.resolved) return true;
+  }
+  return false;
+}
+
+function sumPursuitModifiers(
+  traits: readonly TraitId[],
+  table: ReadonlyMap<TraitId, number>,
+): number {
+  let sum = 0;
+  for (const t of traits) {
+    sum += table.get(t) ?? 0;
+  }
+  return sum;
+}
+
+function pursuerHeadOf(state: GameState, sprint: ElopementSprintState): Character | undefined {
+  const house = state.houses.get(sprint.pursuerHouseId);
+  if (house === undefined) return undefined;
+  return state.characters.get(house.headOfHouseCharacterId);
+}
+
+function eloperAdvanceBonus(state: GameState, sprint: ElopementSprintState): number {
+  const eloper = state.characters.get(sprint.elopingCharacterId);
+  return eloper === undefined
+    ? 0
+    : sumPursuitModifiers(eloper.traits, PURSUIT_SPEED_ELOPER_TRAIT_MODIFIERS);
+}
+
+function pursuerAdvanceBonus(state: GameState, sprint: ElopementSprintState): number {
+  const head = pursuerHeadOf(state, sprint);
+  return head === undefined
+    ? 0
+    : sumPursuitModifiers(head.traits, PURSUIT_SPEED_PURSUER_TRAIT_MODIFIERS);
 }
 
 // ── Rejection unions ──────────────────────────────────────────────────────
@@ -57,32 +120,23 @@ export type ElopementFreshHorsesRejection =
 
 // ── Sprint mount (called from resolveSeduction's discovery branch) ────────
 
-// Atomically applies the discovery-time scandal AND mounts state.elopement
-// AND flips scheme status to Failed/Discovered. The previous resolveSeduction
-// discovery body is now subsumed here — this is the SINGLE site applying the
-// discovery scandal post-P9 (no double-firing).
-//
-// scandalDelta is computed by the CALLER (the temptation-discount branch
-// lives in schemes.ts where the relevant constants are already imported).
-// This helper applies the scandal AND mounts state.elopement; the CALLER is
-// responsible for the scheme-status flip via flipSchemeStatus afterwards.
+// Applies the discovery-time scandal to the initiator (owner) house AND mints a
+// new sprint into state.elopements keyed by ElopementId. isPlayerControlled is
+// derived from the owner house; the CALLER (schemes.ts) flips the scheme status
+// to Failed/Discovered afterward. scandalDelta is computed by the caller (the
+// temptation-discount / perk branches live in schemes.ts).
 export function startElopementSprintFromDiscoveredSeduction(
   state: GameState,
   scheme: Scheme,
   scandalDelta: number,
 ): GameState {
-  if (state.elopement !== null) {
-    throw new Error(
-      `startElopementSprintFromDiscoveredSeduction: state.elopement already non-null for scheme ${state.elopement.schemeId}; concurrent sprints unreachable per Q2 gate`,
-    );
-  }
   if (scheme.targetCharacterId === null) {
     throw new Error(
       `startElopementSprintFromDiscoveredSeduction: scheme ${scheme.id} has no targetCharacterId`,
     );
   }
 
-  // Apply scandal to owner house.
+  // Apply scandal to the initiator (owner) house.
   const newHouses = new Map(state.houses);
   const ownerHouse = newHouses.get(scheme.ownerHouseId);
   if (ownerHouse !== undefined) {
@@ -92,36 +146,65 @@ export function startElopementSprintFromDiscoveredSeduction(
     });
   }
 
-  // Mount sprint state.
+  // Pursuer = the target's house (the pursuing "father").
+  const target = state.characters.get(scheme.targetCharacterId);
+  const pursuerHouseId = target?.houseId ?? scheme.ownerHouseId;
+
+  const id = makeElopementId(state, scheme.id);
   const sprint: ElopementSprintState = {
+    id,
     schemeId: scheme.id,
     elopingCharacterId: scheme.aggressorCharacterId,
     targetCharacterId: scheme.targetCharacterId,
+    initiatorHouseId: scheme.ownerHouseId,
+    pursuerHouseId,
+    isPlayerControlled: scheme.ownerHouseId === PLAYER_HOUSE_ID,
     playerTilePosition: ELOPEMENT_PLAYER_START_TILE,
     fatherTilePosition: ELOPEMENT_FATHER_START_TILE,
     freshHorsesUsedCount: 0,
+    abandonOnWin: false,
+    resolved: false,
+    outcome: null,
+    resolvedAtTick: null,
     startedAtTick: state.tick,
   };
+  const newElopements = new Map(state.elopements);
+  newElopements.set(id, sprint);
 
-  return { ...state, houses: newHouses, elopement: sprint };
+  return { ...state, houses: newHouses, elopements: newElopements };
 }
 
-// ── Push ──────────────────────────────────────────────────────────────────
+// Player-elected per-sprint toggle (surfaced as the overlay "abandon on win"
+// switch). No-op if the sprint is missing/resolved.
+export function setElopementAbandonOnWin(
+  state: GameState,
+  id: ElopementId,
+  abandonOnWin: boolean,
+): GameState {
+  const sprint = state.elopements.get(id);
+  if (sprint === undefined || sprint.resolved) return state;
+  const newElopements = new Map(state.elopements);
+  newElopements.set(id, { ...sprint, abandonOnWin });
+  return { ...state, elopements: newElopements };
+}
+
+// ── Push (interactive, player sprints) ──────────────────────────────────────
 
 export function applyElopementPushPure(
   state: GameState,
+  id: ElopementId,
 ): GameState | { ok: false; reason: ElopementActionRejection } {
-  if (state.elopement === null) {
+  const sprint = state.elopements.get(id);
+  if (sprint === undefined || sprint.resolved) {
     return { ok: false, reason: { kind: "NoActiveSprint" } };
   }
-  const sprint = state.elopement;
   const newPlayerTile = clamp(
-    sprint.playerTilePosition + ELOPEMENT_PUSH_PLAYER_ADVANCE,
+    sprint.playerTilePosition + ELOPEMENT_PUSH_PLAYER_ADVANCE + eloperAdvanceBonus(state, sprint),
     0,
     ELOPEMENT_TRACK_LENGTH,
   );
   const newFatherTile = clamp(
-    sprint.fatherTilePosition + ELOPEMENT_PUSH_FATHER_ADVANCE,
+    sprint.fatherTilePosition + ELOPEMENT_PUSH_FATHER_ADVANCE + pursuerAdvanceBonus(state, sprint),
     0,
     ELOPEMENT_TRACK_LENGTH,
   );
@@ -139,177 +222,244 @@ export function applyElopementPushPure(
     newChars.set(sprint.elopingCharacterId, { ...elopingChar, composure: postComposure });
   }
 
-  const advancedSprint: ElopementSprintState = {
+  const newElopements = new Map(state.elopements);
+  newElopements.set(id, {
     ...sprint,
     playerTilePosition: newPlayerTile,
     fatherTilePosition: newFatherTile,
-  };
-  const advanced: GameState = {
-    ...state,
-    characters: newChars,
-    elopement: advancedSprint,
-  };
+  });
+  const advanced: GameState = { ...state, characters: newChars, elopements: newElopements };
 
-  // Terminal checks (in priority order):
-  //   1. Player at finish line → Win.
-  //   2. Father at finish line → Lost.
-  //   3. Eloping character composure depleted → Lost.
+  // Terminal checks (priority): player at finish → Win; father at finish OR
+  // eloping composure depleted → Lost.
   if (newPlayerTile === ELOPEMENT_TRACK_LENGTH) {
-    return resolveElopementTerminal(advanced, "Won");
+    return resolveElopementTerminal(advanced, id, "Won");
   }
   if (newFatherTile === ELOPEMENT_TRACK_LENGTH || postComposure === 0) {
-    return resolveElopementTerminal(advanced, "Lost");
+    return resolveElopementTerminal(advanced, id, "Lost");
   }
   return advanced;
 }
 
-// ── Fresh Horses ──────────────────────────────────────────────────────────
+// ── Fresh Horses (interactive, player sprints) ──────────────────────────────
 
 export function applyElopementFreshHorsesPure(
   state: GameState,
+  id: ElopementId,
 ): GameState | { ok: false; reason: ElopementFreshHorsesRejection } {
-  if (state.elopement === null) {
+  const sprint = state.elopements.get(id);
+  if (sprint === undefined || sprint.resolved) {
     return { ok: false, reason: { kind: "NoActiveSprint" } };
   }
-  const sprint = state.elopement;
   if (sprint.freshHorsesUsedCount >= ELOPEMENT_FRESH_HORSES_MAX_USES) {
     return { ok: false, reason: { kind: "FreshHorsesExhausted" } };
   }
-  const playerHouse = state.houses.get(PLAYER_HOUSE_ID);
-  if (playerHouse === undefined) {
-    throw new Error("applyElopementFreshHorsesPure: PLAYER_HOUSE_ID not in state.houses");
+  const initiatorHouse = state.houses.get(sprint.initiatorHouseId);
+  if (initiatorHouse === undefined) {
+    throw new Error("applyElopementFreshHorsesPure: initiator house not in state.houses");
   }
-  if (playerHouse.wealth < ELOPEMENT_FRESH_HORSES_WEALTH_COST) {
+  if (initiatorHouse.wealth < ELOPEMENT_FRESH_HORSES_WEALTH_COST) {
     return {
       ok: false,
       reason: {
         kind: "InsufficientWealth",
-        have: playerHouse.wealth,
+        have: initiatorHouse.wealth,
         need: ELOPEMENT_FRESH_HORSES_WEALTH_COST,
       },
     };
   }
 
-  // Mutate: tile + uses count + wealth (wealth unbounded per spec §3).
   const newPlayerTile = clamp(
-    sprint.playerTilePosition + ELOPEMENT_FRESH_HORSES_PLAYER_ADVANCE,
+    sprint.playerTilePosition + ELOPEMENT_FRESH_HORSES_PLAYER_ADVANCE + eloperAdvanceBonus(state, sprint),
     0,
     ELOPEMENT_TRACK_LENGTH,
   );
   const newHouses = new Map(state.houses);
-  newHouses.set(PLAYER_HOUSE_ID, {
-    ...playerHouse,
-    wealth: playerHouse.wealth - ELOPEMENT_FRESH_HORSES_WEALTH_COST,
+  newHouses.set(sprint.initiatorHouseId, {
+    ...initiatorHouse,
+    wealth: initiatorHouse.wealth - ELOPEMENT_FRESH_HORSES_WEALTH_COST,
   });
-  const advancedSprint: ElopementSprintState = {
+  const newElopements = new Map(state.elopements);
+  newElopements.set(id, {
     ...sprint,
     playerTilePosition: newPlayerTile,
     freshHorsesUsedCount: sprint.freshHorsesUsedCount + 1,
-  };
-  const advanced: GameState = {
-    ...state,
-    houses: newHouses,
-    elopement: advancedSprint,
-  };
+  });
+  const advanced: GameState = { ...state, houses: newHouses, elopements: newElopements };
 
-  // Terminal: Fresh Horses can only advance the PLAYER's tile. If the player
-  // hits 7, Won. The father did not advance — no Lost branch here.
+  // Fresh Horses advances only the player tile — no Lost branch here.
   if (newPlayerTile === ELOPEMENT_TRACK_LENGTH) {
-    return resolveElopementTerminal(advanced, "Won");
+    return resolveElopementTerminal(advanced, id, "Won");
   }
   return advanced;
 }
 
-// ── Surrender ─────────────────────────────────────────────────────────────
+// ── Surrender (interactive, player sprints) ─────────────────────────────────
 
-// Surrender is always reachable when a sprint is active; the caller (store
-// wrapper) gates `state.elopement !== null` and throws if false. Surrender
-// folds into the Lost outcome (spec §3 line 377 — no separate "Surrendered").
-export function applyElopementSurrenderPure(state: GameState): GameState {
-  if (state.elopement === null) {
-    throw new Error("applyElopementSurrenderPure: state.elopement is null");
+export function applyElopementSurrenderPure(state: GameState, id: ElopementId): GameState {
+  const sprint = state.elopements.get(id);
+  if (sprint === undefined || sprint.resolved) {
+    throw new Error("applyElopementSurrenderPure: sprint missing or already resolved");
   }
-  const sprint = state.elopement;
-  const surrenderedSprint: ElopementSprintState = {
-    ...sprint,
-    fatherTilePosition: ELOPEMENT_TRACK_LENGTH,
-  };
-  const advanced: GameState = { ...state, elopement: surrenderedSprint };
-  return resolveElopementTerminal(advanced, "Lost");
+  const newElopements = new Map(state.elopements);
+  newElopements.set(id, { ...sprint, fatherTilePosition: ELOPEMENT_TRACK_LENGTH });
+  const advanced: GameState = { ...state, elopements: newElopements };
+  return resolveElopementTerminal(advanced, id, "Lost");
+}
+
+// ── Auto-resolve phase (non-player sprints) ─────────────────────────────────
+
+// Tick phase: deterministically advances every unresolved NON-player-controlled
+// sprint by one Push-equivalent (both tiles + pursuit-trait modifiers), with a
+// seeded ELOPEMENT_AUTO_FRESH_HORSES_PROBABILITY chance to "use fresh horses"
+// (eloper tile +ELOPEMENT_FRESH_HORSES_PLAYER_ADVANCE) while uses remain. One
+// draw per unresolved non-player sprint per tick on the initiator-house stream.
+// Resolves Won/Lost when terminal; resolved sprints persist in the Map.
+export function applyElopementAutoResolvePhase(state: GameState): GameState {
+  const ids = [...state.elopements.values()]
+    .filter((e) => !e.resolved && !e.isPlayerControlled)
+    .map((e) => e.id)
+    .sort();
+
+  let working = state;
+  for (const id of ids) {
+    const sprint = working.elopements.get(id);
+    if (sprint === undefined || sprint.resolved) continue;
+
+    const rngState = getOrThrow(working.rng, sprint.initiatorHouseId);
+    const { next, rngState: postDraw } = drawNext(rngState);
+    const newRng = new Map(working.rng);
+    newRng.set(sprint.initiatorHouseId, postDraw);
+    working = { ...working, rng: newRng };
+
+    const useFreshHorses =
+      next < ELOPEMENT_AUTO_FRESH_HORSES_PROBABILITY &&
+      sprint.freshHorsesUsedCount < ELOPEMENT_FRESH_HORSES_MAX_USES;
+
+    const playerAdvance =
+      ELOPEMENT_PUSH_PLAYER_ADVANCE +
+      eloperAdvanceBonus(working, sprint) +
+      (useFreshHorses ? ELOPEMENT_FRESH_HORSES_PLAYER_ADVANCE : 0);
+    const fatherAdvance = ELOPEMENT_PUSH_FATHER_ADVANCE + pursuerAdvanceBonus(working, sprint);
+
+    const newPlayerTile = clamp(sprint.playerTilePosition + playerAdvance, 0, ELOPEMENT_TRACK_LENGTH);
+    const newFatherTile = clamp(sprint.fatherTilePosition + fatherAdvance, 0, ELOPEMENT_TRACK_LENGTH);
+
+    const newElopements = new Map(working.elopements);
+    newElopements.set(id, {
+      ...sprint,
+      playerTilePosition: newPlayerTile,
+      fatherTilePosition: newFatherTile,
+      freshHorsesUsedCount: sprint.freshHorsesUsedCount + (useFreshHorses ? 1 : 0),
+    });
+    working = { ...working, elopements: newElopements };
+
+    if (newPlayerTile === ELOPEMENT_TRACK_LENGTH) {
+      working = resolveElopementTerminal(working, id, "Won");
+    } else if (newFatherTile === ELOPEMENT_TRACK_LENGTH) {
+      working = resolveElopementTerminal(working, id, "Lost");
+    }
+  }
+  return working;
 }
 
 // ── Terminal resolver ────────────────────────────────────────────────────
 
-// Applies the terminal effect atomically AND nulls state.elopement.
-//   Won  → reputation halved (clamped [0, 100]); if both eloping char and
-//          target are available for remarriage (Q3 verdict harmonization with
-//          applyProposalPure gates 10/11), mints a MarriageRecord with
-//          viaElopement: true.
-//   Lost → +50 scandal on player house (clamped [0, 100]).
-// In either case, state.elopement is set to null on return.
-export function resolveElopementTerminal(state: GameState, outcome: "Won" | "Lost"): GameState {
-  if (state.elopement === null) {
-    throw new Error("resolveElopementTerminal: state.elopement is null");
+// Marks the sprint resolved (persists in the Map) and applies the terminal
+// effect on the INITIATOR house:
+//   Lost → +ELOPEMENT_LOSS_SCANDAL_DELTA scandal (clamped [0,100]).
+//   Won  → reputation halved (clamped [0,100]); then a marriage is minted if
+//          both parties are available for remarriage, OR (C3) the prior
+//          marriage is abandoned-then-minted when the player elected abandonOnWin.
+export function resolveElopementTerminal(
+  state: GameState,
+  id: ElopementId,
+  outcome: ElopementOutcome,
+): GameState {
+  const sprint = state.elopements.get(id);
+  if (sprint === undefined) {
+    throw new Error(`resolveElopementTerminal: no sprint ${id}`);
   }
-  const sprint = state.elopement;
+
+  const newElopements = new Map(state.elopements);
+  newElopements.set(id, { ...sprint, resolved: true, outcome, resolvedAtTick: state.tick });
   const newHouses = new Map(state.houses);
-  const playerHouse = newHouses.get(PLAYER_HOUSE_ID);
-  if (playerHouse === undefined) {
-    throw new Error("resolveElopementTerminal: PLAYER_HOUSE_ID not in state.houses");
-  }
+  const initiatorHouse = newHouses.get(sprint.initiatorHouseId);
 
   if (outcome === "Lost") {
-    newHouses.set(PLAYER_HOUSE_ID, {
-      ...playerHouse,
-      scandal: clamp(playerHouse.scandal + ELOPEMENT_LOSS_SCANDAL_DELTA, 0, 100),
+    if (initiatorHouse !== undefined) {
+      newHouses.set(sprint.initiatorHouseId, {
+        ...initiatorHouse,
+        scandal: clamp(initiatorHouse.scandal + ELOPEMENT_LOSS_SCANDAL_DELTA, 0, 100),
+      });
+    }
+    return { ...state, houses: newHouses, elopements: newElopements };
+  }
+
+  // Won branch — halve the initiator house's reputation.
+  if (initiatorHouse !== undefined) {
+    newHouses.set(sprint.initiatorHouseId, {
+      ...initiatorHouse,
+      reputation: clamp(Math.floor(initiatorHouse.reputation / 2), 0, 100),
     });
-    return { ...state, houses: newHouses, elopement: null };
   }
+  const working: GameState = { ...state, houses: newHouses, elopements: newElopements };
 
-  // Won branch.
-  newHouses.set(PLAYER_HOUSE_ID, {
-    ...playerHouse,
-    reputation: clamp(Math.floor(playerHouse.reputation / 2), 0, 100),
-  });
-
-  // Re-read aggressor + target via state.characters at this moment (NOT
-  // cached at sprint-start) — Q3 verdict's same-tick proposeMarriage contract.
-  const aggressor = state.characters.get(sprint.elopingCharacterId);
-  const target = state.characters.get(sprint.targetCharacterId);
-
-  // Defensive fall-through: if either party died between sprint-start and
-  // win-time (unreachable today per pruneOrphanedConversationKeys branch 5,
-  // but matches selectAggressor's defense-in-depth discipline), skip mint
-  // and return rep-halved + null elopement.
+  // Re-read parties at resolution time (NOT cached at sprint-start).
+  const aggressor = working.characters.get(sprint.elopingCharacterId);
+  const target = working.characters.get(sprint.targetCharacterId);
   if (aggressor === undefined || target === undefined || !aggressor.alive || !target.alive) {
-    return { ...state, houses: newHouses, elopement: null };
+    return working;
   }
 
-  // Marriage-mint predicate harmonized with applyProposalPure widow-remarriage
-  // semantics (proposal.ts:127-138 + Q3 verdict).
-  if (isAvailableForRemarriage(aggressor, state) && isAvailableForRemarriage(target, state)) {
-    return mintMarriageAndCommit(state, newHouses, aggressor, target);
+  if (isAvailableForRemarriage(aggressor, working) && isAvailableForRemarriage(target, working)) {
+    return mintMarriageAndCommit(working, aggressor.id, target.id, false);
   }
-
-  // Win-without-union: one of the parties is in an Active marriage; rep-halve
-  // applies, no marriage minted, sprint cleared.
-  return { ...state, houses: newHouses, elopement: null };
+  // Abandon-on-win (C3 / Q25): a party is in an active marriage but the player
+  // elected to abandon it on a win — dissolve-then-mint.
+  if (sprint.abandonOnWin) {
+    return mintMarriageAndCommit(working, aggressor.id, target.id, true);
+  }
+  // Win-without-union: rep-halve only; no marriage minted.
+  return working;
 }
 
-// Internal helper — mints the viaElopement marriage via the shared P23
-// mintMarriage core (id + record + both marriageId + target role flip), then
-// layers the elopement-specific bits: the rep-halved houses + elopement: null.
-// Opts out of Dull-exposure to preserve pre-P23 elopement behavior (an
-// elopement union does not seed a Dull-spouse temptation latch).
+// Mints the viaElopement marriage via the shared P23 mintMarriage core. When
+// `abandonPriorMarriages` is set, any active marriage of either party is first
+// dissolved with viaAbandonment (both spouses' marriageId nulled) so the mint
+// is unambiguous (C3). NOTE: the abandoned partner's role recompute is added by
+// the C3 abandonMarriage helper (P24a task 8) — shared at that point.
 function mintMarriageAndCommit(
   state: GameState,
-  newHouses: Map<HouseId, House>,
-  aggressor: Character,
-  target: Character,
+  aggressorId: Character["id"],
+  targetId: Character["id"],
+  abandonPriorMarriages: boolean,
 ): GameState {
-  const { nextState } = mintMarriage(state, aggressor.id, target.id, {
+  let working = state;
+  if (abandonPriorMarriages) {
+    for (const partyId of [aggressorId, targetId]) {
+      const party = working.characters.get(partyId);
+      if (party === undefined || party.marriageId === null) continue;
+      const m = working.marriages.get(party.marriageId);
+      if (m === undefined || m.dissolved) continue;
+      const newMarriages = new Map(working.marriages);
+      newMarriages.set(m.id, {
+        ...m,
+        dissolved: true,
+        dissolvedAtTick: working.tick,
+        viaAbandonment: true,
+      });
+      const newChars = new Map(working.characters);
+      for (const sid of [m.spouseAId, m.spouseBId]) {
+        const c = newChars.get(sid);
+        if (c !== undefined) newChars.set(sid, { ...c, marriageId: null });
+      }
+      working = { ...working, marriages: newMarriages, characters: newChars };
+    }
+  }
+  const { nextState } = mintMarriage(working, aggressorId, targetId, {
     viaElopement: true,
     applyDullExposure: false,
   });
-  return { ...nextState, houses: newHouses, elopement: null };
+  return nextState;
 }

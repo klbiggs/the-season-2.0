@@ -22,6 +22,7 @@ import { applyForgerySurfacingPhase, applyThiefNoticePhase } from "../game/rules
 import { applyCourierAndStaffPhase } from "../game/rules/courier";
 import { evaluateDynastyPerks } from "../game/rules/dynastyLegacies";
 import { applyEconomyPhase } from "../game/rules/economy";
+import { applyElopementAutoResolvePhase } from "../game/rules/elopement";
 import { applyGlobalEventPhase } from "../game/rules/globalEvents";
 import { applyHappinessPhase } from "../game/rules/happiness";
 import { applyInheritedSecretSurfacingPhase } from "../game/rules/inheritedSecrets";
@@ -44,28 +45,34 @@ export type TickPhase = (state: GameState) => GameState;
 // P13: identityPhase stub at slot 6 replaced with applyGlobalEventPhase
 // (era flip + WarEffort/MarketCrash/MonarchsMood per-tick effects + expiry +
 // 5%/tick trigger roll).
-// P15: evaluateDynastyPerks appended as terminal slot 15, AFTER the rival
-// phase. PHASES count is 15. "Rivals always run last" is refined to "last
-// among RNG-CONSUMING phases" (CLAUDE.md amendment): evaluateDynastyPerks is
-// RNG-free (a pure milestone read + award-list push), so following the rival
-// phase cannot perturb the seeded draw stream — the draw-count stream through
-// the rival phase is byte-identical whether or not it runs.
+// P15: evaluateDynastyPerks appended as the terminal slot, AFTER the rival
+// phase. "Rivals always run last" is refined to "last among RNG-CONSUMING
+// phases" (CLAUDE.md amendment): evaluateDynastyPerks is RNG-free (a pure
+// milestone read + award-list push), so following the rival phase cannot
+// perturb the seeded draw stream.
+// P24a: applyElopementAutoResolvePhase inserted at slot 6 (after scheme
+// resolution — discovered Seductions mount sprints there; auto-resolve advances
+// EXISTING non-player sprints). PHASES count is 16. It is RNG-CONSUMING (one
+// draw per unresolved non-player sprint per tick on the initiator-house stream)
+// so it sits BEFORE the rival phase; its slot is fixed relative to mood drift
+// (slot 8) which also draws per-house — the order is the determinism contract.
 const PHASES: readonly TickPhase[] = [
   advanceTickPhase, // 1. time advance
   applyEconomyPhase, // 2. economy
   applyLocationEffectsPhase, // 3. location effects (NEW at P3)
   applyCourierAndStaffPhase, // 4. courier + verify + staff (NEW at P6)
   applySchemeResolutionPhase, // 5. scheme resolution (P5)
-  applyGlobalEventPhase, // 6. global-event roll + era transition (NEW at P13; replaced P1 identityPhase stub)
-  applyMoodDriftPhase, // 7. mood drift
-  applyHappinessPhase, // 8. happiness drift (NEW at P7)
-  applyPatronessErosionPhase, // 9. patroness erosion (NEW at P8)
-  applyForgerySurfacingPhase, // 10. forgery surfacing roll (NEW at P10)
-  applyThiefNoticePhase, // 11. thief notice + auto-resolve (NEW at P10)
-  applySiblingRivalActionPhase, // 12. sibling-rival action roll (NEW at P11)
-  applyInheritedSecretSurfacingPhase, // 13. inherited-secret surfacing + blood-feud decay (NEW at P11)
-  applyRivalActionPhase, // 14. rival-house action roll (NEW at P8 — last among RNG-consuming phases)
-  evaluateDynastyPerks, // 15. dynasty-perk evaluation (NEW at P15 — RNG-free, so permitted after rivals)
+  applyElopementAutoResolvePhase, // 6. elopement auto-resolve — non-player sprints (NEW at P24a)
+  applyGlobalEventPhase, // 7. global-event roll + era transition (NEW at P13; replaced P1 identityPhase stub)
+  applyMoodDriftPhase, // 8. mood drift
+  applyHappinessPhase, // 9. happiness drift (NEW at P7)
+  applyPatronessErosionPhase, // 10. patroness erosion (NEW at P8)
+  applyForgerySurfacingPhase, // 11. forgery surfacing roll (NEW at P10)
+  applyThiefNoticePhase, // 12. thief notice + auto-resolve (NEW at P10)
+  applySiblingRivalActionPhase, // 13. sibling-rival action roll (NEW at P11)
+  applyInheritedSecretSurfacingPhase, // 14. inherited-secret surfacing + blood-feud decay (NEW at P11)
+  applyRivalActionPhase, // 15. rival-house action roll (NEW at P8 — last among RNG-consuming phases)
+  evaluateDynastyPerks, // 16. dynasty-perk evaluation (NEW at P15 — RNG-free, so permitted after rivals)
 ] as const;
 
 export function advanceTickPure(state: GameState): GameState {
