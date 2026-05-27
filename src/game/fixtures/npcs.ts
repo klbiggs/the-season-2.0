@@ -12,7 +12,7 @@
 import { HAPPINESS_INITIAL } from "../constants";
 import type { Character, House } from "../entities";
 import { type CharacterId, type FactionId, INDEPENDENT_HOUSE_ID, type TraitId } from "../rng";
-import { hashCharIdToGender } from "./hashCharIdToGender";
+import { hashCharIdToGender, npcAssignedLocation } from "./hashCharIdToGender";
 import type { Mood } from "./moods";
 import type { Role } from "./roles";
 
@@ -102,6 +102,7 @@ export function buildBaselineNpcCharacter(seed: BaselineNpcSeed): Character {
     parentCharacterIds: null,
     gender: hashCharIdToGender(seed.id),
     equippedArtifactIds: [],
+    assignedLocationId: npcAssignedLocation(seed.id),
   };
 }
 

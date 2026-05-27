@@ -540,6 +540,43 @@ export const STAFF_BRIBE_DRIVER_CADENCE_TICKS = 12;
 export const STAFF_INTERCEPT_MAIL_CADENCE_TICKS = 10;
 export const STAFF_BRIBED_BY_RIVAL_CADENCE_TICKS = 6;
 
+// ── P24c: Staff network (hire/fire/promote, perk resistance, procedural identity) ──
+
+// I1: hire cost + active-roster cap (active = not dismissed, not promoted).
+export const STAFF_HIRE_WEALTH_COST = 40;
+export const STAFF_ROSTER_MAX = 8;
+
+// I4: the Whispers dynasty perk's "resistance to rival espionage" half — when the
+// player house holds it, the per-tick bribery probability is multiplied by this
+// (< 1). Threshold shift only — the draw still fires (RNG stream undisturbed).
+export const WHISPERS_PERK_BRIBERY_RESISTANCE_MULTIPLIER = 0.4;
+
+// I1/I4: procedural identity for hired staff. FIXED draw budget per hire so the
+// hire-action draw count is part of the determinism contract.
+export const STAFF_PROCEDURAL_DRAWS_PER_HIRE = 4; // greedy, upkeep, loyalty, name
+export const STAFF_PROCEDURAL_GREEDY_PCT = 40;
+export const STAFF_PROCEDURAL_UPKEEP_MIN = 1;
+export const STAFF_PROCEDURAL_UPKEEP_MAX = 3;
+export const STAFF_PROCEDURAL_LOYALTY_MIN = 45;
+export const STAFF_PROCEDURAL_LOYALTY_MAX = 80;
+
+// I2: default adult age for a promoted staffer (before lifespan-modified deathAge).
+export const PROMOTED_STAFF_AGE_MIN = 22;
+export const PROMOTED_STAFF_AGE_MAX = 40;
+
+if (WHISPERS_PERK_BRIBERY_RESISTANCE_MULTIPLIER <= 0 || WHISPERS_PERK_BRIBERY_RESISTANCE_MULTIPLIER >= 1) {
+  throw new Error("WHISPERS_PERK_BRIBERY_RESISTANCE_MULTIPLIER must be in (0, 1)");
+}
+if (STAFF_PROCEDURAL_UPKEEP_MIN < 1 || STAFF_PROCEDURAL_UPKEEP_MIN > STAFF_PROCEDURAL_UPKEEP_MAX) {
+  throw new Error("STAFF_PROCEDURAL_UPKEEP range invalid (min must be >=1 and <= max)");
+}
+if (STAFF_PROCEDURAL_LOYALTY_MIN < 0 || STAFF_PROCEDURAL_LOYALTY_MIN > STAFF_PROCEDURAL_LOYALTY_MAX) {
+  throw new Error("STAFF_PROCEDURAL_LOYALTY range invalid");
+}
+if (PROMOTED_STAFF_AGE_MIN < 18 || PROMOTED_STAFF_AGE_MIN > PROMOTED_STAFF_AGE_MAX) {
+  throw new Error("PROMOTED_STAFF_AGE range invalid");
+}
+
 // P6: persona prompt format version bump — invalidates P4/P5 in-memory
 // persona caches whose systemInstruction lacks the new "Other characters
 // in this scene" section. Hash-irrelevant (lives in code, not state); future

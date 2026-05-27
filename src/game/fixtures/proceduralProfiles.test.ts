@@ -35,6 +35,7 @@ function syntheticAdult(
     parentCharacterIds: null,
     gender,
     equippedArtifactIds: [],
+    assignedLocationId: "Capital",
   };
 }
 

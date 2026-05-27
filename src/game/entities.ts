@@ -264,6 +264,13 @@ export const CharacterSchema = z.object({
   // character.id. Default `[]` via Zod backfill so legacy V1-V10 characters
   // parse cleanly without a Pre-shape rebuild (P8 precedent).
   equippedArtifactIds: z.array(ArtifactInstanceIdSchema).default([]),
+  // P24c (I3): per-NPC location for BribeDriver subject specialization (spec §3
+  // L457). Distinct from House.currentLocation (the player-side field). Set
+  // draw-free at bootstrap (constant for player/baseline; fnv1a32-derived over
+  // {Capital, Country} for society/rival NPCs). .default("Capital") backfills
+  // legacy saves on parse — but NOT in-memory literals, so every Character
+  // builder sets it explicitly.
+  assignedLocationId: LocationIdSchema.default("Capital"),
 });
 export type Character = z.infer<typeof CharacterSchema>;
 
@@ -422,6 +429,12 @@ export const StaffMemberSchema = z.object({
   assignment: z.enum(STAFF_ASSIGNMENTS),
   lastOutputTick: z.number().int().nullable(),
   bribedAtTick: z.number().int().nonnegative().nullable(),
+  // P24c: never-delete lifecycle flags. dismissedAtTick set by fireStaff;
+  // promotedToCharacterId set by promoteStaff. A staffer with EITHER set is
+  // inert — skipped in applyStaffOutputsPhase (loyalty/bribery/cadence) + the
+  // roster active count. .default(null) so legacy saves parse without a rebuild.
+  dismissedAtTick: z.number().int().nonnegative().nullable().default(null),
+  promotedToCharacterId: CharacterIdSchema.nullable().default(null),
 });
 export type StaffMember = z.infer<typeof StaffMemberSchema>;
 

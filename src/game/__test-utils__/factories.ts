@@ -105,6 +105,8 @@ export function makeCharacter(overrides: Partial<Character> = {}): Character {
     gender: "Female",
     // P10 default
     equippedArtifactIds: [],
+    // P24c default — NPC location for BribeDriver subject specialization.
+    assignedLocationId: "Capital",
     ...overrides,
   };
 }

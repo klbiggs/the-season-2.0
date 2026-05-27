@@ -18,6 +18,7 @@
 // Plan: plans/phases/07-family-succession.md "Legacy gender default rule".
 
 import type { CharacterId } from "../rng";
+import type { LocationId } from "./locations";
 
 // Standard FNV-1a 32-bit constants.
 const FNV_OFFSET_BASIS_32 = 0x811c9dc5;
@@ -42,4 +43,14 @@ export function fnv1a32(s: string): number {
 
 export function hashCharIdToGender(id: CharacterId): "Female" | "Male" {
   return (fnv1a32(id) & 1) === 0 ? "Female" : "Male";
+}
+
+// P24c (I3): deterministic NPC "assigned location" from CharacterId. SALTED
+// (`|location`) so it decorrelates from the gender bit above. Domain limited to
+// the two player-occupiable locations (Capital/Country) — hashing across all 7
+// LOCATIONS would let an NPC land on a finishing/foreign capital the player
+// never sits at, silently collapsing the BribeDriver location-match to the
+// lex-smallest fallback. Draw-free (not the gameplay PRNG); deterministic per id.
+export function npcAssignedLocation(id: CharacterId): LocationId {
+  return (fnv1a32(`${id}|location`) & 1) === 0 ? "Capital" : "Country";
 }

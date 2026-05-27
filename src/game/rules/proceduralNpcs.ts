@@ -25,6 +25,7 @@ import {
   type TraitId,
   drawInt,
 } from "../rng";
+import { npcAssignedLocation } from "../fixtures/hashCharIdToGender";
 import { applyLifespanModifiers } from "./lifespan";
 
 // Shared id convention. The legacy-emit filter (persist/schema.ts) excludes
@@ -134,6 +135,7 @@ function buildProceduralNpcCharacter(
     parentCharacterIds: null,
     gender: effectiveGender,
     equippedArtifactIds: [],
+    assignedLocationId: npcAssignedLocation(id),
   };
   const character: Character = { ...base, archetype: classifyArchetype(base) };
   return { character, rngState: rng };

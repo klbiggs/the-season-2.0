@@ -78,6 +78,8 @@ function makeStaff(overrides: Partial<StaffMember> = {}): StaffMember {
     assignment: "None",
     lastOutputTick: null,
     bribedAtTick: null,
+    dismissedAtTick: null,
+    promotedToCharacterId: null,
     ...overrides,
   };
 }

@@ -20,6 +20,7 @@ import {
   YEARS_PER_CONCEPTION_CYCLE,
 } from "../constants";
 import type { Character, GameState } from "../entities";
+import { npcAssignedLocation } from "../fixtures/hashCharIdToGender";
 import { GIVEN_NAMES, dynastySurnameForHouse } from "../fixtures/nameBanks";
 import { childCharacterId } from "../fixtures/names";
 import { TRAITS_ALL } from "../fixtures/traits";
@@ -197,6 +198,7 @@ export function applyConceptionStep(state: GameState): GameState {
       gender,
       // P10: newborns start with no equipped artifacts.
       equippedArtifactIds: [],
+      assignedLocationId: npcAssignedLocation(newCharId),
     };
     if (!touched) {
       characters = new Map(state.characters);

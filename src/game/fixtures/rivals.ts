@@ -13,6 +13,7 @@
 
 import { HAPPINESS_INITIAL } from "../constants";
 import type { Character, House, RivalActorState } from "../entities";
+import { npcAssignedLocation } from "./hashCharIdToGender";
 import {
   type CharacterId,
   type FactionId,
@@ -208,6 +209,7 @@ export function buildRivalCharacter(
     parentCharacterIds: null,
     gender: seed.gender,
     equippedArtifactIds: [],
+    assignedLocationId: npcAssignedLocation(seed.characterId),
   };
 }
 

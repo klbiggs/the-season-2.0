@@ -116,6 +116,7 @@ function syntheticAdult(role: Role, gender: Gender, traits: readonly TraitId[]):
     parentCharacterIds: null,
     gender,
     equippedArtifactIds: [],
+    assignedLocationId: "Capital",
   };
 }
 

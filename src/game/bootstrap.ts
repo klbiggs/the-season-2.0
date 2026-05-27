@@ -119,6 +119,8 @@ export function seedStartingFamily(
     // P10: empty by default; bootstrapPlayerArtifactsForInit mutates this
     // in-place when called from createInitialState.
     equippedArtifactIds: [],
+    // P24c: player-house chars' assignedLocationId is unused by I3.
+    assignedLocationId: "Capital",
   };
 
   const playerHouse: House = {

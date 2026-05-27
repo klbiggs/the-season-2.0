@@ -10,9 +10,16 @@
 // driver / lady's maid). 2 of 4 are Greedy by default, biasing playtest
 // toward visible bribery pressure rather than a flat-rate happy path.
 
-import { STAFF_UPKEEP_DEFAULT } from "../constants";
-import type { StaffMember } from "../entities";
-import { PLAYER_HOUSE_ID, type StaffId } from "../rng";
+import {
+  STAFF_PROCEDURAL_GREEDY_PCT,
+  STAFF_PROCEDURAL_LOYALTY_MAX,
+  STAFF_PROCEDURAL_LOYALTY_MIN,
+  STAFF_PROCEDURAL_UPKEEP_MAX,
+  STAFF_PROCEDURAL_UPKEEP_MIN,
+  STAFF_UPKEEP_DEFAULT,
+} from "../constants";
+import type { GameState, StaffMember } from "../entities";
+import { PLAYER_HOUSE_ID, type RngState, type StaffId, drawInt } from "../rng";
 
 export type BaselineStaffSeed = {
   id: StaffId;
@@ -59,6 +66,9 @@ export function buildBaselineStaffMember(seed: BaselineStaffSeed): StaffMember {
     assignment: "None", // player must explicitly assign
     lastOutputTick: null, // never produced; first cadence fires at first reassign + cadence
     bribedAtTick: null,
+    // P24c: baseline staff start active (never dismissed, never promoted).
+    dismissedAtTick: null,
+    promotedToCharacterId: null,
   };
 }
 
@@ -70,4 +80,75 @@ export function buildBaselineStaffMap(): Map<StaffId, StaffMember> {
     m.set(seed.id, buildBaselineStaffMember(seed));
   }
   return m;
+}
+
+// ── P24c: hire + procedural staff identity ───────────────────────────────
+
+// Surname bank for procedurally-hired staff (I4). Period below-stairs surnames.
+const PROCEDURAL_STAFF_SURNAMES: readonly string[] = [
+  "Bramble",
+  "Coombe",
+  "Fenwick",
+  "Gattis",
+  "Holloway",
+  "Larkin",
+  "Mossop",
+  "Pruett",
+  "Renshaw",
+  "Sowerby",
+  "Treadwell",
+  "Wragge",
+];
+
+// Draw-free state-walk id factory (P6 reserved this for "P15+"; P24c ships it).
+// Format `staff-proc-<index>` where index counts existing `staff-proc-` members
+// (so hired ids never collide with the fixed BASELINE_STAFF ids).
+export const PROCEDURAL_STAFF_ID_PREFIX = "staff-proc-";
+export function makeStaffId(state: GameState): StaffId {
+  let index = 0;
+  for (const s of state.staff.values()) {
+    if (s.id.startsWith(PROCEDURAL_STAFF_ID_PREFIX)) index += 1;
+  }
+  return `${PROCEDURAL_STAFF_ID_PREFIX}${index}` as StaffId;
+}
+
+// Procedural staff identity (I4). FIXED 4-draw budget: greedy → upkeep → loyalty
+// → name. Mirrors buildBaselineStaffMember field-for-field. Always player-owned,
+// assignment "None", active (not dismissed/promoted).
+export function buildProceduralStaffMember(
+  id: StaffId,
+  rngState: RngState,
+): { staff: StaffMember; rngState: RngState } {
+  let rng = rngState;
+
+  const greedyPick = drawInt(rng, 100);
+  rng = greedyPick.rngState;
+  const isGreedy = greedyPick.next < STAFF_PROCEDURAL_GREEDY_PCT;
+
+  const upkeepPick = drawInt(rng, STAFF_PROCEDURAL_UPKEEP_MAX - STAFF_PROCEDURAL_UPKEEP_MIN + 1);
+  rng = upkeepPick.rngState;
+  const upkeepPerTick = upkeepPick.next + STAFF_PROCEDURAL_UPKEEP_MIN;
+
+  const loyaltyPick = drawInt(rng, STAFF_PROCEDURAL_LOYALTY_MAX - STAFF_PROCEDURAL_LOYALTY_MIN + 1);
+  rng = loyaltyPick.rngState;
+  const loyalty = loyaltyPick.next + STAFF_PROCEDURAL_LOYALTY_MIN;
+
+  const namePick = drawInt(rng, PROCEDURAL_STAFF_SURNAMES.length);
+  rng = namePick.rngState;
+  const surname = PROCEDURAL_STAFF_SURNAMES[namePick.next] as string;
+
+  const staff: StaffMember = {
+    id,
+    houseId: PLAYER_HOUSE_ID,
+    name: `${surname} (staff)`,
+    isGreedy,
+    loyalty,
+    upkeepPerTick,
+    assignment: "None",
+    lastOutputTick: null,
+    bribedAtTick: null,
+    dismissedAtTick: null,
+    promotedToCharacterId: null,
+  };
+  return { staff, rngState: rng };
 }
