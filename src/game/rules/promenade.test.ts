@@ -2,7 +2,12 @@
 // the read-side helpers. Pure-rules layer — no orchestrator, no UI, no store.
 
 import { describe, expect, it } from "vitest";
-import { makeCharacter, makeGameState, makeHouse } from "../__test-utils__/factories";
+import {
+  makeCharacter,
+  makeElopementSprint,
+  makeGameState,
+  makeHouse,
+} from "../__test-utils__/factories";
 import {
   PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT,
   PROMENADE_BASE_AFFECTION_DEEP_EMPATHY,
@@ -195,10 +200,11 @@ describe("canEnterPromenade", () => {
     }
   });
 
-  it("rejects ElopementInProgress when state.elopement is non-null", () => {
+  it("rejects ElopementInProgress when a player sprint is active", () => {
+    const sprint = makeElopementSprint();
     const state = {
       ...buildStateWithNpcs(),
-      elopement: {} as never, // shape doesn't matter for the !== null check
+      elopements: new Map([[sprint.id, sprint]]),
     };
     const result = canEnterPromenade(state);
     expect(result.ok).toBe(false);

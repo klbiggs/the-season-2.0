@@ -30,6 +30,7 @@ import type {
   ArtifactInstanceId,
   BetrothalId,
   CharacterId,
+  ElopementId,
   HouseId,
   ThiefAttemptId,
   TraitId,
@@ -39,7 +40,9 @@ import { recordPlayerHeadNaturalDeath } from "./dynastyLegacies";
 
 // P23: re-widow role recompute (mirrors maturation.computeMaturationRole minus
 // the Exile/marriageId branches — the survivor is being made unwed here).
-function recomputeWidowRole(c: Character): Role {
+// P24a (C3): exported so abandonMarriage reuses the same recompute for the
+// deliberately-dissolved (not death-driven) case.
+export function recomputeWidowRole(c: Character): Role {
   if (c.gender === "Female") return "Spinster";
   if (
     c.gender === "Male" &&
@@ -192,28 +195,37 @@ export function pruneOrphanedConversationKeys(
   //
   // The +50 scandal extrapolates spec §3 line 379 ("loss" → +50 scandal) to
   // the death-cascade case; the alternative (0 scandal) was rejected as a
-  // perverse incentive at v1.5+ when the Q4 tick-advance gate may be relaxed.
-  // At v1 this branch is unreachable end-to-end via runYearPass because the
-  // Q4 ElopementInProgress gate at the wrapper top blocks year-pass execution
-  // while state.elopement !== null. The branch ships for defense-in-depth and
-  // because the helper's contract is "every death cascade goes through here."
+  // perverse incentive. P24a: elopements is a Map. For each UNRESOLVED sprint
+  // whose eloping char or target newly died, mark it resolved (Lost) and bump
+  // the INITIATOR house's scandal (mirrors resolveElopementTerminal's Lost
+  // branch; the initiator may be a rival/society house for non-player sprints).
+  // With non-player (society) sprints now able to run during year-pass, this
+  // branch IS reachable via runYearPass — the prior "unreachable via runYearPass"
+  // note no longer holds. Lazy-clone both Maps (branch-10 `??=` precedent).
   let newHouses: Map<HouseId, House> | null = null;
-  let newElopement: ElopementSprintState | null | undefined = undefined;
-  if (state.elopement !== null) {
-    const sprint = state.elopement;
+  let newElopements: Map<ElopementId, ElopementSprintState> | null = null;
+  for (const sprint of state.elopements.values()) {
+    if (sprint.resolved) continue;
     if (
-      newlyDeadCharIds.has(sprint.elopingCharacterId) ||
-      newlyDeadCharIds.has(sprint.targetCharacterId)
+      !newlyDeadCharIds.has(sprint.elopingCharacterId) &&
+      !newlyDeadCharIds.has(sprint.targetCharacterId)
     ) {
-      const playerHouse = state.houses.get(PLAYER_HOUSE_ID);
-      if (playerHouse !== undefined) {
-        newHouses = new Map(state.houses);
-        newHouses.set(PLAYER_HOUSE_ID, {
-          ...playerHouse,
-          scandal: clamp(playerHouse.scandal + ELOPEMENT_LOSS_SCANDAL_DELTA, 0, 100),
-        });
-      }
-      newElopement = null;
+      continue;
+    }
+    newElopements ??= new Map(state.elopements);
+    newElopements.set(sprint.id, {
+      ...sprint,
+      resolved: true,
+      outcome: "Lost",
+      resolvedAtTick: state.tick,
+    });
+    const initiator = (newHouses ?? state.houses).get(sprint.initiatorHouseId);
+    if (initiator !== undefined) {
+      newHouses ??= new Map(state.houses);
+      newHouses.set(sprint.initiatorHouseId, {
+        ...initiator,
+        scandal: clamp(initiator.scandal + ELOPEMENT_LOSS_SCANDAL_DELTA, 0, 100),
+      });
     }
   }
 
@@ -407,7 +419,7 @@ export function pruneOrphanedConversationKeys(
     ...(newBetrothals !== null ? { betrothals: newBetrothals } : {}),
     ...(newRivalActors !== null ? { rivalActors: newRivalActors } : {}),
     ...(newHouses !== null ? { houses: newHouses } : {}),
-    ...(newElopement !== undefined ? { elopement: newElopement } : {}),
+    ...(newElopements !== null ? { elopements: newElopements } : {}),
     ...(newArtifactInstances !== null ? { artifactInstances: newArtifactInstances } : {}),
     ...(newThiefAttempts !== null ? { thiefAttempts: newThiefAttempts } : {}),
   };

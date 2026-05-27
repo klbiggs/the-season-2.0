@@ -1,33 +1,41 @@
-// P9 — bus event tests for elopement partition.
+// P9/P24a — bus event tests for the elopement partition (per-ElopementId Map diff).
 
 import { describe, expect, it, vi } from "vitest";
 import {
   makeCharacter,
+  makeElopementSprint,
   makeGameState,
   makeHouse,
   makeMarriage,
 } from "../../game/__test-utils__/factories";
 import type { ElopementSprintState } from "../../game/entities";
-import type { CharacterId, MarriageId, SchemeId } from "../../game/rng";
+import type { CharacterId, ElopementId, MarriageId, SchemeId } from "../../game/rng";
 import { PLAYER_HOUSE_ID } from "../../game/rng";
 import { type ElopementEvent, elopementBus, publishElopementTransitions } from "./elopement";
 
-function makeSprint(): ElopementSprintState {
-  return {
+const SPRINT_ID = "elopement:s1:0" as ElopementId;
+
+function makeSprint(overrides: Partial<ElopementSprintState> = {}): ElopementSprintState {
+  return makeElopementSprint({
+    id: SPRINT_ID,
     schemeId: "s1" as SchemeId,
     elopingCharacterId: "e1" as CharacterId,
     targetCharacterId: "t1" as CharacterId,
     playerTilePosition: 4,
     fatherTilePosition: 2,
     freshHorsesUsedCount: 1,
-    startedAtTick: 0,
-  };
+    ...overrides,
+  });
+}
+
+function sprintMap(sprint: ElopementSprintState): Map<ElopementId, ElopementSprintState> {
+  return new Map([[sprint.id, sprint]]);
 }
 
 describe("elopementBus", () => {
-  it("publishes ElopementStarted on null → non-null transition", () => {
-    const before = makeGameState({ tick: 5, elopement: null });
-    const after = makeGameState({ tick: 5, elopement: makeSprint() });
+  it("publishes ElopementStarted when a new sprint id appears", () => {
+    const before = makeGameState({ tick: 5, elopements: new Map() });
+    const after = makeGameState({ tick: 5, elopements: sprintMap(makeSprint()) });
     const handler = vi.fn<(e: ElopementEvent) => void>();
     const unsubscribe = elopementBus.subscribe("ElopementStarted", handler);
     publishElopementTransitions(before, after);
@@ -42,17 +50,17 @@ describe("elopementBus", () => {
     });
   });
 
-  it("publishes ElopementResolved on non-null → null transition", () => {
+  it("publishes ElopementResolved when a sprint flips unresolved → resolved", () => {
     const playerBefore = makeHouse({ id: PLAYER_HOUSE_ID, reputation: 60, scandal: 0 });
     const playerAfter = makeHouse({ id: PLAYER_HOUSE_ID, reputation: 30, scandal: 0 });
     const before = makeGameState({
       tick: 7,
-      elopement: makeSprint(),
+      elopements: sprintMap(makeSprint()),
       houses: new Map([[PLAYER_HOUSE_ID, playerBefore]]),
     });
     const after = makeGameState({
       tick: 7,
-      elopement: null,
+      elopements: sprintMap(makeSprint({ resolved: true, outcome: "Won", resolvedAtTick: 7 })),
       houses: new Map([[PLAYER_HOUSE_ID, playerAfter]]),
     });
     const handler = vi.fn<(e: ElopementEvent) => void>();
@@ -67,17 +75,17 @@ describe("elopementBus", () => {
     expect(event.scandalDelta).toBe(0);
   });
 
-  it("ElopementResolved discriminates Lost via positive scandalDelta", () => {
+  it("ElopementResolved carries the sprint's own Lost outcome + scandal delta", () => {
     const playerBefore = makeHouse({ id: PLAYER_HOUSE_ID, scandal: 10 });
     const playerAfter = makeHouse({ id: PLAYER_HOUSE_ID, scandal: 60 });
     const before = makeGameState({
       tick: 9,
-      elopement: makeSprint(),
+      elopements: sprintMap(makeSprint()),
       houses: new Map([[PLAYER_HOUSE_ID, playerBefore]]),
     });
     const after = makeGameState({
       tick: 9,
-      elopement: null,
+      elopements: sprintMap(makeSprint({ resolved: true, outcome: "Lost", resolvedAtTick: 9 })),
       houses: new Map([[PLAYER_HOUSE_ID, playerAfter]]),
     });
     const handler = vi.fn<(e: ElopementEvent) => void>();
@@ -91,22 +99,24 @@ describe("elopementBus", () => {
     expect(event.scandalDelta).toBe(50);
   });
 
-  it("marriageMinted: true when a viaElopement marriage landed this tick", () => {
+  it("marriageMinted: true when a viaElopement marriage between the parties landed this tick", () => {
     const playerBefore = makeHouse({ id: PLAYER_HOUSE_ID, reputation: 80 });
     const playerAfter = makeHouse({ id: PLAYER_HOUSE_ID, reputation: 40 });
     const minted = makeMarriage({
       id: "via-elope" as MarriageId,
+      spouseAId: "e1" as CharacterId,
+      spouseBId: "t1" as CharacterId,
       marriedAtTick: 12,
       viaElopement: true,
     });
     const before = makeGameState({
       tick: 12,
-      elopement: makeSprint(),
+      elopements: sprintMap(makeSprint()),
       houses: new Map([[PLAYER_HOUSE_ID, playerBefore]]),
     });
     const after = makeGameState({
       tick: 12,
-      elopement: null,
+      elopements: sprintMap(makeSprint({ resolved: true, outcome: "Won", resolvedAtTick: 12 })),
       houses: new Map([[PLAYER_HOUSE_ID, playerAfter]]),
       marriages: new Map([[minted.id, minted]]),
     });
@@ -119,9 +129,9 @@ describe("elopementBus", () => {
     expect(event.marriageMinted).toBe(true);
   });
 
-  it("publishes nothing when before and after both have null elopement", () => {
-    const before = makeGameState({ elopement: null });
-    const after = makeGameState({ elopement: null });
+  it("publishes nothing when the elopements maps are unchanged", () => {
+    const before = makeGameState({ elopements: new Map() });
+    const after = makeGameState({ elopements: new Map() });
     const handler = vi.fn<(e: ElopementEvent) => void>();
     const u1 = elopementBus.subscribe("ElopementStarted", handler);
     const u2 = elopementBus.subscribe("ElopementResolved", handler);

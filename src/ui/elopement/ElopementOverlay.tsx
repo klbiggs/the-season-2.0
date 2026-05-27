@@ -10,6 +10,7 @@ import {
   ELOPEMENT_PUSH_COMPOSURE_COST,
   ELOPEMENT_TRACK_LENGTH,
 } from "../../game/constants";
+import type { ElopementSprintState } from "../../game/entities";
 import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import type { SeasonStore } from "../../game/store";
 
@@ -18,20 +19,30 @@ type Props = {
 };
 
 export function ElopementOverlay({ store }: Props) {
-  const sprint = store((s) => s.elopement);
+  const elopements = store((s) => s.elopements);
   const characters = store((s) => s.characters);
   const houses = store((s) => s.houses);
   const focusRef = useRef<HTMLButtonElement | null>(null);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
+  // Focused sprint = the lex-smallest unresolved PLAYER-controlled sprint. The
+  // overlay resolves the player's concurrent sprints one at a time.
+  let sprint: ElopementSprintState | null = null;
+  for (const e of elopements.values()) {
+    if (e.isPlayerControlled && !e.resolved && (sprint === null || e.id < sprint.id)) {
+      sprint = e;
+    }
+  }
+
   useEffect(() => {
     if (sprint !== null) focusRef.current?.focus();
   }, [sprint]);
 
-  // The overlay only mounts when sprint is non-null, but a defensive null-guard
-  // covers the brief tick between mount and the next state read.
+  // The overlay only mounts when a focused sprint exists, but a defensive
+  // null-guard covers the brief tick between mount and the next state read.
   if (sprint === null) return null;
+  const sprintId = sprint.id;
 
   const eloping = characters.get(sprint.elopingCharacterId);
   const target = characters.get(sprint.targetCharacterId);
@@ -70,13 +81,13 @@ export function ElopementOverlay({ store }: Props) {
   const trackSlots = Array.from({ length: ELOPEMENT_TRACK_LENGTH + 1 }, (_, i) => i);
 
   const onPush = () => {
-    const result = store.getState().elopementPush();
+    const result = store.getState().elopementPush(sprintId);
     if (!result.ok) {
       setToast(`Push failed: ${result.reason.kind}`);
     }
   };
   const onFreshHorses = () => {
-    const result = store.getState().elopementFreshHorses();
+    const result = store.getState().elopementFreshHorses(sprintId);
     if (!result.ok) {
       const r = result.reason;
       if (r.kind === "InsufficientWealth") {
@@ -93,7 +104,7 @@ export function ElopementOverlay({ store }: Props) {
       setConfirmSurrender(true);
       return;
     }
-    const result = store.getState().elopementSurrender();
+    const result = store.getState().elopementSurrender(sprintId);
     setConfirmSurrender(false);
     if (!result.ok) {
       setToast(`Surrender failed: ${result.reason.kind}`);
@@ -123,7 +134,20 @@ export function ElopementOverlay({ store }: Props) {
           {targetMarriageActive
             ? `${targetName} is already married`
             : `${elopingName} is already married`}
-          {" — winning will NOT mint a new marriage record. The reputation cost still applies."}
+          {sprint.abandonOnWin
+            ? " — on a win you will ABANDON the existing marriage (dissolve it) and wed. The reputation cost still applies, plus abandonment scandal."
+            : " — winning will NOT mint a new marriage record unless you abandon the existing one. The reputation cost still applies."}
+          <label className="mt-2 flex items-center gap-2 font-normal">
+            <input
+              type="checkbox"
+              checked={sprint.abandonOnWin}
+              onChange={(e) =>
+                store.getState().setElopementAbandonOnWin(sprintId, e.target.checked)
+              }
+              data-testid="elopement-abandon-on-win"
+            />
+            <span>Abandon the existing marriage on a win (Divorce — extra scandal)</span>
+          </label>
         </div>
       )}
 

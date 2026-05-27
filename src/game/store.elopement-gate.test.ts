@@ -15,16 +15,32 @@ import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import { elopementBus } from "../runtime/events/elopement";
 import type { ElopementSprintState } from "./entities";
-import type { CharacterId, GrievanceId, HouseId, SchemeId, StaffId, WhisperId } from "./rng";
+import type {
+  CharacterId,
+  ElopementId,
+  GrievanceId,
+  HouseId,
+  SchemeId,
+  StaffId,
+  WhisperId,
+} from "./rng";
 import { createStore } from "./store";
 
 const SYNTH_SPRINT: ElopementSprintState = {
+  id: "elopement:synth-scheme:0" as ElopementId,
   schemeId: "synth-scheme" as SchemeId,
   elopingCharacterId: "synth-eloper" as CharacterId,
   targetCharacterId: "synth-target" as CharacterId,
+  initiatorHouseId: "player" as HouseId,
+  pursuerHouseId: "player" as HouseId,
+  isPlayerControlled: true,
   playerTilePosition: 3,
   fatherTilePosition: 1,
   freshHorsesUsedCount: 0,
+  abandonOnWin: false,
+  resolved: false,
+  outcome: null,
+  resolvedAtTick: null,
   startedAtTick: 0,
 };
 
@@ -33,7 +49,7 @@ function setupWithActiveSprint() {
   // Direct partial-update bypassing load-path invariants while keeping all
   // other state fresh. (Production code never constructs this configuration
   // because the Q4 gate intercepts; the test deliberately fabricates it.)
-  store.setState({ elopement: SYNTH_SPRINT });
+  store.setState({ elopements: new Map([[SYNTH_SPRINT.id, SYNTH_SPRINT]]) });
   return store;
 }
 
@@ -167,7 +183,7 @@ describe("Elopement gate — void-publish wrappers", () => {
 describe("Elopement gate exemptions", () => {
   it("elopementPush is permitted when sprint is active (gate exemption)", () => {
     const store = setupWithActiveSprint();
-    const result = store.getState().elopementPush();
+    const result = store.getState().elopementPush(SYNTH_SPRINT.id);
     // The synth-sprint references a character that doesn't exist in fresh
     // state — push fails for that reason, but the gate exemption is what we
     // want to verify: result is NOT ElopementInProgress.

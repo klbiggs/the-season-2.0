@@ -14,9 +14,9 @@ import {
 import type { ArtifactInstance, Character } from "../../../game/entities";
 import { ARTIFACT_REGISTRY } from "../../../game/fixtures/artifacts";
 import { flavorStubFor } from "../../../game/fixtures/flavorStubs";
-import { hasActivePlayerElopement } from "../../../game/rules/elopement";
 import type { ArtifactInstanceId, CharacterId, FlavorContentId } from "../../../game/rng.seeds";
 import { PLAYER_HOUSE_ID } from "../../../game/rng.seeds";
+import { hasActivePlayerElopement } from "../../../game/rules/elopement";
 import type { SeasonStore } from "../../../game/store";
 import { ActionRejectionToast } from "../../map/ActionRejectionToast";
 

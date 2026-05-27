@@ -1,9 +1,10 @@
-// P9 — pure resolver tests for elopement rules.
+// P9/P24a — pure resolver tests for elopement rules.
 //
-// Validates the four rule entry points (Push, FreshHorses, Surrender,
+// Validates the rule entry points (Push, FreshHorses, Surrender,
 // resolveElopementTerminal) plus the helper used by the discovery branch.
-// All tests construct synthetic state — branch 5 reachability is unit-only
-// at v1 (Q4 gate blocks end-to-end paths).
+// P24a: sprints live in a Map keyed by ElopementId; the interactive actions take
+// the sprint id; terminal resolution flips the sprint's `resolved` flag (the
+// sprint PERSISTS in the Map — terminal is NOT detected via map-absence).
 
 import { describe, expect, it } from "vitest";
 import { makeCharacter, makeGameState, makeHouse, makeMarriage } from "../__test-utils__/factories";
@@ -20,7 +21,7 @@ import {
   ELOPEMENT_TRACK_LENGTH,
 } from "../constants";
 import type { ElopementSprintState } from "../entities";
-import type { CharacterId, MarriageId, SchemeId } from "../rng";
+import type { CharacterId, ElopementId, MarriageId, SchemeId } from "../rng";
 import { PLAYER_HOUSE_ID } from "../rng";
 import {
   applyElopementFreshHorsesPure,
@@ -33,15 +34,24 @@ import {
 const ELOPING_ID = "player-head" as CharacterId;
 const TARGET_ID = "target-1" as CharacterId;
 const SCHEME_ID = "scheme-1" as SchemeId;
+const SPRINT_ID = "elopement:scheme-1:0" as ElopementId;
 
 function makeSprint(overrides: Partial<ElopementSprintState> = {}): ElopementSprintState {
   return {
+    id: SPRINT_ID,
     schemeId: SCHEME_ID,
     elopingCharacterId: ELOPING_ID,
     targetCharacterId: TARGET_ID,
+    initiatorHouseId: PLAYER_HOUSE_ID,
+    pursuerHouseId: PLAYER_HOUSE_ID,
+    isPlayerControlled: true,
     playerTilePosition: ELOPEMENT_PLAYER_START_TILE,
     fatherTilePosition: ELOPEMENT_FATHER_START_TILE,
     freshHorsesUsedCount: 0,
+    abandonOnWin: false,
+    resolved: false,
+    outcome: null,
+    resolvedAtTick: null,
     startedAtTick: 0,
     ...overrides,
   };
@@ -83,19 +93,20 @@ function makeSprintState(opts: {
       [ELOPING_ID, eloping],
       [TARGET_ID, target],
     ]),
-    elopement: makeSprint(opts.sprint),
+    elopements: new Map([[SPRINT_ID, makeSprint(opts.sprint)]]),
   });
 }
 
 describe("applyElopementPushPure", () => {
   it("advances both tokens by ELOPEMENT_PUSH_*_ADVANCE and drains composure", () => {
     const state = makeSprintState({});
-    const result = applyElopementPushPure(state);
+    const result = applyElopementPushPure(state, SPRINT_ID);
     if ("ok" in result) throw new Error("expected GameState, got rejection");
-    expect(result.elopement?.playerTilePosition).toBe(
+    const sprint = result.elopements.get(SPRINT_ID);
+    expect(sprint?.playerTilePosition).toBe(
       ELOPEMENT_PLAYER_START_TILE + ELOPEMENT_PUSH_PLAYER_ADVANCE,
     );
-    expect(result.elopement?.fatherTilePosition).toBe(
+    expect(sprint?.fatherTilePosition).toBe(
       ELOPEMENT_FATHER_START_TILE + ELOPEMENT_PUSH_FATHER_ADVANCE,
     );
     const newEloping = result.characters.get(ELOPING_ID);
@@ -103,8 +114,8 @@ describe("applyElopementPushPure", () => {
   });
 
   it("rejects when no active sprint", () => {
-    const state = makeGameState({ elopement: null });
-    const result = applyElopementPushPure(state);
+    const state = makeGameState({ elopements: new Map() });
+    const result = applyElopementPushPure(state, SPRINT_ID);
     expect(result).toEqual({ ok: false, reason: { kind: "NoActiveSprint" } });
   });
 
@@ -112,9 +123,11 @@ describe("applyElopementPushPure", () => {
     const state = makeSprintState({
       sprint: { playerTilePosition: ELOPEMENT_TRACK_LENGTH - 1 },
     });
-    const result = applyElopementPushPure(state);
+    const result = applyElopementPushPure(state, SPRINT_ID);
     if ("ok" in result) throw new Error("expected resolved state");
-    expect(result.elopement).toBeNull();
+    const sprint = result.elopements.get(SPRINT_ID);
+    expect(sprint?.resolved).toBe(true);
+    expect(sprint?.outcome).toBe("Won");
     const repBefore = state.houses.get(PLAYER_HOUSE_ID)?.reputation ?? 0;
     expect(result.houses.get(PLAYER_HOUSE_ID)?.reputation).toBe(Math.floor(repBefore / 2));
   });
@@ -123,9 +136,11 @@ describe("applyElopementPushPure", () => {
     const state = makeSprintState({
       sprint: { fatherTilePosition: ELOPEMENT_TRACK_LENGTH - 1, playerTilePosition: 3 },
     });
-    const result = applyElopementPushPure(state);
+    const result = applyElopementPushPure(state, SPRINT_ID);
     if ("ok" in result) throw new Error("expected resolved state");
-    expect(result.elopement).toBeNull();
+    const sprint = result.elopements.get(SPRINT_ID);
+    expect(sprint?.resolved).toBe(true);
+    expect(sprint?.outcome).toBe("Lost");
     expect(result.houses.get(PLAYER_HOUSE_ID)?.scandal).toBe(ELOPEMENT_LOSS_SCANDAL_DELTA);
   });
 
@@ -139,9 +154,9 @@ describe("applyElopementPushPure", () => {
     if (eloping !== undefined) {
       newChars.set(ELOPING_ID, { ...eloping, composure: ELOPEMENT_PUSH_COMPOSURE_COST });
     }
-    const result = applyElopementPushPure({ ...state, characters: newChars });
+    const result = applyElopementPushPure({ ...state, characters: newChars }, SPRINT_ID);
     if ("ok" in result) throw new Error("expected resolved state");
-    expect(result.elopement).toBeNull();
+    expect(result.elopements.get(SPRINT_ID)?.resolved).toBe(true);
     expect(result.houses.get(PLAYER_HOUSE_ID)?.scandal).toBe(ELOPEMENT_LOSS_SCANDAL_DELTA);
   });
 });
@@ -149,20 +164,21 @@ describe("applyElopementPushPure", () => {
 describe("applyElopementFreshHorsesPure", () => {
   it("advances player tile by ELOPEMENT_FRESH_HORSES_PLAYER_ADVANCE and deducts wealth", () => {
     const state = makeSprintState({ playerWealth: 100 });
-    const result = applyElopementFreshHorsesPure(state);
+    const result = applyElopementFreshHorsesPure(state, SPRINT_ID);
     if ("ok" in result) throw new Error("expected GameState");
-    expect(result.elopement?.playerTilePosition).toBe(
+    const sprint = result.elopements.get(SPRINT_ID);
+    expect(sprint?.playerTilePosition).toBe(
       ELOPEMENT_PLAYER_START_TILE + ELOPEMENT_FRESH_HORSES_PLAYER_ADVANCE,
     );
-    expect(result.elopement?.freshHorsesUsedCount).toBe(1);
+    expect(sprint?.freshHorsesUsedCount).toBe(1);
     expect(result.houses.get(PLAYER_HOUSE_ID)?.wealth).toBe(
       100 - ELOPEMENT_FRESH_HORSES_WEALTH_COST,
     );
   });
 
   it("rejects when no sprint active", () => {
-    const state = makeGameState({ elopement: null });
-    const result = applyElopementFreshHorsesPure(state);
+    const state = makeGameState({ elopements: new Map() });
+    const result = applyElopementFreshHorsesPure(state, SPRINT_ID);
     expect(result).toEqual({ ok: false, reason: { kind: "NoActiveSprint" } });
   });
 
@@ -170,13 +186,13 @@ describe("applyElopementFreshHorsesPure", () => {
     const state = makeSprintState({
       sprint: { freshHorsesUsedCount: ELOPEMENT_FRESH_HORSES_MAX_USES },
     });
-    const result = applyElopementFreshHorsesPure(state);
+    const result = applyElopementFreshHorsesPure(state, SPRINT_ID);
     expect(result).toEqual({ ok: false, reason: { kind: "FreshHorsesExhausted" } });
   });
 
   it("rejects when wealth is insufficient", () => {
     const state = makeSprintState({ playerWealth: 0 });
-    const result = applyElopementFreshHorsesPure(state);
+    const result = applyElopementFreshHorsesPure(state, SPRINT_ID);
     if ("ok" in result === false || result.ok !== false) {
       throw new Error("expected rejection");
     }
@@ -191,14 +207,16 @@ describe("applyElopementFreshHorsesPure", () => {
 describe("applyElopementSurrenderPure", () => {
   it("forces father to finish line and resolves Lost with +50 scandal", () => {
     const state = makeSprintState({ playerScandal: 0 });
-    const result = applyElopementSurrenderPure(state);
-    expect(result.elopement).toBeNull();
+    const result = applyElopementSurrenderPure(state, SPRINT_ID);
+    const sprint = result.elopements.get(SPRINT_ID);
+    expect(sprint?.resolved).toBe(true);
+    expect(sprint?.outcome).toBe("Lost");
     expect(result.houses.get(PLAYER_HOUSE_ID)?.scandal).toBe(ELOPEMENT_LOSS_SCANDAL_DELTA);
   });
 
   it("throws if no active sprint (UI must gate)", () => {
-    const state = makeGameState({ elopement: null });
-    expect(() => applyElopementSurrenderPure(state)).toThrow();
+    const state = makeGameState({ elopements: new Map() });
+    expect(() => applyElopementSurrenderPure(state, SPRINT_ID)).toThrow();
   });
 });
 
@@ -208,8 +226,8 @@ describe("resolveElopementTerminal", () => {
       sprint: { playerTilePosition: ELOPEMENT_TRACK_LENGTH },
       playerReputation: 60,
     });
-    const result = resolveElopementTerminal(state, "Won");
-    expect(result.elopement).toBeNull();
+    const result = resolveElopementTerminal(state, SPRINT_ID, "Won");
+    expect(result.elopements.get(SPRINT_ID)?.resolved).toBe(true);
     expect(result.houses.get(PLAYER_HOUSE_ID)?.reputation).toBe(30);
     // Marriage minted with viaElopement: true.
     expect(result.marriages.size).toBe(1);
@@ -236,10 +254,10 @@ describe("resolveElopementTerminal", () => {
       ...state,
       marriages: new Map([[marriageId, targetMarriage]]),
     };
-    const result = resolveElopementTerminal(stateWithMarriage, "Won");
-    expect(result.elopement).toBeNull();
+    const result = resolveElopementTerminal(stateWithMarriage, SPRINT_ID, "Won");
+    expect(result.elopements.get(SPRINT_ID)?.resolved).toBe(true);
     expect(result.houses.get(PLAYER_HOUSE_ID)?.reputation).toBe(40);
-    // No new marriage minted — only the existing one remains.
+    // No new marriage minted — only the existing one remains (abandonOnWin not set).
     expect(result.marriages.size).toBe(1);
     expect([...result.marriages.values()][0]?.viaElopement).toBe(false);
   });
@@ -262,24 +280,47 @@ describe("resolveElopementTerminal", () => {
       ...state,
       marriages: new Map([[dissolvedId, dissolvedMarriage]]),
     };
-    const result = resolveElopementTerminal(stateWithDissolvedMarriage, "Won");
+    const result = resolveElopementTerminal(stateWithDissolvedMarriage, SPRINT_ID, "Won");
     // Two marriages: the original dissolved + the new viaElopement.
     expect(result.marriages.size).toBe(2);
     const viaElopement = [...result.marriages.values()].find((m) => m.viaElopement);
     expect(viaElopement).toBeDefined();
   });
 
-  it("Lost applies +50 scandal and clears elopement state", () => {
+  it("Lost applies +50 scandal and resolves the sprint", () => {
     const state = makeSprintState({ playerScandal: 10 });
-    const result = resolveElopementTerminal(state, "Lost");
-    expect(result.elopement).toBeNull();
+    const result = resolveElopementTerminal(state, SPRINT_ID, "Lost");
+    expect(result.elopements.get(SPRINT_ID)?.resolved).toBe(true);
     expect(result.houses.get(PLAYER_HOUSE_ID)?.scandal).toBe(10 + ELOPEMENT_LOSS_SCANDAL_DELTA);
   });
 
   it("Lost clamps scandal at 100", () => {
     const state = makeSprintState({ playerScandal: 80 });
-    const result = resolveElopementTerminal(state, "Lost");
+    const result = resolveElopementTerminal(state, SPRINT_ID, "Lost");
     expect(result.houses.get(PLAYER_HOUSE_ID)?.scandal).toBe(100);
+  });
+
+  it("Won with abandonOnWin dissolves the prior marriage then mints the elopement marriage", () => {
+    const marriageId = "existing-m" as MarriageId;
+    const targetMarriage = makeMarriage({
+      id: marriageId,
+      spouseAId: TARGET_ID,
+      spouseBId: "other-spouse" as CharacterId,
+      dissolved: false,
+    });
+    const state = makeSprintState({
+      sprint: { playerTilePosition: ELOPEMENT_TRACK_LENGTH, abandonOnWin: true },
+      targetMarriageId: marriageId,
+      playerReputation: 60,
+    });
+    const stateWithMarriage = { ...state, marriages: new Map([[marriageId, targetMarriage]]) };
+    const result = resolveElopementTerminal(stateWithMarriage, SPRINT_ID, "Won");
+    // The prior marriage is dissolved (viaAbandonment) and a new viaElopement one minted.
+    const prior = result.marriages.get(marriageId);
+    expect(prior?.dissolved).toBe(true);
+    expect(prior?.viaAbandonment).toBe(true);
+    const viaElopement = [...result.marriages.values()].find((m) => m.viaElopement);
+    expect(viaElopement).toBeDefined();
   });
 });
 

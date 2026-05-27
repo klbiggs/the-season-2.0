@@ -7,8 +7,8 @@
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Duel, DuelOutcome, Grievance } from "../../../game/entities";
-import { hasActivePlayerElopement } from "../../../game/rules/elopement";
 import { type GrievanceId, type HouseId, PLAYER_HOUSE_ID } from "../../../game/rng.seeds";
+import { hasActivePlayerElopement } from "../../../game/rules/elopement";
 import type { SeasonStore } from "../../../game/store";
 import { houseDisplayName } from "../houseName";
 

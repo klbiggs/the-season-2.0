@@ -80,24 +80,26 @@ function makeStateWithSeductionAtEndTick(seedString: string): {
 describe("applySchemeResolutionPhase: discovered Seduction mounts state.elopement", () => {
   it("flips state.elopement from null → ElopementSprintState on discovery", () => {
     const { state, schemeId } = makeStateWithSeductionAtEndTick("mount-test-A");
-    expect(state.elopement).toBeNull();
+    expect(state.elopements.size).toBe(0);
     const after = applySchemeResolutionPhase(state);
     const resolvedScheme = after.schemes.get(schemeId);
     expect(resolvedScheme?.status).toBe("Failed");
     expect(resolvedScheme?.failureReason).toBe("Discovered");
-    // Phase-chain side effect: state.elopement is now populated.
-    expect(after.elopement).not.toBeNull();
-    expect(after.elopement?.schemeId).toBe(schemeId);
-    expect(after.elopement?.elopingCharacterId).toBe(resolvedScheme?.aggressorCharacterId);
-    expect(after.elopement?.targetCharacterId).toBe(resolvedScheme?.targetCharacterId);
+    // Phase-chain side effect: a sprint is now mounted in state.elopements.
+    expect(after.elopements.size).toBe(1);
+    const sprint = [...after.elopements.values()][0];
+    expect(sprint?.schemeId).toBe(schemeId);
+    expect(sprint?.elopingCharacterId).toBe(resolvedScheme?.aggressorCharacterId);
+    expect(sprint?.targetCharacterId).toBe(resolvedScheme?.targetCharacterId);
   });
 
   it("sprint starts at the canonical tile positions (player 2, father 0)", () => {
     const { state } = makeStateWithSeductionAtEndTick("mount-test-B");
     const after = applySchemeResolutionPhase(state);
-    expect(after.elopement?.playerTilePosition).toBe(2);
-    expect(after.elopement?.fatherTilePosition).toBe(0);
-    expect(after.elopement?.freshHorsesUsedCount).toBe(0);
+    const sprint = [...after.elopements.values()][0];
+    expect(sprint?.playerTilePosition).toBe(2);
+    expect(sprint?.fatherTilePosition).toBe(0);
+    expect(sprint?.freshHorsesUsedCount).toBe(0);
   });
 
   it("non-discovered Seduction (completion branch) leaves state.elopement null", () => {
@@ -140,6 +142,6 @@ describe("applySchemeResolutionPhase: discovered Seduction mounts state.elopemen
     const after = applySchemeResolutionPhase(state);
     const resolvedScheme = after.schemes.get(schemeId);
     expect(resolvedScheme?.status).toBe("Completed");
-    expect(after.elopement).toBeNull();
+    expect(after.elopements.size).toBe(0);
   });
 });

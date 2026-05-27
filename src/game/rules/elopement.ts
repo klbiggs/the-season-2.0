@@ -42,7 +42,7 @@ import type {
 import { makeElopementId } from "../fixtures/elopementIdFactory";
 import { TRAITS_ALL } from "../fixtures/traits";
 import type { ElopementId, TraitId } from "../rng";
-import { drawNext, getOrThrow, PLAYER_HOUSE_ID } from "../rng";
+import { PLAYER_HOUSE_ID, drawNext, getOrThrow } from "../rng";
 import { clamp } from "../util/clamp";
 import { mintMarriage } from "./mintMarriage";
 
@@ -270,7 +270,9 @@ export function applyElopementFreshHorsesPure(
   }
 
   const newPlayerTile = clamp(
-    sprint.playerTilePosition + ELOPEMENT_FRESH_HORSES_PLAYER_ADVANCE + eloperAdvanceBonus(state, sprint),
+    sprint.playerTilePosition +
+      ELOPEMENT_FRESH_HORSES_PLAYER_ADVANCE +
+      eloperAdvanceBonus(state, sprint),
     0,
     ELOPEMENT_TRACK_LENGTH,
   );
@@ -342,8 +344,16 @@ export function applyElopementAutoResolvePhase(state: GameState): GameState {
       (useFreshHorses ? ELOPEMENT_FRESH_HORSES_PLAYER_ADVANCE : 0);
     const fatherAdvance = ELOPEMENT_PUSH_FATHER_ADVANCE + pursuerAdvanceBonus(working, sprint);
 
-    const newPlayerTile = clamp(sprint.playerTilePosition + playerAdvance, 0, ELOPEMENT_TRACK_LENGTH);
-    const newFatherTile = clamp(sprint.fatherTilePosition + fatherAdvance, 0, ELOPEMENT_TRACK_LENGTH);
+    const newPlayerTile = clamp(
+      sprint.playerTilePosition + playerAdvance,
+      0,
+      ELOPEMENT_TRACK_LENGTH,
+    );
+    const newFatherTile = clamp(
+      sprint.fatherTilePosition + fatherAdvance,
+      0,
+      ELOPEMENT_TRACK_LENGTH,
+    );
 
     const newElopements = new Map(working.elopements);
     newElopements.set(id, {

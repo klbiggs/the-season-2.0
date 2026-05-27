@@ -104,7 +104,18 @@ export function applyGlobalEventPhase(state: GameState): GameState {
 
 function maybeFlipEra(state: GameState): GameState {
   if (state.era === "Earlier" && state.tick >= ERA_TRANSITION_TICK) {
-    return { ...state, era: "Later" };
+    // P24a (C7): the Later-era blockade gate is bypassed, so any unspent
+    // blockadeBypassEarned flag is dead state — clear it on every house as part
+    // of the one-shot era flip (folded INTO the early-return object; a separate
+    // post-flip branch would not run on the flip tick). RNG-free.
+    let newHouses: Map<HouseId, House> | null = null;
+    for (const [id, house] of state.houses) {
+      if (house.blockadeBypassEarned) {
+        newHouses ??= new Map(state.houses);
+        newHouses.set(id, { ...house, blockadeBypassEarned: false });
+      }
+    }
+    return { ...state, era: "Later", ...(newHouses !== null ? { houses: newHouses } : {}) };
   }
   return state;
 }

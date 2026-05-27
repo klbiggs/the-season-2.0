@@ -18,13 +18,13 @@ import {
 } from "../../../game/constants";
 import type { Character, House } from "../../../game/entities";
 import { flavorStubFor } from "../../../game/fixtures/flavorStubs";
-import { hasActivePlayerElopement } from "../../../game/rules/elopement";
 import {
   type CharacterId,
   type FlavorContentId,
   PLAYER_HOUSE_ID,
   type TraitId,
 } from "../../../game/rng.seeds";
+import { hasActivePlayerElopement } from "../../../game/rules/elopement";
 import type { SeasonStore } from "../../../game/store";
 import { monogramLetter, monogramStyle } from "../../shared/monogram";
 import { SocialWebView } from "../../socialWeb/SocialWebView";

@@ -10,17 +10,25 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import type { ElopementSprintState } from "./entities";
-import type { ArtifactInstanceId, CharacterId, SchemeId, ThiefAttemptId } from "./rng";
+import type { ArtifactInstanceId, CharacterId, ElopementId, SchemeId, ThiefAttemptId } from "./rng";
 import { PLAYER_HOUSE_ID } from "./rng";
 import { createStore } from "./store";
 
 const SYNTH_SPRINT: ElopementSprintState = {
+  id: "elopement:synth-scheme:0" as ElopementId,
   schemeId: "synth-scheme" as SchemeId,
   elopingCharacterId: "synth-eloper" as CharacterId,
   targetCharacterId: "synth-target" as CharacterId,
+  initiatorHouseId: PLAYER_HOUSE_ID,
+  pursuerHouseId: PLAYER_HOUSE_ID,
+  isPlayerControlled: true,
   playerTilePosition: 3,
   fatherTilePosition: 1,
   freshHorsesUsedCount: 0,
+  abandonOnWin: false,
+  resolved: false,
+  outcome: null,
+  resolvedAtTick: null,
   startedAtTick: 0,
 };
 
@@ -37,7 +45,7 @@ function setupWithExiled() {
 
 function setupWithActiveSprint() {
   const store = createStore({ seed: "artifact-gate-sprint" });
-  store.setState({ elopement: SYNTH_SPRINT });
+  store.setState({ elopements: new Map([[SYNTH_SPRINT.id, SYNTH_SPRINT]]) });
   return store;
 }
 

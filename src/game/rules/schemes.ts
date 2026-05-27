@@ -14,6 +14,8 @@ import {
   COURTING_AFFECTION_DELTA,
   ERA_TRANSITION_TICK,
   SABOTAGE_COMPOSURE_DELTA,
+  SCHEME_COMPLETION_MOOD_LOCK_COMPOSURE_THRESHOLD,
+  SCHEME_COMPLETION_MOOD_LOCK_TICKS,
   SCHEME_ERA_REQUIREMENTS,
   SCHEME_PREREQUISITES,
   SCHEME_TUNING,
@@ -474,10 +476,24 @@ function resolveSabotage(state: GameState, scheme: Scheme): GameState {
     return flipSchemeStatus(state, scheme.id, "Failed", "TargetDied");
   }
   // Apply -30 composure (clamped [0, maxComposure]).
+  const newComposure = clamp(target.composure + SABOTAGE_COMPOSURE_DELTA, 0, target.maxComposure);
+  // P24a (C6): a completion-driven composure crash below the threshold locks the
+  // target Defensive (reuses the moodLockUntilTick field; pure Map clone — NOT
+  // the store-layer faux-pas write). Mood drift respects the lock (moods.ts).
+  const moodLocked = newComposure < SCHEME_COMPLETION_MOOD_LOCK_COMPOSURE_THRESHOLD;
   const newCharacters = new Map(state.characters);
   newCharacters.set(targetId, {
     ...target,
-    composure: clamp(target.composure + SABOTAGE_COMPOSURE_DELTA, 0, target.maxComposure),
+    composure: newComposure,
+    ...(moodLocked
+      ? {
+          mood: "Defensive" as const,
+          moodLockUntilTick: Math.max(
+            target.moodLockUntilTick,
+            state.tick + SCHEME_COMPLETION_MOOD_LOCK_TICKS,
+          ),
+        }
+      : {}),
   });
 
   // Append a Grievance to the TARGET's house.grievances array (cross-house

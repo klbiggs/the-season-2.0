@@ -8,6 +8,7 @@ import type {
   ArtifactInstance,
   Betrothal,
   Character,
+  ElopementSprintState,
   FlavorContentEntry,
   ForgeryRecord,
   GameState,
@@ -20,6 +21,7 @@ import type {
   ArtifactInstanceId,
   BetrothalId,
   CharacterId,
+  ElopementId,
   FactionId,
   FlavorContentId,
   ForgeryId,
@@ -27,6 +29,7 @@ import type {
   HouseId,
   MarriageId,
   RngState,
+  SchemeId,
   ThiefAttemptId,
 } from "../rng";
 import { PLAYER_HOUSE_ID } from "../rng.seeds";
@@ -55,8 +58,8 @@ export function makeGameState(overrides: Partial<GameState> = {}): GameState {
     rivalActors: new Map(),
     factionTensions: new Map(),
     duels: new Map(),
-    // P9 default
-    elopement: null,
+    // P9/P24a default — elopement sprints Map (was a nullable singleton)
+    elopements: new Map(),
     // P10 defaults
     artifactInstances: new Map<ArtifactInstanceId, ArtifactInstance>(),
     forgeries: new Map<ForgeryId, ForgeryRecord>(),
@@ -151,6 +154,32 @@ export function makeMarriage(overrides: Partial<MarriageRecord> = {}): MarriageR
     dissolved: false,
     dissolvedAtTick: null,
     viaElopement: false,
+    viaAbandonment: false,
+    ...overrides,
+  };
+}
+
+// P24a: ElopementSprintState factory (the Map-shaped sprint). Defaults to a
+// player-controlled, unresolved sprint at the start tiles.
+export function makeElopementSprint(
+  overrides: Partial<ElopementSprintState> = {},
+): ElopementSprintState {
+  return {
+    id: "elopement:scheme-test:0" as ElopementId,
+    schemeId: "scheme-test" as SchemeId,
+    elopingCharacterId: "eloping" as CharacterId,
+    targetCharacterId: "target" as CharacterId,
+    initiatorHouseId: PLAYER_HOUSE_ID,
+    pursuerHouseId: "independent" as HouseId,
+    isPlayerControlled: true,
+    playerTilePosition: 2,
+    fatherTilePosition: 0,
+    freshHorsesUsedCount: 0,
+    abandonOnWin: false,
+    resolved: false,
+    outcome: null,
+    resolvedAtTick: null,
+    startedAtTick: 0,
     ...overrides,
   };
 }

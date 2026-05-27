@@ -3,7 +3,12 @@
 // adds publisher dispatch but the eligibility + roll logic lives here.
 
 import { describe, expect, it } from "vitest";
-import { makeGameState, makeHouse, makeHousesMap } from "../__test-utils__/factories";
+import {
+  makeElopementSprint,
+  makeGameState,
+  makeHouse,
+  makeHousesMap,
+} from "../__test-utils__/factories";
 import {
   SIBLING_RIVAL_HOSTILITY_PER_FAILED_RECONCILIATION,
   SIBLING_RIVAL_RECONCILIATION_REPUTATION_COST,
@@ -11,7 +16,7 @@ import {
   SIBLING_RIVAL_RECONCILIATION_SUCCESS_AT_HOSTILITY_100,
   SIBLING_RIVAL_RECONCILIATION_WEALTH_COST,
 } from "../constants";
-import type { ElopementSprintState, SiblingRivalState } from "../entities";
+import type { SiblingRivalState } from "../entities";
 import {
   type CharacterId,
   type HouseId,
@@ -61,16 +66,13 @@ describe("applyReconciliationAttempt — modal-state gates (matrix #15)", () => 
   it("rejects ElopementInProgress when state.elopement !== null", () => {
     const actor = makeActor();
     const baseState = makeStateWithActor(actor);
-    const elopement: ElopementSprintState = {
-      schemeId: "scheme-test" as import("../rng").SchemeId,
+    const sprint = makeElopementSprint({
       elopingCharacterId: "ec" as CharacterId,
       targetCharacterId: "tc" as CharacterId,
       playerTilePosition: 3,
       fatherTilePosition: 4,
-      freshHorsesUsedCount: 0,
-      startedAtTick: 0,
-    };
-    const state = { ...baseState, elopement };
+    });
+    const state = { ...baseState, elopements: new Map([[sprint.id, sprint]]) };
     const { outcome } = applyReconciliationAttempt(state, actor.characterId);
     expect(outcome.ok).toBe(false);
     if (outcome.ok) throw new Error("unreachable");

@@ -59,7 +59,7 @@ function makeState(overrides: Partial<GameState>): GameState {
     rivalActors: new Map(),
     factionTensions: new Map(),
     duels: new Map(),
-    elopement: null,
+    elopements: new Map(),
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),

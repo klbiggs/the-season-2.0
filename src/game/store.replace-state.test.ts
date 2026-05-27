@@ -17,6 +17,7 @@
 // here.
 
 import { describe, expect, it } from "vitest";
+import { makeElopementSprint } from "./__test-utils__/factories";
 import { GameStateSchema } from "./entities";
 import { type GameState, createInitialState, createStore } from "./store";
 
@@ -130,30 +131,23 @@ describe("P9 quint-sync: state.elopement (overwriteFromGameState 5th surface)", 
   // overwriteFromGameState must mirror the field on every set call. Forgetting
   // the `draft.elopement = next.elopement` line would silently CLEAR mid-sprint
   // state on the next tick-advancing action.
-  it("replaceState carries a non-null elopement through", () => {
+  it("replaceState carries a non-empty elopements map through", () => {
     const store = createStore({ seed: "p9-quint-A" });
-    const sprint = {
-      schemeId: "s-test" as never,
-      elopingCharacterId: "e1" as never,
-      targetCharacterId: "t1" as never,
-      playerTilePosition: 3,
-      fatherTilePosition: 1,
-      freshHorsesUsedCount: 0,
-      startedAtTick: 0,
-    };
+    const sprint = makeElopementSprint({ playerTilePosition: 3, fatherTilePosition: 1 });
+    const elopements = new Map([[sprint.id, sprint]]);
     const synth = {
       ...createInitialState("p9-quint-A"),
-      elopement: sprint,
+      elopements,
     };
     store.getState().replaceState(synth);
-    expect(store.getState().elopement).toEqual(sprint);
+    expect(store.getState().elopements).toEqual(elopements);
   });
 
-  it("tick-advance from null elopement state preserves elopement: null", () => {
+  it("tick-advance from an empty elopements map preserves it empty", () => {
     const store = createStore({ seed: "p9-quint-B" });
-    expect(store.getState().elopement).toBeNull();
+    expect(store.getState().elopements.size).toBe(0);
     store.getState().advanceTick();
-    expect(store.getState().elopement).toBeNull();
+    expect(store.getState().elopements.size).toBe(0);
   });
 });
 

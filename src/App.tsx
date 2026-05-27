@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import type { Character } from "./game/entities";
 import { type CharacterId, PLAYER_HOUSE_ID } from "./game/rng.seeds";
+import { hasActivePlayerElopement } from "./game/rules/elopement";
 import type { SeasonStore } from "./game/store";
 import type { SaveLoadError } from "./persist/errors";
 import { elopementBus } from "./runtime/events/elopement";
@@ -81,7 +82,7 @@ export function App({ store, seed }: Props) {
   const [inBallroom, setInBallroom] = useState(false);
   const [inPromenade, setInPromenade] = useState(false);
   const [inLedger, setInLedger] = useState(false);
-  const elopement = store((s) => s.elopement);
+  const hasPlayerSprint = store((s) => hasActivePlayerElopement(s));
   // P14: exile flag hoisted from MapView so the banner surfaces across every
   // view. Renders unconditionally above the view-routing block when true.
   const isExiled = store((s) => s.houses.get(PLAYER_HOUSE_ID)?.exiled === true);
@@ -202,7 +203,7 @@ export function App({ store, seed }: Props) {
       >
         {statusMessage}
       </p>
-      {elopement !== null ? (
+      {hasPlayerSprint ? (
         <ElopementOverlay store={store} />
       ) : inBallroom ? (
         <BallroomView store={store} onExit={() => setInBallroom(false)} />

@@ -45,6 +45,7 @@ describe("makeMarriageId — deterministic factory", () => {
       dissolved: true,
       dissolvedAtTick: null,
       viaElopement: false,
+      viaAbandonment: false,
     };
     const state = makeGameState({
       tick: 7,
@@ -64,6 +65,7 @@ describe("makeMarriageId — deterministic factory", () => {
       dissolved: true,
       dissolvedAtTick: null,
       viaElopement: false,
+      viaAbandonment: false,
     };
     const state = makeGameState({
       tick: 7,

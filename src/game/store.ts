@@ -317,6 +317,17 @@ export type StoreActions = {
   breakBetrothal: (
     betrothalId: BetrothalId,
   ) => { ok: true } | { ok: false; reason: BreakBetrothalRejection };
+  // P24a (C3, Q25): deliberate marriage dissolution. Free action; modal-state
+  // gated. Reuses MarriageDissolved (deceasedSpouseId: null) on publish.
+  abandonMarriage: (marriageId: MarriageId) =>
+    | { ok: true }
+    | {
+        ok: false;
+        reason:
+          | AbandonMarriageRejection
+          | { kind: "PlayerExiled" }
+          | { kind: "ElopementInProgress" };
+      };
   // P8: demand-satisfaction → duel. Free action (no tick advance). Reads the
   // grievance from the player's house (only the player can demand satisfaction
   // at v1 — rival-perpetrated grievances live on PLAYER_HOUSE_ID's grievances
@@ -332,7 +343,9 @@ export type StoreActions = {
   // allowed while a player sprint is active. push/freshHorses mutate tile
   // positions; surrender always loses; setElopementAbandonOnWin toggles the
   // dissolve-then-mint-on-win flag (C3).
-  elopementPush: (id: ElopementId) => { ok: true } | { ok: false; reason: ElopementActionRejection };
+  elopementPush: (
+    id: ElopementId,
+  ) => { ok: true } | { ok: false; reason: ElopementActionRejection };
   elopementFreshHorses: (
     id: ElopementId,
   ) => { ok: true } | { ok: false; reason: ElopementFreshHorsesRejection };
@@ -435,6 +448,10 @@ export type StoreState = GameState & StoreActions;
 
 export type SeasonStore = UseBoundStore<StoreApi<StoreState>>;
 
+import {
+  type AbandonMarriageRejection,
+  applyAbandonMarriagePure,
+} from "../game/rules/abandonMarriage";
 import {
   type ArrangeBetrothalRejection,
   type BreakBetrothalRejection,
@@ -1711,6 +1728,31 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         familyBus.publish({ kind: "BetrothalBroken", betrothalId, tick: stateBefore.tick });
         return { ok: true };
       },
+      // P24a (C3, Q25): Abandonment / Divorce. Free action — no tick advance.
+      // Modal-state gated; the pure rule owns marriage gates + effects. Reuses
+      // MarriageDissolved (deceasedSpouseId: null marks the non-death dissolution).
+      abandonMarriage: (marriageId: MarriageId) => {
+        const stateBefore = get();
+        if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (hasActivePlayerElopement(stateBefore)) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        const result = applyAbandonMarriagePure(stateBefore, marriageId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((draft) => {
+          overwriteFromGameState(draft, result.nextState);
+        });
+        familyBus.publish({
+          kind: "MarriageDissolved",
+          marriageId,
+          deceasedSpouseId: null,
+          survivingSpouseId: result.survivingSpouseId,
+          tick: stateBefore.tick,
+        });
+        return { ok: true };
+      },
       // P8: demand-satisfaction → duel. Free action (no tick advance). Looks
       // up the grievance on the PLAYER house (only player demands satisfaction
       // at v1) cross-filtered by perpetratorHouseId. Validates all rejection
@@ -1853,7 +1895,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           overwriteFromGameState(state, after);
         });
         const sprint = after.elopements.get(id);
-        if (sprint !== undefined && sprint.resolved) {
+        if (sprint?.resolved === true) {
           publishElopementTransitions(before, after);
         } else if (sprint !== undefined) {
           elopementBus.publish({
@@ -1879,7 +1921,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           overwriteFromGameState(state, after);
         });
         const sprint = after.elopements.get(id);
-        if (sprint !== undefined && sprint.resolved) {
+        if (sprint?.resolved === true) {
           publishElopementTransitions(before, after);
         } else if (sprint !== undefined) {
           elopementBus.publish({

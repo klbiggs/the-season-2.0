@@ -7,8 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("react-force-graph-2d", () => ({ default: () => null }));
 
 import { App } from "./App";
-import { makeCharacter, makeGameState, makeHouse } from "./game/__test-utils__/factories";
-import type { ElopementSprintState } from "./game/entities";
+import {
+  makeCharacter,
+  makeElopementSprint,
+  makeGameState,
+  makeHouse,
+} from "./game/__test-utils__/factories";
 import {
   type CharacterId,
   type HouseId,
@@ -45,15 +49,13 @@ describe("App shell (P14)", () => {
 
   it("Elopement overlay takes routing precedence over every other view (matrix #3)", () => {
     const store = createStore({ seed: "app" });
-    const elopement: ElopementSprintState = {
+    const sprint = makeElopementSprint({
       schemeId: "scheme-elope" as SchemeId,
       elopingCharacterId: HEAD,
       targetCharacterId: TARGET,
       playerTilePosition: 1,
       fatherTilePosition: 0,
-      freshHorsesUsedCount: 0,
-      startedAtTick: 0,
-    };
+    });
     store.getState().replaceState(
       makeGameState({
         houses: new Map([
@@ -63,7 +65,7 @@ describe("App shell (P14)", () => {
           [HEAD, makeCharacter({ id: HEAD, role: "HeadOfHouse" })],
           [TARGET, makeCharacter({ id: TARGET, name: "Target" })],
         ]),
-        elopement,
+        elopements: new Map([[sprint.id, sprint]]),
       }),
     );
     render(<App store={store} seed="app" />);

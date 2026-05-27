@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { makeCharacter, makeCharactersMap, makeHouse } from "../__test-utils__/factories";
+import {
+  makeCharacter,
+  makeCharactersMap,
+  makeElopementSprint,
+  makeHouse,
+} from "../__test-utils__/factories";
 import { ELOPEMENT_LOSS_SCANDAL_DELTA } from "../constants";
 import { type ConversationPairKey, type Exchange, makePairKey } from "../conversation/types";
 import type { Character, GameState, MarriageRecord } from "../entities";
@@ -30,7 +35,7 @@ function makeState(overrides: Partial<GameState>): GameState {
     rivalActors: new Map(),
     factionTensions: new Map(),
     duels: new Map(),
-    elopement: null,
+    elopements: new Map(),
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
@@ -176,22 +181,21 @@ describe("pruneOrphanedConversationKeys branch 5 — elopement sprint cleanup", 
     const eloping = makeCharacter({ id: elopingId, alive: false, diedAtTick: 5 });
     const target = makeCharacter({ id: targetId });
     const playerHouse = makeHouse({ id: PLAYER_HOUSE_ID, scandal: 10 });
+    const sprint = makeElopementSprint({
+      elopingCharacterId: elopingId,
+      targetCharacterId: targetId,
+      playerTilePosition: 3,
+      fatherTilePosition: 1,
+    });
     const state = makeState({
       tick: 5,
       characters: makeCharactersMap([eloping, target]),
       houses: new Map([[PLAYER_HOUSE_ID, playerHouse]]),
-      elopement: {
-        schemeId: "s1" as never,
-        elopingCharacterId: elopingId,
-        targetCharacterId: targetId,
-        playerTilePosition: 3,
-        fatherTilePosition: 1,
-        freshHorsesUsedCount: 0,
-        startedAtTick: 0,
-      },
+      elopements: new Map([[sprint.id, sprint]]),
     });
     const result = pruneOrphanedConversationKeys(state, new Set([elopingId]));
-    expect(result.elopement).toBeNull();
+    expect(result.elopements.get(sprint.id)?.resolved).toBe(true);
+    expect(result.elopements.get(sprint.id)?.outcome).toBe("Lost");
     expect(result.houses.get(PLAYER_HOUSE_ID)?.scandal).toBe(10 + ELOPEMENT_LOSS_SCANDAL_DELTA);
   });
 
@@ -201,22 +205,21 @@ describe("pruneOrphanedConversationKeys branch 5 — elopement sprint cleanup", 
     const eloping = makeCharacter({ id: elopingId });
     const target = makeCharacter({ id: targetId, alive: false, diedAtTick: 5 });
     const playerHouse = makeHouse({ id: PLAYER_HOUSE_ID, scandal: 0 });
+    const sprint = makeElopementSprint({
+      elopingCharacterId: elopingId,
+      targetCharacterId: targetId,
+      playerTilePosition: 3,
+      fatherTilePosition: 1,
+    });
     const state = makeState({
       tick: 5,
       characters: makeCharactersMap([eloping, target]),
       houses: new Map([[PLAYER_HOUSE_ID, playerHouse]]),
-      elopement: {
-        schemeId: "s1" as never,
-        elopingCharacterId: elopingId,
-        targetCharacterId: targetId,
-        playerTilePosition: 3,
-        fatherTilePosition: 1,
-        freshHorsesUsedCount: 0,
-        startedAtTick: 0,
-      },
+      elopements: new Map([[sprint.id, sprint]]),
     });
     const result = pruneOrphanedConversationKeys(state, new Set([targetId]));
-    expect(result.elopement).toBeNull();
+    expect(result.elopements.get(sprint.id)?.resolved).toBe(true);
+    expect(result.elopements.get(sprint.id)?.outcome).toBe("Lost");
     expect(result.houses.get(PLAYER_HOUSE_ID)?.scandal).toBe(ELOPEMENT_LOSS_SCANDAL_DELTA);
   });
 
@@ -224,15 +227,12 @@ describe("pruneOrphanedConversationKeys branch 5 — elopement sprint cleanup", 
     const elopingId = "elope-3" as CharacterId;
     const targetId = "target-3" as CharacterId;
     const otherId = "other" as CharacterId;
-    const sprint = {
-      schemeId: "s1" as never,
+    const sprint = makeElopementSprint({
       elopingCharacterId: elopingId,
       targetCharacterId: targetId,
       playerTilePosition: 3,
       fatherTilePosition: 1,
-      freshHorsesUsedCount: 0,
-      startedAtTick: 0,
-    };
+    });
     const playerHouse = makeHouse({ id: PLAYER_HOUSE_ID, scandal: 5 });
     const state = makeState({
       tick: 5,
@@ -242,10 +242,11 @@ describe("pruneOrphanedConversationKeys branch 5 — elopement sprint cleanup", 
         makeCharacter({ id: otherId, alive: false }),
       ]),
       houses: new Map([[PLAYER_HOUSE_ID, playerHouse]]),
-      elopement: sprint,
+      elopements: new Map([[sprint.id, sprint]]),
     });
     const result = pruneOrphanedConversationKeys(state, new Set([otherId]));
-    expect(result.elopement).toEqual(sprint);
+    // Unrelated death leaves the sprint unresolved.
+    expect(result.elopements.get(sprint.id)?.resolved).toBe(false);
     expect(result.houses.get(PLAYER_HOUSE_ID)?.scandal).toBe(5);
   });
 });
