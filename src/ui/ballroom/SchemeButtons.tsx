@@ -32,15 +32,40 @@ export function SchemeButtons({ store, selectedTargetId }: Props) {
   const era = store((s) => s.era);
   const startScheme = store((s) => s.startScheme);
   const [toast, setToast] = useState<string | null>(null);
+  const [aggressorId, setAggressorId] = useState<CharacterId | "">("");
 
   const playerHouse = houses.get(PLAYER_HOUSE_ID);
   if (playerHouse === undefined) return null;
+
+  // P24a (C2): aggressor picker. Default "" → Auto (the rule's lex-smallest /
+  // head-of-house pick). A chosen aggressor is passed as explicitAggressorCharacterId;
+  // the rule still validates per-kind eligibility (e.g. Chaperone needs Spymaster)
+  // and surfaces a MissingArchetype rejection via the toast if the pick is invalid.
+  const playerMembers = [...characters.values()]
+    .filter((c) => c.houseId === PLAYER_HOUSE_ID && c.alive)
+    .sort((a, b) => a.id.localeCompare(b.id));
 
   // For each kind, compute disabled state + tooltip. Render six buttons in
   // a row (or grid; CSS-driven).
   return (
     <div className="scheme-buttons">
       <div className="scheme-buttons__label">Schemes:</div>
+      <label className="scheme-buttons__aggressor">
+        <span>Run by:</span>
+        <select
+          data-testid="scheme-aggressor-select"
+          value={aggressorId}
+          onChange={(e) => setAggressorId(e.target.value as CharacterId | "")}
+        >
+          <option value="">Auto (default)</option>
+          {playerMembers.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+              {c.archetype !== "None" ? ` (${c.archetype})` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="scheme-buttons__list">
         {SCHEME_KINDS.map((kind) => {
           const tuning = SCHEME_TUNING[kind];
@@ -81,7 +106,11 @@ export function SchemeButtons({ store, selectedTargetId }: Props) {
           }
 
           const onClick = () => {
-            const result = startScheme({ kind, targetCharacterId: targetForKind });
+            const result = startScheme({
+              kind,
+              targetCharacterId: targetForKind,
+              ...(aggressorId !== "" ? { explicitAggressorCharacterId: aggressorId } : {}),
+            });
             if (!result.ok) {
               // P21: surface the rule-layer rejection. Disabled-state gates the
               // common cases; this covers the race-rejections it can't (UI not

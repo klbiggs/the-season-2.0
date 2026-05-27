@@ -10,7 +10,23 @@
 // into one re-render.
 
 import { useShallow } from "zustand/react/shallow";
+import {
+  SEDUCTION_SUSPICION_BASE,
+  SEDUCTION_SUSPICION_CEILING,
+  SEDUCTION_SUSPICION_SLOPE,
+} from "../../game/constants";
 import type { SeasonStore } from "../../game/store";
+
+// P24a (C1): the per-tick discovery suspicion for an Active Seduction, ramping
+// with accumulatedAffection. Surfaced so the player can watch it rise and cancel
+// before discovery.
+function seductionSuspicionPct(accumulatedAffection: number): number {
+  const p = Math.min(
+    SEDUCTION_SUSPICION_BASE + accumulatedAffection * SEDUCTION_SUSPICION_SLOPE,
+    SEDUCTION_SUSPICION_CEILING,
+  );
+  return Math.round(p * 100);
+}
 
 type Props = {
   store: SeasonStore;
@@ -59,6 +75,15 @@ export function ActiveSchemesPanel({ store }: Props) {
               <span className="active-schemes-panel__kind">{scheme.kind}</span>
               <span className="active-schemes-panel__target">{targetLabel}</span>
               <span className="active-schemes-panel__ticks">{ticksRemaining}t</span>
+              {scheme.kind === "Seduction" && (
+                <span
+                  className="active-schemes-panel__suspicion"
+                  data-testid={`active-scheme-suspicion-${scheme.id}`}
+                  title="Rising discovery suspicion (grows with accumulated affection). Cancel to abort before discovery."
+                >
+                  susp {seductionSuspicionPct(scheme.accumulatedAffection)}%
+                </span>
+              )}
               <button
                 type="button"
                 className="active-schemes-panel__cancel"

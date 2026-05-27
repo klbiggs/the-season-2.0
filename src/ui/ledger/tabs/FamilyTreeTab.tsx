@@ -155,6 +155,7 @@ export function FamilyTreeTab({ store }: Props) {
   const assignTutor = store((s) => s.assignTutor);
   const chooseTutorBonusTrait = store((s) => s.chooseTutorBonusTrait);
   const revealNpcBio = store((s) => s.revealNpcBio);
+  const abandonMarriage = store((s) => s.abandonMarriage);
 
   const [mode, setMode] = useState<FamilyMode>("family");
 
@@ -299,10 +300,35 @@ export function FamilyTreeTab({ store }: Props) {
                           eloped
                         </span>
                       )}
+                      {m.viaAbandonment && (
+                        <span className="rounded bg-rose-100 px-1.5 py-0.5 text-xs text-rose-800">
+                          abandoned
+                        </span>
+                      )}
                       {m.dissolved && (
                         <span className="rounded bg-stone-200 px-1.5 py-0.5 text-xs text-stone-600">
                           dissolved{m.dissolvedAtTick !== null ? ` t${m.dissolvedAtTick}` : ""}
                         </span>
+                      )}
+                      {!m.dissolved && (
+                        <button
+                          type="button"
+                          data-testid={`marriage-abandon-${m.id}`}
+                          disabled={modalBlocked}
+                          title="Abandon this marriage (Divorce) — dissolves it at a scandal cost; frees both spouses to remarry."
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                "Abandon this marriage? This applies scandal and cannot be undone.",
+                              )
+                            ) {
+                              abandonMarriage(m.id);
+                            }
+                          }}
+                          className="rounded bg-rose-700 px-2 py-1 text-xs font-medium text-white hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Abandon
+                        </button>
                       )}
                     </li>
                   );
