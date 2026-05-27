@@ -14,6 +14,7 @@ import {
 import type { ArtifactInstance, Character } from "../../../game/entities";
 import { ARTIFACT_REGISTRY } from "../../../game/fixtures/artifacts";
 import { flavorStubFor } from "../../../game/fixtures/flavorStubs";
+import { hasActivePlayerElopement } from "../../../game/rules/elopement";
 import type { ArtifactInstanceId, CharacterId, FlavorContentId } from "../../../game/rng.seeds";
 import { PLAYER_HOUSE_ID } from "../../../game/rng.seeds";
 import type { SeasonStore } from "../../../game/store";
@@ -49,8 +50,8 @@ export function ArtifactsTab({ store }: Props) {
   const playerHouse = houses.get(PLAYER_HOUSE_ID);
   const playerExiled = playerHouse?.exiled === true;
   const atCapital = playerHouse?.currentLocation === "Capital";
-  const elopement = store((s) => s.elopement);
-  const modalBlocked = playerExiled || elopement !== null;
+  const elopementActive = store((s) => hasActivePlayerElopement(s));
+  const modalBlocked = playerExiled || elopementActive;
 
   // Inventory grouped by holder (lex-sorted within each group).
   const grouped = useMemo(() => {

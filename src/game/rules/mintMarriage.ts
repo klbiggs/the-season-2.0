@@ -45,6 +45,7 @@ export function mintMarriage(
     dissolved: false,
     dissolvedAtTick: null,
     viaElopement: opts.viaElopement,
+    viaAbandonment: false,
   };
   const newMarriages = new Map(state.marriages);
   newMarriages.set(marriageId, record);

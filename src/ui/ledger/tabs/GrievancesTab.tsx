@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Duel, DuelOutcome, Grievance } from "../../../game/entities";
+import { hasActivePlayerElopement } from "../../../game/rules/elopement";
 import { type GrievanceId, type HouseId, PLAYER_HOUSE_ID } from "../../../game/rng.seeds";
 import type { SeasonStore } from "../../../game/store";
 import { houseDisplayName } from "../houseName";
@@ -22,11 +23,11 @@ const OUTCOME_PROSE: Readonly<Record<DuelOutcome, string>> = {
 };
 
 export function GrievancesTab({ store }: Props) {
-  const { houses, characters, elopement, duels } = store(
+  const { houses, characters, elopementActive, duels } = store(
     useShallow((s) => ({
       houses: s.houses,
       characters: s.characters,
-      elopement: s.elopement,
+      elopementActive: hasActivePlayerElopement(s),
       duels: s.duels,
     })),
   );
@@ -51,7 +52,7 @@ export function GrievancesTab({ store }: Props) {
 
   const canDemand = (g: Grievance): boolean => {
     if (g.defendantCharacterId === null) return false;
-    if (playerExiled || elopement !== null) return false;
+    if (playerExiled || elopementActive) return false;
     const defender = characters.get(g.defendantCharacterId);
     if (defender === undefined || !defender.alive) return false;
     const defenderHouse = houses.get(defender.houseId);

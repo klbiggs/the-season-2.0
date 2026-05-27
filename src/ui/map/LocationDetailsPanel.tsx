@@ -5,6 +5,7 @@ import {
   type LocationId,
 } from "../../game/fixtures/locations";
 import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
+import { hasActivePlayerElopement } from "../../game/rules/elopement";
 import { getLocationDelta } from "../../game/rules/locationEffects";
 import { eligiblePromenadePartners } from "../../game/rules/promenade";
 import type { SeasonStore } from "../../game/store";
@@ -62,7 +63,7 @@ export function LocationDetailsPanel({
   const promenadeBlockedReason =
     house?.exiled === true
       ? "Your house is exiled."
-      : fullState.elopement !== null
+      : hasActivePlayerElopement(fullState)
         ? "An elopement is in progress."
         : conversationOrchestrator.currentMode() !== null
           ? "A conversation is already in progress."

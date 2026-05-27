@@ -18,6 +18,7 @@ import {
 } from "../../../game/constants";
 import type { Character, House } from "../../../game/entities";
 import { flavorStubFor } from "../../../game/fixtures/flavorStubs";
+import { hasActivePlayerElopement } from "../../../game/rules/elopement";
 import {
   type CharacterId,
   type FlavorContentId,
@@ -163,7 +164,7 @@ export function FamilyTreeTab({ store }: Props) {
     const id = `bio:${c.id}` as FlavorContentId;
     return flavorText.get(id)?.text ?? flavorStubFor(id, { character: c });
   };
-  const modalBlocked = playerHouse?.exiled === true || store.getState().elopement !== null;
+  const modalBlocked = playerHouse?.exiled === true || hasActivePlayerElopement(store.getState());
 
   const members = [...characters.values()]
     .filter((c) => c.houseId === PLAYER_HOUSE_ID)

@@ -38,6 +38,7 @@ import {
   getOrThrow,
 } from "../rng";
 import { clamp } from "../util/clamp";
+import { hasActivePlayerElopement } from "./elopement";
 
 // ── Typed mount-family literal (shared cross-module) ─────────────────────
 
@@ -104,7 +105,7 @@ export function canEnterPromenade(
   if (player.exiled) {
     return { ok: false, reason: { kind: "PlayerExiled" } };
   }
-  if (state.elopement !== null) {
+  if (hasActivePlayerElopement(state)) {
     return { ok: false, reason: { kind: "ElopementInProgress" } };
   }
   if (player.currentLocation !== "Capital") {

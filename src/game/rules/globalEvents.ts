@@ -37,6 +37,7 @@ import {
 } from "../rng";
 import { clamp } from "../util/clamp";
 import { pruneOrphanedConversationKeys } from "./aging";
+import { hasActivePlayerElopement } from "./elopement";
 
 // ── Identity register ────────────────────────────────────────────────────
 
@@ -385,7 +386,7 @@ export function applyResearchFastCouriers(
   if (player === undefined || player.exiled) {
     return { ok: false, reason: { kind: "PlayerExiled" } };
   }
-  if (state.elopement !== null) {
+  if (hasActivePlayerElopement(state)) {
     return { ok: false, reason: { kind: "ElopementInProgress" } };
   }
   if (state.era !== "Later") {

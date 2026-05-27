@@ -51,6 +51,7 @@ import {
   type CharacterId,
   type CourierPayloadId,
   type DuelId,
+  type ElopementId,
   type FactionPairKey,
   type FlavorContentId,
   type ForgeryId,
@@ -219,7 +220,7 @@ export function createInitialState(
     duels: new Map<DuelId, Duel>(),
     // P9: no active sprint on fresh state. Mounted as a side-effect of
     // applySchemeResolutionPhase when a Seduction discovery roll lands true.
-    elopement: null,
+    elopements: new Map(),
     // P10: starting artifact inventory (3 instances, 2 equipped on the player
     // head). Forgeries and thiefAttempts start empty — these grow at runtime
     // via commissionForgery / applyThiefNoticePhase.
@@ -326,12 +327,19 @@ export type StoreActions = {
   ) =>
     | { ok: true; duelId: DuelId; outcome: import("./entities").DuelOutcome }
     | { ok: false; reason: DemandSatisfactionRejection };
-  // P9 elopement sprint actions. Free actions — no tick advance. The only
-  // mutations allowed while state.elopement !== null. push/freshHorses mutate
-  // tile positions; surrender always loses.
-  elopementPush: () => { ok: true } | { ok: false; reason: ElopementActionRejection };
-  elopementFreshHorses: () => { ok: true } | { ok: false; reason: ElopementFreshHorsesRejection };
-  elopementSurrender: () => { ok: true } | { ok: false; reason: ElopementActionRejection };
+  // P9/P24a elopement sprint actions. Free actions — no tick advance. Keyed by
+  // ElopementId (the player may have concurrent sprints). The only mutations
+  // allowed while a player sprint is active. push/freshHorses mutate tile
+  // positions; surrender always loses; setElopementAbandonOnWin toggles the
+  // dissolve-then-mint-on-win flag (C3).
+  elopementPush: (id: ElopementId) => { ok: true } | { ok: false; reason: ElopementActionRejection };
+  elopementFreshHorses: (
+    id: ElopementId,
+  ) => { ok: true } | { ok: false; reason: ElopementFreshHorsesRejection };
+  elopementSurrender: (
+    id: ElopementId,
+  ) => { ok: true } | { ok: false; reason: ElopementActionRejection };
+  setElopementAbandonOnWin: (id: ElopementId, abandonOnWin: boolean) => void;
   // P10 artifact actions. All FREE ACTIONS — no tick advance. Modal-state
   // gates (PlayerExiled + ElopementInProgress) included in every rejection
   // union per CLAUDE.md "Modal-state rule-layer gate principle."
@@ -441,6 +449,8 @@ import {
   applyElopementFreshHorsesPure,
   applyElopementPushPure,
   applyElopementSurrenderPure,
+  hasActivePlayerElopement,
+  setElopementAbandonOnWin,
 } from "../game/rules/elopement";
 import { type ProposalOutcome, applyProposalPure } from "../game/rules/proposal";
 import {
@@ -552,8 +562,8 @@ function overwriteFromGameState(draft: GameState, next: GameState): void {
   draft.factionTensions = next.factionTensions;
   draft.duels = next.duels;
   // P9 addition — the 5th surface of the quint-sync. Without this line, every
-  // tick-advancing action silently CLEARS state.elopement.
-  draft.elopement = next.elopement;
+  // tick-advancing action silently CLEARS state.elopements.
+  draft.elopements = next.elopements;
   // P10 additions — three new top-level Maps. Same "OFTEN-FORGOTTEN fourth
   // surface" trap; without these, every tick-advancing action silently clears
   // the artifact/forgery/thief-attempt registries.
@@ -595,7 +605,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           return;
         }
         // P9 Q4 — ElopementInProgress gate. Void-publish to elopementBus.
-        if (exileGate.elopement !== null) {
+        if (hasActivePlayerElopement(exileGate)) {
           elopementBus.publish({
             kind: "ElopementBlocked",
             tick: exileGate.tick,
@@ -653,7 +663,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // P9 Q4 — ElopementInProgress gate. Branch-5 of pruneOrphaned-
         // ConversationKeys is therefore unreachable through runYearPass at
         // v1 (a future v1.5+ relaxation would need re-evaluation).
-        if (exileGate.elopement !== null) {
+        if (hasActivePlayerElopement(exileGate)) {
           elopementBus.publish({
             kind: "ElopementBlocked",
             tick: exileGate.tick,
@@ -709,7 +719,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (stateBefore.elopement !== null) {
+        if (hasActivePlayerElopement(stateBefore)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const check = canTravel(stateBefore, PLAYER_HOUSE_ID, to);
@@ -780,7 +790,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         }
         // P9 Q4 — ElopementInProgress gate. requestAudience uses distinct
         // AudienceOutcome.Denied{ reason } shape (NOT generic ok/reason).
-        if (stateBefore.elopement !== null) {
+        if (hasActivePlayerElopement(stateBefore)) {
           const elopementOutcome: AudienceOutcome = {
             kind: "Denied",
             reason: { kind: "ElopementInProgress" },
@@ -837,7 +847,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (stateBefore.elopement !== null) {
+        if (hasActivePlayerElopement(stateBefore)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const check = canEscapeBankruptcy(stateBefore, PLAYER_HOUSE_ID);
@@ -890,7 +900,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (stateBefore.elopement !== null) {
+        if (hasActivePlayerElopement(stateBefore)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const check = canRefreshWardrobe(stateBefore, PLAYER_HOUSE_ID);
@@ -944,7 +954,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (stateBefore.elopement !== null) {
+        if (hasActivePlayerElopement(stateBefore)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         // P12: cross-mode mutual exclusion. Reject if a Promenade session is
@@ -1344,7 +1354,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (state.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (state.elopement !== null) {
+        if (hasActivePlayerElopement(state)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const result = tryStartScheme(state, PLAYER_HOUSE_ID, input);
@@ -1371,7 +1381,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (state.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (state.elopement !== null) {
+        if (hasActivePlayerElopement(state)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         // P5 INVARIANT: cancellation ONLY mutates `status` + `resolvedAtTick`;
@@ -1403,7 +1413,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (before.elopement !== null) {
+        if (hasActivePlayerElopement(before)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         // PINNED: ownerHouseId passed explicitly (PLAYER_HOUSE_ID at v1; P8
@@ -1446,7 +1456,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (before.elopement !== null) {
+        if (hasActivePlayerElopement(before)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const result = dismissWhisperPure(before, whisperId);
@@ -1467,7 +1477,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (before.elopement !== null) {
+        if (hasActivePlayerElopement(before)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const fromAssignment = before.staff.get(staffId)?.assignment;
@@ -1493,7 +1503,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (before.elopement !== null) {
+        if (hasActivePlayerElopement(before)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const result = trySpymasterMailIntercept(before);
@@ -1547,7 +1557,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           return { ok: false, reason: { kind: "PlayerExiled" } } as ProposalOutcome;
         }
         // P9 Q4 — ElopementInProgress dual-fire (typed-return + void-publish).
-        if (stateBefore.elopement !== null) {
+        if (hasActivePlayerElopement(stateBefore)) {
           elopementBus.publish({
             kind: "ElopementBlocked",
             tick: stateBefore.tick,
@@ -1607,7 +1617,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (stateBefore.elopement !== null) {
+        if (hasActivePlayerElopement(stateBefore)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const result = applyAssignTutorPure(stateBefore, childCharacterId, tutorCharacterId);
@@ -1629,7 +1639,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (stateBefore.elopement !== null) {
+        if (hasActivePlayerElopement(stateBefore)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const result = applyChooseTutorBonusTraitPure(stateBefore, childCharacterId, chosenTraitId);
@@ -1664,7 +1674,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (stateBefore.elopement !== null) {
+        if (hasActivePlayerElopement(stateBefore)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const result = applyArrangeBetrothalPure(stateBefore, partyAId, partyBId);
@@ -1690,7 +1700,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (stateBefore.elopement !== null) {
+        if (hasActivePlayerElopement(stateBefore)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const result = applyBreakBetrothalPure(stateBefore, betrothalId);
@@ -1711,7 +1721,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         const before = get();
         // P9 Q4 — ElopementInProgress at the ABSOLUTE TOP (before grievance
         // lookup). Sprint blocks the wrapper regardless of grievance state.
-        if (before.elopement !== null) {
+        if (hasActivePlayerElopement(before)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         // Validation reads from `before` — no set yet.
@@ -1826,76 +1836,84 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           outcome: finalDuel.outcome ?? "Stalemate",
         };
       },
-      // ── P9: Elopement sprint actions ────────────────────────────────────
-      // Free actions — no tick advance. The ONLY mutations allowed while
-      // state.elopement !== null. Each direct-publishes ElopementProgressed
-      // or ElopementResolved on the elopementBus.
-      elopementPush: () => {
+      // ── P9/P24a: Elopement sprint actions (interactive, keyed by ElopementId) ─
+      // Free actions — no tick advance. Operate on a specific PLAYER-controlled
+      // sprint. Each direct-publishes ElopementProgressed (still running) or
+      // routes through publishElopementTransitions (resolved) on the elopementBus.
+      // Terminal detection keys off the sprint's `resolved` flag (sprints persist
+      // in the Map; they are NOT removed on resolution).
+      elopementPush: (id) => {
         const before = get();
-        const result = applyElopementPushPure(before);
-        if (!("elopement" in result)) {
-          // Rejection path
-          return result;
+        const result = applyElopementPushPure(before, id);
+        if ("ok" in result) {
+          return result; // rejection
         }
         const after = result;
         set((state) => {
           overwriteFromGameState(state, after);
         });
-        // If the sprint resolved (state.elopement nulled), the resolveElopement-
-        // Terminal handled the effect — publish ElopementResolved directly.
-        if (before.elopement !== null && after.elopement === null) {
-          // Re-use the diff helper's publish path to avoid duplication.
+        const sprint = after.elopements.get(id);
+        if (sprint !== undefined && sprint.resolved) {
           publishElopementTransitions(before, after);
-        } else if (after.elopement !== null) {
+        } else if (sprint !== undefined) {
           elopementBus.publish({
             kind: "ElopementProgressed",
             tick: after.tick,
-            schemeId: after.elopement.schemeId,
+            schemeId: sprint.schemeId,
             action: "Push",
-            playerTilePosition: after.elopement.playerTilePosition,
-            fatherTilePosition: after.elopement.fatherTilePosition,
-            freshHorsesUsedCount: after.elopement.freshHorsesUsedCount,
+            playerTilePosition: sprint.playerTilePosition,
+            fatherTilePosition: sprint.fatherTilePosition,
+            freshHorsesUsedCount: sprint.freshHorsesUsedCount,
           });
         }
         return { ok: true };
       },
-      elopementFreshHorses: () => {
+      elopementFreshHorses: (id) => {
         const before = get();
-        const result = applyElopementFreshHorsesPure(before);
-        if (!("elopement" in result)) {
-          return result;
+        const result = applyElopementFreshHorsesPure(before, id);
+        if ("ok" in result) {
+          return result; // rejection
         }
         const after = result;
         set((state) => {
           overwriteFromGameState(state, after);
         });
-        if (before.elopement !== null && after.elopement === null) {
+        const sprint = after.elopements.get(id);
+        if (sprint !== undefined && sprint.resolved) {
           publishElopementTransitions(before, after);
-        } else if (after.elopement !== null) {
+        } else if (sprint !== undefined) {
           elopementBus.publish({
             kind: "ElopementProgressed",
             tick: after.tick,
-            schemeId: after.elopement.schemeId,
+            schemeId: sprint.schemeId,
             action: "FreshHorses",
-            playerTilePosition: after.elopement.playerTilePosition,
-            fatherTilePosition: after.elopement.fatherTilePosition,
-            freshHorsesUsedCount: after.elopement.freshHorsesUsedCount,
+            playerTilePosition: sprint.playerTilePosition,
+            fatherTilePosition: sprint.fatherTilePosition,
+            freshHorsesUsedCount: sprint.freshHorsesUsedCount,
           });
         }
         return { ok: true };
       },
-      elopementSurrender: () => {
+      elopementSurrender: (id) => {
         const before = get();
-        if (before.elopement === null) {
+        const sprint = before.elopements.get(id);
+        if (sprint === undefined || sprint.resolved) {
           return { ok: false, reason: { kind: "NoActiveSprint" as const } };
         }
-        const after = applyElopementSurrenderPure(before);
+        const after = applyElopementSurrenderPure(before, id);
         set((state) => {
           overwriteFromGameState(state, after);
         });
         // Surrender always terminates; publish ElopementResolved via diff helper.
         publishElopementTransitions(before, after);
         return { ok: true };
+      },
+      setElopementAbandonOnWin: (id, abandonOnWin) => {
+        const before = get();
+        const after = setElopementAbandonOnWin(before, id, abandonOnWin);
+        set((state) => {
+          overwriteFromGameState(state, after);
+        });
       },
       // P10 artifact actions — all FREE ACTIONS. Modal-state gates first;
       // then pure-rule dispatch; then overwriteFromGameState.
@@ -1904,7 +1922,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (stateBefore.elopement !== null) {
+        if (hasActivePlayerElopement(stateBefore)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const result = applyEquipArtifactPure(stateBefore, characterId, artifactInstanceId);
@@ -1957,7 +1975,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (stateBefore.elopement !== null) {
+        if (hasActivePlayerElopement(stateBefore)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const result = applyUnequipArtifactPure(stateBefore, characterId, artifactInstanceId);
@@ -1972,7 +1990,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (stateBefore.elopement !== null) {
+        if (hasActivePlayerElopement(stateBefore)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const result = applyCommissionForgeryPure(stateBefore, forgerCharacterId, definitionId);
@@ -1995,7 +2013,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
           return { ok: false, reason: { kind: "PlayerExiled" as const } };
         }
-        if (stateBefore.elopement !== null) {
+        if (hasActivePlayerElopement(stateBefore)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
         const result = applyThwartTheftPure(stateBefore, thiefAttemptId);
@@ -2334,7 +2352,7 @@ export function selectGameState(state: StoreState): GameState {
     factionTensions: state.factionTensions,
     duels: state.duels,
     // P9 addition — quint-sync 3rd surface.
-    elopement: state.elopement,
+    elopements: state.elopements,
     // P10 additions — three new top-level Maps. Quad-sync 3rd surface.
     artifactInstances: state.artifactInstances,
     forgeries: state.forgeries,

@@ -40,6 +40,7 @@ import {
   type WhisperId,
   drawNext,
 } from "../rng";
+import { hasActivePlayerElopement } from "./elopement";
 import { tryStartScheme } from "./schemes";
 
 // ── Adulthood predicate (resolves cycle-2-iter-2 R5 — `isAdult` is exported here).
@@ -361,7 +362,7 @@ export function applyReconciliationAttempt(
   if (playerHouse.exiled) {
     return { nextState: state, outcome: { ok: false, reason: { kind: "PlayerExiled" } } };
   }
-  if (state.elopement !== null) {
+  if (hasActivePlayerElopement(state)) {
     return { nextState: state, outcome: { ok: false, reason: { kind: "ElopementInProgress" } } };
   }
   // Eligibility gates.

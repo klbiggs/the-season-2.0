@@ -3,6 +3,7 @@ import { PATRONESS_FAVOR_EROSION_SCANDAL_THRESHOLD } from "../../game/constants"
 import { LOCATION_LABELS } from "../../game/fixtures/locations";
 import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import { getEffectiveReputation } from "../../game/rules/artifacts";
+import { hasActivePlayerElopement } from "../../game/rules/elopement";
 import type { SeasonStore } from "../../game/store";
 
 // Campaign-meta header. Always-mounted persistent chrome above the map.
@@ -57,7 +58,7 @@ export function TopBar({ store, onEnterLedger }: Props) {
   const underCensure = scandal !== null && scandal >= PATRONESS_FAVOR_EROSION_SCANDAL_THRESHOLD;
   // P14: elopement-modal gate — disable Ledger entry while the sprint overlay
   // owns the screen (mirrors the rule-layer modal-state gate principle).
-  const elopement = store((s) => s.elopement);
+  const elopementActive = store((s) => hasActivePlayerElopement(s));
   return (
     <header className="w-full bg-stone-100 border-b border-stone-300 px-6 py-3 flex items-center gap-6">
       <h1 className="text-lg font-semibold text-stone-800 flex-1" data-testid="campaign-name">
@@ -121,7 +122,7 @@ export function TopBar({ store, onEnterLedger }: Props) {
       <button
         type="button"
         onClick={onEnterLedger}
-        disabled={elopement !== null}
+        disabled={elopementActive}
         data-testid="open-ledger-btn"
         className="rounded-md bg-stone-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-stone-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
