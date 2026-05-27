@@ -1,0 +1,79 @@
+# P24b — Material Assets Depth: Artifacts, Wardrobe & Forgery (v1.5)
+
+> **Status: 📋 planned (fleshed).** Track: v1.5. Source: [MASTER.md §11.2-E](../MASTER.md#112-v15--deferred-backlog-aggregated-deduped) (+ the §11.2-D "rival-owned artifact loops" item, deliberately pulled forward — see E6). Split from the converged combined P24 (Stage E of three: P24a schemes/elopement · P24b artifacts · P24c staff).
+> Makes artifacts procedural and world-wide: generated definitions, per-family wardrobe decay, Observant-detected forgeries, thefts that target anyone, an explicit forger picker, and rival/society-owned artifact loops.
+
+## Depends on
+P10 (artifacts / forgery / theft rules + `ARTIFACT_REGISTRY` + `artifactBus`), P16 (procedural-generation pattern — transient RNG sub-stream), P22/P23 (`isSocietyHouse` — society houses now own artifacts), P8 (rivals — rival houses own artifacts). Independent of P24a/P24c.
+
+## Goal
+Artifacts stop being a static 7-fixture, player-only economy: definitions are procedurally generated and stored in state, every house can own and equip them, wardrobe decay is tuned per family, Observant NPCs privately detect forgeries, thefts fire against any valuable-artifact-holding house, and the player picks among multiple forgers.
+
+## Locked design decisions (carried from combined-P24 convergence)
+1. **Procedural artifacts = procedural DEFINITIONS (not just instances).** A new `state.proceduralArtifactDefinitions` Map is generated once at bootstrap from a transient RNG sub-stream; definition resolution everywhere routes through a new `resolveArtifactDefinition(state, id)` falling through `ARTIFACT_REGISTRY` → the procedural map. (User-selected maximal scope.)
+2. **Observant detection is a SEPARATE quieter cascade (Q11).** It does NOT flip `surfaced` and does NOT fire the public Vain cascade — a private affection penalty only.
+3. **Per-family wardrobe decay (Q10).** Replace the single global interval with a per-family table; one refresh still resets all.
+
+## In scope
+
+### E1. Procedural artifact DEFINITIONS (user-selected full)
+- **Today:** `ARTIFACT_REGISTRY` is a static 7-entry `ReadonlyMap` (`fixtures/artifacts.ts:44-136`); `ArtifactInstance.definitionId: z.string()` FKs into it; instances are player-house-only (`bootstrap.ts:208-275`).
+- **New top-level `state.proceduralArtifactDefinitions: Map<ArtifactDefinitionId, ArtifactDefinition>`** generated once at bootstrap from a transient RNG sub-stream (`${campaignSeed}|procedural-artifacts`, P16 pattern). `~PROCEDURAL_ARTIFACT_DEF_COUNT` definitions: id `proc-artifact-<i>`, family drawn over the 7-entry `ARTIFACT_FAMILIES` enum, generated `displayName` (new artifact name bank, per family), `reputationBonusWhileEquipped` (range draw), `scandalRiskWhileEquipped` (range draw), `traitGrantsWhileEquipped` (0-1 pooled trait), `forgeable` (draw), `forgeWealthCost` (range). Fixed N-draw budget per definition.
+- **`resolveArtifactDefinition(state, definitionId): ArtifactDefinition | undefined`** = `ARTIFACT_REGISTRY.get(id) ?? state.proceduralArtifactDefinitions.get(id)`. **Replace every `ARTIFACT_REGISTRY.get(...)` call site** — there are **18 sites across 7 files** (verified): `artifacts.ts` (×8, incl. the pre-ball penalty at `:649` + `houseHasFamilyEquipped`'s reads), `ArtifactsTab.tsx` (×5), `bootstrap.ts:219`+`:309`, `globalEvents.ts:261`, `promenade.ts:212`, `store.ts:1921`, `flavorOrchestrator.ts:173`. (Note: `wardrobeRefresh.ts` has NO `ARTIFACT_REGISTRY.get` — the pre-ball penalty lives in `artifacts.ts`, not there.) **`bootstrap.ts:219` THROWS on an unknown `definitionId`**, so E6's procedural-instance seeding into rival/society houses crashes bootstrap unless it routes through the resolver — this is the load-bearing site. **Mitigation (ship it):** a lint/test guard that FAILS on any `ARTIFACT_REGISTRY.get` outside the resolver module. This is the riskiest refactor of this sub-phase — grep `ARTIFACT_REGISTRY.get` exhaustively at implementation.
+- **Quad-sync + hash + save** for `proceduralArtifactDefinitions` (deterministic from seed → replay-stable; in hash like any registry-in-state). New `ArtifactDefinitionId` brand (or keep `z.string()` and rely on the `proc-artifact-` prefix — decide at convergence; brand preferred for type-safety).
+- **Generation is pure** (`src/game/rules/proceduralArtifacts.ts`) and runs identically on bootstrap AND current-schema load.
+
+### E2. Per-artifact-family wardrobe decay (Q10)
+- **Today:** single global `WARDROBE_REFRESH_INTERVAL_TICKS = 40` (`constants.ts`); `applyPreBallComposurePenaltyPure` (`artifacts.ts:640-658`) compares `state.tick - inst.lastRefreshTick > WARDROBE_REFRESH_INTERVAL_TICKS` per equipped instance.
+- **New:** `WARDROBE_REFRESH_INTERVAL_BY_FAMILY: Record<ArtifactFamily, number>` (designer table — e.g. jewels decay slower than carriages). The pre-ball penalty reads the per-instance family's interval via `resolveArtifactDefinition(state, inst.definitionId).family`. `applyWardrobeRefresh` (`wardrobeRefresh.ts:47-66`) still resets `lastRefreshTick` on **all** equipped instances (one spend refreshes everything — affordance unchanged). Keep the global constant as the default/fallback for any family not in the table.
+
+### E3. Observant-trait forgery detection (Q11)
+- **Today:** single surfacing mechanism — `applyForgerySurfacingPhase` (`artifacts.ts:342-420`, slot 10) rolls `FORGERY_SURFACING_PROBABILITY_BASIS_POINTS` per unsurfaced forgery; on surface, the Vain-NPC public cascade fires (Defensive lock + `-10` affection). No Observant path exists.
+- **New parallel cascade** (the Q11 "Observant-only knowledge" fork): a quieter detection that does NOT flip `surfaced` and does NOT fire the public Vain cascade. Each tick, for each unsurfaced forgery, **Observant** alive non-owner-house NPCs roll `OBSERVANT_FORGERY_DETECTION_PROBABILITY`; on hit, apply a **private** affection penalty (`OBSERVANT_FORGERY_AFFECTION_PENALTY`, smaller than the Vain `-10`) toward the forgery owner — the Observant NPC privately distrusts the wearer without going public. Folded into `applyForgerySurfacingPhase` (Observant branch runs alongside the existing surfacing roll) OR a sibling phase. New per-(Observant-NPC × unsurfaced-forgery) draws on the per-house RNG shift the fresh-state hash (absorbed by the self-referential replay baseline — no hardcoded hash to edit).
+
+### E4. NPC-initiated thefts
+- **Today:** `applyThiefNoticePhase` (`artifacts.ts:430-523`, slot 11) targets **player-house only** (lines 441-469); auto-resolve sweep (`artifacts.ts:471-511`); player thwarts via Spymaster (`applyThwartTheftPure`).
+- **New:** generalize the notice phase to iterate **all houses** with valuable equipped artifacts (player + rival + society — reachable now that E1/E6 give them artifacts). Player-house thefts still surface the thwart affordance (`ArtifactsTab.tsx`); **non-player thefts auto-resolve** in the existing sweep (no thwart UI). Per-house RNG streams. The reputation-threshold + valuable-artifact gates apply per house.
+
+### E5. Explicit forger picker (multiple Rakes)
+- **Today:** the forger is auto-picked as the lex-smallest player-house `BohemianRake` (`ArtifactsTab.tsx:69-74`); `applyCommissionForgeryPure` (`artifacts.ts:259-329`) already takes an explicit `forgerCharacterId`.
+- **New:** UI picker among multiple living player-house Rakes (when >1 exists) in the Forgery ledger sub-section; pass the chosen id to `commissionForgery`. UI-only wiring (rule already parameterized). Disabled-state when 0 Rakes.
+
+### E6. Rival-owned artifact loops
+> **Phase-boundary note (per CLAUDE.md phase-discipline):** "rival-owned artifact loops" is listed under §11.2-**D. Rival depth** (MASTER L464), and D maps to **P25** in the theme→phase map (L446). It is **deliberately pulled forward into P24b** because it depends on E1 (procedural artifact definitions, a genuine P24b deliverable) and is artifact-*mechanical* (own/equip/decay/theft/surface), NOT rival-AI — the rival-AI half of D stays in P25. Recorded here rather than included silently.
+- **Today:** artifacts are player-house-only (commission gates `forger.houseId === PLAYER_HOUSE_ID`, `artifacts.ts:270`; bootstrap seeds player + 2 baseline NPC mounts only).
+- **New:** seed procedural artifact **instances** (of the E1 procedural definitions) into rival and society houses at bootstrap (equipped → they carry reputation bonuses + scandal risk; subject to E2 decay, E4 theft, and — if a seeded instance is flagged forged — E3 Observant detection + the surfacing cascade). Rivals/society do NOT *commission* forgeries (no rival Rake conversation path; that stays P25/P26). The loop for non-player houses is **own → equip → (decay / theft / surface)**. Generalize `makeArtifactInstanceId`/seeding to non-player houses; equip via the rules layer at bootstrap. (The seeding MUST route definition lookups through `resolveArtifactDefinition` — see E1's `bootstrap.ts:219` throw hazard.)
+
+## Out of scope
+- **Schemes / seduction / elopement depth** — P24a.
+- **Staff hire/fire/promote/specialization** — P24c.
+- **Rival/society forgery *commissioning*** — non-player houses own + equip + can be victims of surfacing/theft, but do not run the forge loop themselves (needs a rival Rake conversation path — P25/P26).
+- **Generated artifact backstories** — P18 already owns flavor; this sub-phase generates mechanical definitions, not prose.
+
+## Cross-cutting impact
+- **No save-version bump (pre-release posture, §6).** One new top-level field (`proceduralArtifactDefinitions`) edited into the single live schema in place; dev saves reset. (`ArtifactInstance`/`ForgeryRecord`/`ThiefAttempt` shapes are unchanged — instances just point at procedural definition ids; only `state.artifactInstances`/`forgeries`/`thiefAttempts` Maps grow, already projected.)
+- **Determinism discipline binds.** `proceduralArtifactDefinitions` gets full quad-sync + `hashable-state` wiring + trip-wire extensions. New RNG draws: procedural definitions + rival/society instances (E1/E6, transient + bootstrap), Observant forgery detection (E3), generalized NPC thefts (E4) — threaded through the correct per-house / transient sub-streams. The fresh-state hash shifts; absorbed by the self-referential replay baseline. Confirm 30-run determinism + a dedicated test forcing a non-player theft + an Observant detection.
+- **Tick PHASES unchanged in count** — E3 folds into the existing `applyForgerySurfacingPhase` (slot 10) and E4 generalizes the existing `applyThiefNoticePhase` (slot 11); no new phase, no PHASES growth. (If E3 ships as a sibling phase instead of a fold, PHASES grows by 1 — decide at convergence; default: fold.)
+- **`resolveArtifactDefinition` swap** is the single highest-touch refactor (18 sites / 7 files) — guarded by the lint/test rule.
+- **Publisher set** (P23 baseline 13/13/11): `publishArtifactTransitions` already rides every tick-advancing wrapper except `runYearPass` (P10); E4's non-player thefts + E3's detection fire through the existing `artifactBus` diff — no new wrapper membership. Recount only if a new event variant is added.
+- **No `PERSONA_CACHE_VERSION` bump** (no persona change; procedural artifacts feed the existing equipped-artifact persona surface naturally).
+- **CLAUDE.md pin supersessions at close-out:** (a) "artifacts player-house-only / fixture-only" → procedural definitions + rival/society ownership; (b) "thefts target player only" → all houses; (c) "`WARDROBE_REFRESH_INTERVAL_TICKS` global" → per-family table; (d) "forgery single surfacing mechanism / Observant retains value elsewhere" → Observant detection cascade shipped; (e) the artifact strip-cascade pin is unaffected (pre-release, no save bump) but note `definitionId` now resolves through `resolveArtifactDefinition`.
+
+## Files
+**New:** `src/game/rules/proceduralArtifacts.ts` (+`.test.ts`, incl. ≥30-run determinism); an artifact name bank (`fixtures/artifacts.ts` extension or `nameBanks.ts`); the `resolveArtifactDefinition` resolver (likely in `artifacts.ts` or a small `artifactDefinitions.ts` so the lint guard can scope "outside the resolver module"); a lint/test guard fixture banning bare `ARTIFACT_REGISTRY.get`.
+**Modified:** `src/game/entities.ts` (`proceduralArtifactDefinitions` Map; `ArtifactDefinitionId` brand if chosen); `src/game/constants.ts` (procedural-artifact ranges/count, per-family decay table, Observant detection constants + assertions); `src/game/rules/artifacts.ts` (`resolveArtifactDefinition` swap-in ×8, per-family decay, Observant cascade, all-house thefts); `src/game/rules/wardrobeRefresh.ts` (per-family read — no `ARTIFACT_REGISTRY.get` today, but reads family via the resolver); `src/game/rules/globalEvents.ts` (`houseHasFamilyEquipped` + `:261` via resolver); `src/game/rules/promenade.ts` (resolver swap at `:212`); `src/runtime/flavorOrchestrator.ts` (resolver swap at `:173`); `src/game/bootstrap.ts` (procedural artifact defs from the transient sub-stream + rival/society instance seeding via resolver; `:219`/`:309` resolver swap); `src/game/store.ts` (quad-sync for `proceduralArtifactDefinitions`; resolver swap at `:1921`); `src/persist/schema.ts` (`SaveV1Schema.proceduralArtifactDefinitions` array + `toSaveV1`/`fromSaveV1`); UI: `ArtifactsTab.tsx` (procedural defs via resolver ×5, per-family decay badge, forger picker among multiple Rakes); trip-wire tests (`schema-projection-selector-extension.test.ts`, `store.replace-state.test.ts`, `replay-harness.test.ts`).
+
+## Verification (definition of done)
+- **E1:** procedural artifact definitions generate deterministically per seed; `resolveArtifactDefinition` resolves both fixture and procedural ids; no `ARTIFACT_REGISTRY.get` call site bypasses the resolver (lint/test guard green); bootstrap seeds procedural instances without the `:219` throw; 30-run replay green; the new top-level field round-trips.
+- **E2:** per-family decay intervals drive the pre-ball penalty per instance; one refresh resets all equipped.
+- **E3:** Observant NPCs privately penalize affection toward a forgery owner without surfacing the forgery or firing the Vain cascade.
+- **E4:** thefts fire against rival/society valuable artifacts; non-player thefts auto-resolve; the player still thwarts their own.
+- **E5:** the forger picker selects among multiple Rakes.
+- **E6:** rivals/society own + equip procedural artifacts that decay, can be stolen, and (if forged) surface; seeding routes through the resolver.
+- **Global:** `pnpm test` / `lint` / `typecheck` / `knip` green; current-schema save/load round-trips (no migration; dev saves reset).
+
+## References
+spec §3 (Wardrobe/Artifacts/Heirlooms L167-173/423-428, Forgery & Theft L176-190/431-442, Treason Framing L185-190), §4 (Artifact Definition, Forgery Record, Thief Attempt), §7 (forgery surfacing cascade, theft against unequipped artifact, wardrobe refresh during bankruptcy, out-of-season artifact mid-ball), §10 Q10/Q11; MASTER §10 Q10/Q11, §11.2-E (+ §11.2-D rival-owned artifact loops, pulled forward); P10, P16, P22, P23, P8; CLAUDE.md pins: artifact quad-sync + strip-cascade, transient-RNG sub-stream (P16), `isSocietyHouse` (P22/P23), per-iteration multi-Map accumulator, structural-sharing, migration-posture, publisher-set, rivals-run-last.
+
+## Accumulated Risks & Suggestions
+*Passively collected from review cycles. Not blockers. Triaged at convergence.*

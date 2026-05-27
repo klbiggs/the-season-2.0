@@ -263,7 +263,9 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P21 | v1.1 — Ledger Completeness & Notifications | [`phases/21-ledger-completeness.md`](./phases/21-ledger-completeness.md) | P14, P20 | ✅ done |
 | P22 | v1.5 — Society & World Surfacing | [`phases/22-society-surfacing.md`](./phases/22-society-surfacing.md) | P14, P16, P18 | ✅ done |
 | P23 | v1.5 — Marriage, Family & Lifespan Depth | [`phases/23-marriage-family-depth.md`](./phases/23-marriage-family-depth.md) | P7, P8, P16, P22 | ✅ done |
-| P24 | v1.5 — Covert Operations & Material Assets Depth | [`phases/24-covert-material-depth.md`](./phases/24-covert-material-depth.md) | P5, P6, P9, P10, P15 | 📋 planned (v1.5) |
+| P24a | v1.5 — Covert Ops Depth: Schemes, Seduction & Elopement | [`phases/24a-covert-schemes-elopement.md`](./phases/24a-covert-schemes-elopement.md) | P5, P8, P9, P15, P23 | 📋 planned (fleshed) |
+| P24b | v1.5 — Material Assets Depth: Artifacts, Wardrobe & Forgery | [`phases/24b-material-artifacts-forgery.md`](./phases/24b-material-artifacts-forgery.md) | P10, P16, P22, P23, P8 | 📋 planned (fleshed) |
+| P24c | v1.5 — Downstairs Network Depth: Staff | [`phases/24c-staff-network-depth.md`](./phases/24c-staff-network-depth.md) | P6, P15, P23 | 📋 planned (fleshed) |
 | P25 | v1.5 — Rivals, Factions, Global Events & Era Depth | [`phases/25-rivals-events-depth.md`](./phases/25-rivals-events-depth.md) | P8, P10, P13 | 📋 planned (v1.5) |
 | P26 | v1.5 — Conversation, LLM, Memory & Promenade Depth | [`phases/26-conversation-llm-depth.md`](./phases/26-conversation-llm-depth.md) | P4, P12, P17, P18 | 📋 planned (v1.5) |
 | P27 | v1.5 — Platform: Ledger QoL, Tooling & Infra | [`phases/27-platform-qol-infra.md`](./phases/27-platform-qol-infra.md) | P0, P2, P14 | 📋 planned (v1.5) |
@@ -443,7 +445,7 @@ Severity: **CRITICAL** = blocks a core loop; **HIGH** = important info/payoff hi
 
 ### 11.2 v1.5 / Deferred Backlog (aggregated, deduped)
 
-> **Theme → phase map (see §6):** A → P22 · B → P23 · C → P24 · D → P25 · E → P24 · F → P25 · G → P26 · H → P26 · I → P24 · J → P22 (society-facing: portraits, founder naming, replenishment) + P27 (QoL & tooling) · K → P27.
+> **Theme → phase map (see §6):** A → P22 · B → P23 · C → **P24a** · D → P25 (except "rival-owned artifact loops," pulled into **P24b** as it depends on E's procedural artifacts) · E → **P24b** · F → P25 · G → P26 · H → P26 · I → **P24c** · J → P22 (society-facing: portraits, founder naming, replenishment) + P27 (QoL & tooling) · K → P27. (P24 was split into P24a/P24b/P24c after convergence — it bundled 18 sub-items across three subsystems; the split makes each independently shippable.)
 
 **A. Society / non-player world surfacing** (the recurring marquee item)
 - "Society / The Ton" view rendering non-player NPCs (rivals + procedural society; invisible outside the ballroom roster). Recommended as a third Family-Tree-tab toggle. §10 V1.5 row; `16-procedural-npcs.md`, `18-llm-flavor.md`.
