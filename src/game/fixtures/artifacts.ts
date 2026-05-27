@@ -168,7 +168,9 @@ export function resolveArtifactDefinition(
   state: GameState,
   definitionId: ArtifactDefinitionId,
 ): ArtifactDefinition | undefined {
-  return ARTIFACT_REGISTRY.get(definitionId) ?? state.proceduralArtifactDefinitions.get(definitionId);
+  return (
+    ARTIFACT_REGISTRY.get(definitionId) ?? state.proceduralArtifactDefinitions.get(definitionId)
+  );
 }
 
 // Player bootstrap inventory. Three instances on a fresh campaign; two
@@ -183,7 +185,11 @@ export const PLAYER_STARTING_ARTIFACTS: ReadonlyArray<{
   equippedFromStart: boolean;
   lastRefreshTick: number;
 }> = [
-  { definitionId: "sapphires" as ArtifactDefinitionId, equippedFromStart: true, lastRefreshTick: 0 },
+  {
+    definitionId: "sapphires" as ArtifactDefinitionId,
+    equippedFromStart: true,
+    lastRefreshTick: 0,
+  },
   {
     definitionId: "snuffbox" as ArtifactDefinitionId,
     equippedFromStart: false,
@@ -215,7 +221,12 @@ export const NPC_STARTING_MOUNT_FAMILY: ReadonlyArray<{
 // above — these are the "lesser" period-flavored variants the procedural set
 // scatters across houses.
 export const PROCEDURAL_ARTIFACT_NAMES: Readonly<Record<ArtifactFamily, readonly string[]>> = {
-  sapphires: ["The Ashby Emeralds", "The Wexford Rubies", "The Pendleton Pearls", "A Garnet Parure"],
+  sapphires: [
+    "The Ashby Emeralds",
+    "The Wexford Rubies",
+    "The Pendleton Pearls",
+    "A Garnet Parure",
+  ],
   tiara: ["The Hartwell Coronet", "A Diamond Aigrette", "The Sterne Diadem", "A Pearl Circlet"],
   snuffbox: ["An Enamelled Snuffbox", "A Tortoiseshell Box", "A Gilt Bonbonnière", "A Vinaigrette"],
   phaeton: ["A High-Perch Phaeton", "A Curricle", "A Barouche", "A Town Chariot"],

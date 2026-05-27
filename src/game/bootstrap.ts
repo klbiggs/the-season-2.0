@@ -15,12 +15,15 @@
 import {
   HAPPINESS_INITIAL,
   LIFESPAN_RANGE,
+  NON_PLAYER_FORGED_INSTANCE_PCT,
   PROCEDURAL_ARTIFACT_DEF_COUNT,
   PROCEDURAL_NPC_COUNT,
+  SOCIETY_ARTIFACT_HOLDER_COUNT,
 } from "./constants";
 import type {
   ArtifactInstance,
   Character,
+  ForgeryRecord,
   GameState,
   House,
   RivalActorState,
@@ -31,6 +34,7 @@ import {
   NPC_STARTING_MOUNT_FAMILY,
   PLAYER_STARTING_ARTIFACTS,
   makeArtifactInstanceId,
+  makeForgeryId,
   resolveArtifactDefinition,
 } from "./fixtures/artifacts";
 import { hashCharIdToGender } from "./fixtures/hashCharIdToGender";
@@ -38,6 +42,7 @@ import { STARTING_HEAD_CHARACTER_ID, STARTING_HEAD_NAME } from "./fixtures/names
 import { BASELINE_NPCS, buildBaselineNpcCharacter, buildIndependentHouse } from "./fixtures/npcs";
 import {
   RIVAL_HOUSES_FIXTURE,
+  RIVAL_HOUSE_IDS_SET,
   buildRivalActorState,
   buildRivalCharacter,
   buildRivalHouse,
@@ -45,9 +50,11 @@ import {
 } from "./fixtures/rivals";
 import { BASELINE_STAFF, buildBaselineStaffMember } from "./fixtures/staff";
 import {
+  type ArtifactDefinitionId,
   type ArtifactInstanceId,
   type CharacterId,
   type FactionId,
+  type ForgeryId,
   type HouseId,
   type RngState,
   createRngState,
@@ -55,6 +62,7 @@ import {
 } from "./rng";
 import { PLAYER_HOUSE_ID } from "./rng";
 import { generateArtifactDefinitions } from "./rules/proceduralArtifacts";
+import { PROCEDURAL_NPC_ID_PREFIX } from "./rules/proceduralNpcs";
 import { generateSocietyNpcs } from "./rules/proceduralNpcs";
 import { MOUNT_FAMILY } from "./rules/promenade";
 
@@ -362,5 +370,83 @@ export function bootstrapNpcMountFamily(
       ...npc,
       equippedArtifactIds: [...npc.equippedArtifactIds, instId],
     });
+  }
+}
+
+// P24b (E6): seed equipped procedural artifact instances into NON-PLAYER houses
+// at bootstrap. One instance per eligible owner — each rival house head + the
+// first SOCIETY_ARTIFACT_HOLDER_COUNT alive society NPCs (lex by id). Drawn from
+// a TRANSIENT sub-stream (`${campaignSeed}|procedural-artifact-instances`)
+// consumed here and discarded (never added to state.rng — mirrors the
+// |procedural-npcs / |procedural-artifacts pattern). A forgeable pick may be
+// flagged forged (→ a ForgeryRecord), giving E3 Observant detection + the
+// surfacing cascade a live non-player target. Mutates characters +
+// artifactInstances + forgeries IN PLACE. Fixed 2-draw budget per owner
+// (definition pick + forged gate). Runs ONLY at createInitialState — the minted
+// instances persist in the save and re-read verbatim on load (no re-seed).
+export function bootstrapNonPlayerArtifactsForInit(
+  characters: Map<CharacterId, Character>,
+  houses: ReadonlyMap<HouseId, House>,
+  proceduralArtifactDefinitions: ReadonlyMap<ArtifactDefinitionId, ArtifactDefinition>,
+  artifactInstances: Map<ArtifactInstanceId, ArtifactInstance>,
+  forgeries: Map<ForgeryId, ForgeryRecord>,
+  campaignSeed: string,
+  tick: number,
+): void {
+  const definitions = [...proceduralArtifactDefinitions.values()].sort((a, b) =>
+    a.id.localeCompare(b.id),
+  );
+  if (definitions.length === 0) return;
+
+  // Eligible owners, lex within each group: rival house heads, then society NPCs.
+  const owners: Character[] = [];
+  for (const houseId of [...houses.keys()].sort((a, b) => a.localeCompare(b))) {
+    if (!RIVAL_HOUSE_IDS_SET.has(houseId)) continue;
+    const house = houses.get(houseId);
+    if (house === undefined) continue;
+    const head = characters.get(house.headOfHouseCharacterId);
+    if (head?.alive) owners.push(head);
+  }
+  const society = [...characters.values()]
+    .filter((c) => c.id.startsWith(PROCEDURAL_NPC_ID_PREFIX) && c.alive)
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .slice(0, SOCIETY_ARTIFACT_HOLDER_COUNT);
+  owners.push(...society);
+
+  let rng = createRngState(`${campaignSeed}|procedural-artifact-instances`);
+  for (const owner of owners) {
+    const defPick = drawInt(rng, definitions.length);
+    rng = defPick.rngState;
+    const forgedGate = drawInt(rng, 100);
+    rng = forgedGate.rngState;
+    const def = definitions[defPick.next];
+    if (def === undefined) continue;
+    const forged = def.forgeable && forgedGate.next < NON_PLAYER_FORGED_INSTANCE_PCT;
+    const synth = { artifactInstances: new Map(artifactInstances) } as unknown as GameState;
+    const instId = makeArtifactInstanceId(synth, def.id);
+    artifactInstances.set(instId, {
+      id: instId,
+      definitionId: def.id,
+      ownerHouseId: owner.houseId,
+      ownerCharacterId: owner.id,
+      lastRefreshTick: tick,
+      forgedFlag: forged,
+    });
+    characters.set(owner.id, {
+      ...owner,
+      equippedArtifactIds: [...owner.equippedArtifactIds, instId],
+    });
+    if (forged) {
+      const synthF = { forgeries: new Map(forgeries) } as unknown as GameState;
+      const forgeryId = makeForgeryId(synthF, instId);
+      forgeries.set(forgeryId, {
+        id: forgeryId,
+        forgedArtifactInstanceId: instId,
+        forgerCharacterId: owner.id,
+        forgedAtTick: tick,
+        surfaced: false,
+        surfacedAtTick: null,
+      });
+    }
   }
 }

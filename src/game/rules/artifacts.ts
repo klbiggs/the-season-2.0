@@ -28,12 +28,15 @@ import {
   FORGERY_SURFACING_PROBABILITY_BASIS_POINTS,
   FORGERY_SURFACING_VAIN_AFFECTION_DELTA,
   FORGERY_SURFACING_VAIN_MOOD_LOCK_DURATION_TICKS,
+  OBSERVANT_FORGERY_AFFECTION_PENALTY,
+  OBSERVANT_FORGERY_DETECTION_PROBABILITY_BASIS_POINTS,
   PRE_BALL_COMPOSURE_PENALTY_PER_OUT_OF_SEASON_ARTIFACT,
   THIEF_NOTICE_PROBABILITY_BASIS_POINTS,
   THIEF_NOTICE_REPUTATION_THRESHOLD,
   THWART_SUCCESS_PROBABILITY_BASIS_POINTS,
   THWART_WEALTH_COST,
   VALUABLE_ARTIFACT_THRESHOLD,
+  WARDROBE_REFRESH_INTERVAL_BY_FAMILY,
   WARDROBE_REFRESH_INTERVAL_TICKS,
 } from "../constants";
 import { makePairKey } from "../conversation/types";
@@ -60,6 +63,7 @@ import {
   type ForgeryId,
   type HouseId,
   PLAYER_HOUSE_ID,
+  type RngState,
   type ThiefAttemptId,
   type TraitId,
   drawNext,
@@ -165,13 +169,17 @@ export function effectiveScandalContributionFromArtifacts(state: GameState): num
 }
 
 // Deterministic valuable-artifact picker for thief notice. Walks all equipped
-// player-owned instances in lex-instance-id order, filters to "valuable"
+// instances owned by `houseId` in lex-instance-id order, filters to "valuable"
 // (def.reputationBonusWhileEquipped >= VALUABLE_ARTIFACT_THRESHOLD), picks
 // the first. Returns null when no valuable equipped artifact exists.
-export function selectTargetedArtifactInstance(state: GameState): ArtifactInstance | null {
+// P24b (E4): parameterized by houseId — the notice phase loops all houses.
+export function selectTargetedArtifactInstance(
+  state: GameState,
+  houseId: HouseId,
+): ArtifactInstance | null {
   const candidates: ArtifactInstance[] = [];
   for (const ch of state.characters.values()) {
-    if (ch.houseId !== PLAYER_HOUSE_ID || !ch.alive) continue;
+    if (ch.houseId !== houseId || !ch.alive) continue;
     for (const instId of ch.equippedArtifactIds) {
       const inst = state.artifactInstances.get(instId);
       if (!inst) continue;
@@ -332,54 +340,65 @@ export function applyCommissionForgeryPure(
 // ─── Tick-phase rules ─────────────────────────────────────────────────────
 
 const VAIN_TRAIT_ID = "Vain" as TraitId;
+const OBSERVANT_TRAIT_ID = "Observant" as TraitId;
 
-// Walks unsurfaced forgeries in lex-id order; for each, draws ONE roll from
-// the player-house RNG stream. If roll < FORGERY_SURFACING_PROBABILITY_BASIS_POINTS,
-// flips surfaced + fires cascade (every Vain NPC: mood lock + affection drop).
+// Walks unsurfaced forgeries in lex-id order. For each, draws ONE surfacing roll
+// from the FORGERY OWNER's house RNG stream (P24b/R2 — was player-only). If
+// roll < FORGERY_SURFACING_PROBABILITY_BASIS_POINTS, flips surfaced + fires the
+// public Vain cascade (every non-owner-house Vain NPC: mood lock + affection drop
+// toward the OWNER head). If it does NOT surface, runs the P24b/E3 Observant
+// PRIVATE detection: each Observant alive non-owner-house NPC (lex-characterId)
+// rolls from the owner stream; on a hit, a smaller private affection penalty
+// toward the owner head WITHOUT surfacing the forgery or firing the public cascade.
 //
-// Per-iteration multi-Map accumulator: forgeries + characters + affectionMap
-// + rng all clone-and-write-back together when ANY surfacing fires.
-// Locked Vain NPCs DO participate (extend lock via Math.max; never shorten).
+// Per-OWNER rng accumulator (multi-Map): every touched house stream clones +
+// writes back. Locked Vain NPCs DO participate (extend lock via Math.max).
 export function applyForgerySurfacingPhase(state: GameState): GameState {
   const sortedForgeries = [...state.forgeries.values()].sort((a, b) => a.id.localeCompare(b.id));
-  let rngState = getOrThrow(state.rng, PLAYER_HOUSE_ID);
+  const sortedChars = [...state.characters.values()].sort((a, b) => a.id.localeCompare(b.id));
   let charsChanged = false;
   let newChars = state.characters;
   let affChanged = false;
   let newAffection = state.affectionMap;
   let forgChanged = false;
   let newForgeries = state.forgeries;
-  let rngChanged = false;
-
-  const playerHouse = state.houses.get(PLAYER_HOUSE_ID);
-  const playerHead = playerHouse?.headOfHouseCharacterId;
+  // Lazy-cloned per-house rng accumulator (R2 generalization of the player-only stream).
+  let newRng: Map<HouseId, RngState> | null = null;
 
   for (const forgery of sortedForgeries) {
     if (forgery.surfaced) continue;
-    const { next: roll, rngState: nextRng } = drawNext(rngState);
-    rngState = nextRng;
-    rngChanged = true;
+    // Resolve the owner from the forged instance (R2: the cascade/penalty target
+    // is the OWNER house, not the hardcoded player). Orphaned forgery (instance
+    // gone) → skip.
+    const inst = state.artifactInstances.get(forgery.forgedArtifactInstanceId);
+    if (inst === undefined) continue;
+    const ownerHouseId = inst.ownerHouseId;
+    const ownerHead = state.houses.get(ownerHouseId)?.headOfHouseCharacterId;
+    // Owner stream. Defensive skip if the owner house lacks an rng entry
+    // (synthetic test states) — no rolls, no mutation.
+    const ownerRng = (newRng ?? state.rng).get(ownerHouseId);
+    if (ownerRng === undefined) continue;
+
+    // (a) Surfacing roll.
+    const { next: roll, rngState: afterSurfaceRng } = drawNext(ownerRng);
+    if (newRng === null) newRng = new Map(state.rng);
+    newRng.set(ownerHouseId, afterSurfaceRng);
+
     if (Math.floor(roll * 10000) < FORGERY_SURFACING_PROBABILITY_BASIS_POINTS) {
       if (!forgChanged) {
         newForgeries = new Map(state.forgeries);
         forgChanged = true;
       }
       newForgeries.set(forgery.id, { ...forgery, surfaced: true, surfacedAtTick: state.tick });
-      if (playerHead === undefined) continue;
-      // Cascade — walk ALL characters in lex order, hit Vain NPCs.
-      const sortedChars = [...state.characters.values()].sort((a, b) => a.id.localeCompare(b.id));
+      if (ownerHead === undefined) continue;
+      // Public Vain cascade — non-owner-house alive Vain NPCs, lex order.
       for (const ch of sortedChars) {
         if (!ch.alive) continue;
-        if (ch.houseId === PLAYER_HOUSE_ID) continue;
+        if (ch.houseId === ownerHouseId) continue;
         if (!ch.traits.includes(VAIN_TRAIT_ID)) continue;
-        // LOAD-BEARING: read from newChars accumulator (NOT state.characters).
-        // On the first cascade hit we clone state.characters → newChars; for
-        // SUBSEQUENT same-pass cascades (multi-forgery surfacing in one tick)
-        // we honor prior mood-lock extensions via Math.max — without this,
-        // each cascade would re-clone from pristine state and lose accumulated
-        // locks. The strict `< state.tick` discipline doesn't apply here;
-        // this is a different invariant (multi-Map accumulator coherence per
-        // P6 precedent).
+        // LOAD-BEARING: read from newChars accumulator (NOT state.characters) so
+        // multi-forgery same-tick cascades honor prior mood-lock extensions
+        // (Math.max) per the P6 multi-Map accumulator precedent.
         if (!charsChanged) {
           newChars = new Map(state.characters);
           charsChanged = true;
@@ -395,25 +414,42 @@ export function applyForgerySurfacingPhase(state: GameState): GameState {
           mood: "Defensive",
           moodLockUntilTick: newLockUntil,
         });
-        // Affection drop (clamped [0, 100]). Default 0 per project convention.
-        const key = makePairKey(ch.houseId, playerHead);
+        const key = makePairKey(ch.houseId, ownerHead);
         if (!affChanged) {
           newAffection = new Map(state.affectionMap);
           affChanged = true;
         }
         const currentAff = newAffection.get(key) ?? 0;
-        const nextAff = clamp(currentAff + FORGERY_SURFACING_VAIN_AFFECTION_DELTA, 0, 100);
-        newAffection.set(key, nextAff);
+        newAffection.set(key, clamp(currentAff + FORGERY_SURFACING_VAIN_AFFECTION_DELTA, 0, 100));
       }
+    } else if (ownerHead !== undefined) {
+      // (b) E3 Observant PRIVATE detection (only when NOT surfaced this tick).
+      // Each Observant alive non-owner-house NPC rolls from the owner stream.
+      let rng = afterSurfaceRng;
+      for (const ch of sortedChars) {
+        if (!ch.alive) continue;
+        if (ch.houseId === ownerHouseId) continue;
+        if (!ch.traits.includes(OBSERVANT_TRAIT_ID)) continue;
+        const { next: detectRoll, rngState: afterDetect } = drawNext(rng);
+        rng = afterDetect;
+        if (Math.floor(detectRoll * 10000) < OBSERVANT_FORGERY_DETECTION_PROBABILITY_BASIS_POINTS) {
+          const key = makePairKey(ch.houseId, ownerHead);
+          if (!affChanged) {
+            newAffection = new Map(state.affectionMap);
+            affChanged = true;
+          }
+          const currentAff = newAffection.get(key) ?? 0;
+          newAffection.set(key, clamp(currentAff + OBSERVANT_FORGERY_AFFECTION_PENALTY, 0, 100));
+        }
+      }
+      // Write back the post-Observant owner stream (no-op extra draws if zero
+      // Observant NPCs — the surfacing draw was already written above).
+      newRng.set(ownerHouseId, rng);
     }
   }
 
   const result: GameState = { ...state };
-  if (rngChanged) {
-    const newRng = new Map(state.rng);
-    newRng.set(PLAYER_HOUSE_ID, rngState);
-    result.rng = newRng;
-  }
+  if (newRng !== null) result.rng = newRng;
   if (forgChanged) result.forgeries = newForgeries;
   if (charsChanged) result.characters = newChars;
   if (affChanged) result.affectionMap = newAffection;
@@ -429,47 +465,54 @@ export function applyForgerySurfacingPhase(state: GameState): GameState {
 // pass — strict less-than keeps just-created attempts in-flight for the
 // player to thwart on the next dispatch.
 export function applyThiefNoticePhase(state: GameState): GameState {
-  let rngState = getOrThrow(state.rng, PLAYER_HOUSE_ID);
-  let rngChanged = false;
   let attemptsChanged = false;
   let newAttempts = state.thiefAttempts;
   let artifactsChanged = false;
   let newArtifacts = state.artifactInstances;
   let charsChanged = false;
   let newChars = state.characters;
+  // P24b (E4): per-house rng accumulator (was player-only). Lazy-cloned.
+  let newRng: Map<HouseId, RngState> | null = null;
 
-  // Stage 1: gate on effective reputation.
-  const effectiveRep = getEffectiveReputation(state, PLAYER_HOUSE_ID);
-  if (effectiveRep >= THIEF_NOTICE_REPUTATION_THRESHOLD) {
-    // Stage 2: gate on at least one valuable equipped artifact.
-    const targeted = selectTargetedArtifactInstance(state);
-    if (targeted !== null) {
-      // Stage 3: roll.
-      const { next: roll, rngState: nextRng } = drawNext(rngState);
-      rngState = nextRng;
-      rngChanged = true;
-      if (Math.floor(roll * 10000) < THIEF_NOTICE_PROBABILITY_BASIS_POINTS) {
-        // Notice fires — create new in-flight ThiefAttempt.
-        const stateForId: GameState = { ...state, thiefAttempts: newAttempts };
-        const id = makeThiefAttemptId(stateForId, targeted.id);
-        const attempt: ThiefAttempt = {
-          id,
-          targetedArtifactInstanceId: targeted.id,
-          ownerCharacterId: targeted.ownerCharacterId,
-          noticedAtTick: state.tick,
-          thwarted: null,
-          resolvedAtTick: null,
-        };
-        if (!attemptsChanged) {
-          newAttempts = new Map(state.thiefAttempts);
-          attemptsChanged = true;
-        }
-        newAttempts.set(id, attempt);
+  // Notice-creation — P24b (E4): loop ALL houses in lex-houseId order. Per-house
+  // reputation gate + per-house valuable-artifact gate + per-house rng draw.
+  // Player thefts surface the thwart affordance (UI); non-player thefts
+  // auto-resolve in the sweep below. Houses with no rng stream are skipped
+  // (defensive — synthetic test states).
+  const sortedHouseIds = [...state.houses.keys()].sort((a, b) => a.localeCompare(b));
+  for (const houseId of sortedHouseIds) {
+    const houseRng = (newRng ?? state.rng).get(houseId);
+    if (houseRng === undefined) continue;
+    // Stage 1: per-house effective reputation gate.
+    if (getEffectiveReputation(state, houseId) < THIEF_NOTICE_REPUTATION_THRESHOLD) continue;
+    // Stage 2: at least one valuable equipped artifact owned by this house.
+    const targeted = selectTargetedArtifactInstance(state, houseId);
+    if (targeted === null) continue;
+    // Stage 3: roll from this house's stream.
+    const { next: roll, rngState: nextRng } = drawNext(houseRng);
+    if (newRng === null) newRng = new Map(state.rng);
+    newRng.set(houseId, nextRng);
+    if (Math.floor(roll * 10000) < THIEF_NOTICE_PROBABILITY_BASIS_POINTS) {
+      const stateForId: GameState = { ...state, thiefAttempts: newAttempts };
+      const id = makeThiefAttemptId(stateForId, targeted.id);
+      const attempt: ThiefAttempt = {
+        id,
+        targetedArtifactInstanceId: targeted.id,
+        ownerCharacterId: targeted.ownerCharacterId,
+        noticedAtTick: state.tick,
+        thwarted: null,
+        resolvedAtTick: null,
+      };
+      if (!attemptsChanged) {
+        newAttempts = new Map(state.thiefAttempts);
+        attemptsChanged = true;
       }
+      newAttempts.set(id, attempt);
     }
   }
 
-  // Auto-resolve sweep — strictly older attempts only.
+  // Auto-resolve sweep — strictly older attempts only (house-agnostic: covers
+  // player thefts not thwarted in time AND all non-player thefts).
   for (const [id, attempt] of state.thiefAttempts) {
     if (attempt.thwarted !== null) continue;
     if (attempt.noticedAtTick >= state.tick) continue;
@@ -512,11 +555,7 @@ export function applyThiefNoticePhase(state: GameState): GameState {
   }
 
   const result: GameState = { ...state };
-  if (rngChanged) {
-    const newRng = new Map(state.rng);
-    newRng.set(PLAYER_HOUSE_ID, rngState);
-    result.rng = newRng;
-  }
+  if (newRng !== null) result.rng = newRng;
   if (attemptsChanged) result.thiefAttempts = newAttempts;
   if (artifactsChanged) result.artifactInstances = newArtifacts;
   if (charsChanged) result.characters = newChars;
@@ -647,7 +686,13 @@ export function applyPreBallComposurePenaltyPure(state: GameState): GameState {
   for (const instId of playerHead.equippedArtifactIds) {
     const inst = state.artifactInstances.get(instId);
     if (!inst) continue;
-    if (state.tick - inst.lastRefreshTick > WARDROBE_REFRESH_INTERVAL_TICKS) {
+    // P24b (E2): per-family decay interval; the global constant is the fallback
+    // for an unknown/unresolvable definition.
+    const def = resolveArtifactDefinition(state, inst.definitionId);
+    const interval = def
+      ? WARDROBE_REFRESH_INTERVAL_BY_FAMILY[def.family]
+      : WARDROBE_REFRESH_INTERVAL_TICKS;
+    if (state.tick - inst.lastRefreshTick > interval) {
       outOfSeasonPenalty += PRE_BALL_COMPOSURE_PENALTY_PER_OUT_OF_SEASON_ARTIFACT;
     }
   }

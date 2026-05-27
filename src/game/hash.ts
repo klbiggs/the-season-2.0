@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import type { ConversationPairKey, Exchange } from "./conversation/types";
-import type { ArtifactDefinition } from "./fixtures/artifacts";
 import type {
   ArtifactInstance,
   Betrothal,
@@ -24,6 +23,7 @@ import type {
   TutorAssignmentLogEntry,
   Whisper,
 } from "./entities";
+import type { ArtifactDefinition } from "./fixtures/artifacts";
 import type {
   ArtifactDefinitionId,
   ArtifactInstanceId,

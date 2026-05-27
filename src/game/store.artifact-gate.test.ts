@@ -73,7 +73,9 @@ describe("P10 modal-state gate matrix — PlayerExiled", () => {
   });
   it("commissionForgery rejects PlayerExiled", () => {
     const store = setupWithExiled();
-    const result = store.getState().commissionForgery(DUMMY_CHAR, "sapphires" as ArtifactDefinitionId);
+    const result = store
+      .getState()
+      .commissionForgery(DUMMY_CHAR, "sapphires" as ArtifactDefinitionId);
     expect(result).toEqual({ ok: false, reason: { kind: "PlayerExiled" } });
   });
   it("thwartTheft rejects PlayerExiled", () => {
@@ -96,7 +98,9 @@ describe("P10 modal-state gate matrix — ElopementInProgress", () => {
   });
   it("commissionForgery rejects ElopementInProgress", () => {
     const store = setupWithActiveSprint();
-    const result = store.getState().commissionForgery(DUMMY_CHAR, "sapphires" as ArtifactDefinitionId);
+    const result = store
+      .getState()
+      .commissionForgery(DUMMY_CHAR, "sapphires" as ArtifactDefinitionId);
     expect(result).toEqual({ ok: false, reason: { kind: "ElopementInProgress" } });
   });
   it("thwartTheft rejects ElopementInProgress", () => {

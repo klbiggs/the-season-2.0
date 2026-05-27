@@ -1,6 +1,6 @@
 # P24b — Material Assets Depth: Artifacts, Wardrobe & Forgery (v1.5)
 
-> **Status: 📋 planned (fleshed).** Track: v1.5. Source: [MASTER.md §11.2-E](../MASTER.md#112-v15--deferred-backlog-aggregated-deduped) (+ the §11.2-D "rival-owned artifact loops" item, deliberately pulled forward — see E6). Split from the converged combined P24 (Stage E of three: P24a schemes/elopement · P24b artifacts · P24c staff).
+> **Status: ✅ implemented (all gates green; 967 tests incl. 30-run replay determinism).** Track: v1.5. Source: [MASTER.md §11.2-E](../MASTER.md#112-v15--deferred-backlog-aggregated-deduped) (+ the §11.2-D "rival-owned artifact loops" item, deliberately pulled forward — see E6). Split from the converged combined P24 (Stage E of three: P24a schemes/elopement · P24b artifacts · P24c staff).
 > Makes artifacts procedural and world-wide: generated definitions, per-family wardrobe decay, Observant-detected forgeries, thefts that target anyone, an explicit forger picker, and rival/society-owned artifact loops.
 
 ## Depends on

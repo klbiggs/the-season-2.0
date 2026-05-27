@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { bootstrapNpcMountFamily } from "../game/bootstrap";
 import { ConversationPairKeySchema, ExchangeSchema } from "../game/conversation/types";
-import { ArtifactDefinitionSchema } from "../game/fixtures/artifacts";
 import {
   ArtifactInstanceSchema,
   BetrothalSchema,
@@ -26,6 +25,7 @@ import {
   TutorAssignmentLogEntrySchema,
   WhisperSchema,
 } from "../game/entities";
+import { ArtifactDefinitionSchema } from "../game/fixtures/artifacts";
 import {
   ArtifactDefinitionIdSchema,
   ArtifactInstanceIdSchema,

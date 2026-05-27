@@ -25,6 +25,7 @@ import {
   type CourierPayload,
   type Duel,
   type FlavorContentEntry,
+  type ForgeryRecord,
   type GameState,
   GameStateSchema,
   type GlobalEvent,
@@ -141,6 +142,7 @@ enableMapSet();
 // (Import path is direct; not cyclic because bootstrap.ts only imports from
 // rng.ts + fixtures + constants.)
 import {
+  bootstrapNonPlayerArtifactsForInit,
   bootstrapNpcMountFamily,
   bootstrapPlayerArtifactsForInit,
   seedStartingFamily,
@@ -194,6 +196,20 @@ export function createInitialState(
   for (const d of seeded.proceduralArtifactDefinitions) {
     proceduralArtifactDefinitions.set(d.id, d);
   }
+  // P24b (E6): seed equipped procedural instances into rival + society houses
+  // from the transient `${seed}|procedural-artifact-instances` stream. Mutates
+  // `characters` + `artifactInstances` IN PLACE and populates `forgeries`. Runs
+  // AFTER the procedural defs Map is built (it picks from those definitions).
+  const forgeries = new Map<ForgeryId, ForgeryRecord>();
+  bootstrapNonPlayerArtifactsForInit(
+    characters,
+    houses,
+    proceduralArtifactDefinitions,
+    artifactInstances,
+    forgeries,
+    seed,
+    0,
+  );
   return {
     tick: 0,
     rng,
@@ -232,7 +248,7 @@ export function createInitialState(
     // head). Forgeries and thiefAttempts start empty — these grow at runtime
     // via commissionForgery / applyThiefNoticePhase.
     artifactInstances,
-    forgeries: new Map(),
+    forgeries,
     thiefAttempts: new Map(),
     // P24b: procedural artifact definitions (generated at bootstrap; persisted).
     proceduralArtifactDefinitions,

@@ -443,10 +443,16 @@ function resolveTreasonFraming(state: GameState, scheme: Scheme): GameState {
   if (rivalHouse === undefined) {
     throw new Error(`resolveTreasonFraming: target house ${target.houseId} missing`);
   }
-  // Pick LEX-FIRST unsurfaced forgery (deterministic).
+  // Pick LEX-FIRST unsurfaced forgery FORGED BY THE SCHEME OWNER'S HOUSE
+  // (deterministic). P24b (E6): non-player houses now own forgeries too, so the
+  // owner filter is load-bearing — without it the player's framing could consume
+  // a rival's forgery (procedural-def forgery ids lex-sort before fixture ones).
   let pickedForgeryId: typeof scheme.id | null = null; // brand-narrowed below
   const unsurfacedSorted = [...state.forgeries.values()]
-    .filter((f) => !f.surfaced)
+    .filter(
+      (f) =>
+        !f.surfaced && state.characters.get(f.forgerCharacterId)?.houseId === scheme.ownerHouseId,
+    )
     .sort((a, b) => a.id.localeCompare(b.id));
   const picked = unsurfacedSorted[0];
   if (picked === undefined) {

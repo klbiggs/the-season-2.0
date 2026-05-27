@@ -8,7 +8,7 @@ import {
   FORGERY_SURFACING_VAIN_AFFECTION_DELTA,
   FORGERY_SURFACING_VAIN_MOOD_LOCK_DURATION_TICKS,
   PRE_BALL_COMPOSURE_PENALTY_PER_OUT_OF_SEASON_ARTIFACT,
-  WARDROBE_REFRESH_INTERVAL_TICKS,
+  WARDROBE_REFRESH_INTERVAL_BY_FAMILY,
 } from "../constants";
 import { makePairKey } from "../conversation/types";
 import type { ArtifactInstance, ForgeryRecord, GameState, ThiefAttempt } from "../entities";
@@ -17,6 +17,7 @@ import {
   makeArtifactInstanceId,
   makeForgeryId,
   makeThiefAttemptId,
+  resolveArtifactDefinition,
 } from "../fixtures/artifacts";
 import { hashState } from "../hash";
 import {
@@ -64,21 +65,30 @@ function getPlayerHead(state: GameState) {
 
 describe("P10 artifact rules", () => {
   describe("createInitialState bootstrap", () => {
-    it("seeds 5 starting artifacts on fresh state (3 player + 2 NPC mounts)", () => {
-      // P12: createInitialState seeds 3 player artifacts AND 2 NPC mount
-      // instances (Lord Blackwood + Miss Carrington) via bootstrapNpcMountFamily.
+    it("seeds 5 fixture-def artifacts (3 player + 2 NPC mounts) + non-player procedural instances", () => {
+      // P12: 3 player artifacts + 2 NPC mount instances (Lord Blackwood + Miss
+      // Carrington). P24b (E6): rival + society houses also own equipped
+      // procedural instances. Split the assertion: the fixture-def subset is
+      // stable (5); procedural instances are present (count varies with tuning).
       const state = createInitialState("alpha", DEFAULT_CAMPAIGN_NAME);
-      expect(state.artifactInstances.size).toBe(5);
+      const fixtureOwned = [...state.artifactInstances.values()].filter((a) =>
+        ARTIFACT_REGISTRY.has(a.definitionId),
+      );
+      expect(fixtureOwned.length).toBe(5);
+      const proceduralOwned = [...state.artifactInstances.values()].filter(
+        (a) => !ARTIFACT_REGISTRY.has(a.definitionId),
+      );
+      expect(proceduralOwned.length).toBeGreaterThan(0);
     });
     it("player head has 2 equipped artifacts (sapphires + mount) at bootstrap", () => {
       const state = createInitialState("alpha", DEFAULT_CAMPAIGN_NAME);
       const { head } = getPlayerHead(state);
       expect(head.equippedArtifactIds.length).toBe(2);
     });
-    it("all 3 starting instances reference valid ARTIFACT_REGISTRY definitions", () => {
+    it("all starting instances reference a resolvable definition (fixture or procedural)", () => {
       const state = createInitialState("alpha", DEFAULT_CAMPAIGN_NAME);
       for (const inst of state.artifactInstances.values()) {
-        expect(ARTIFACT_REGISTRY.has(inst.definitionId)).toBe(true);
+        expect(resolveArtifactDefinition(state, inst.definitionId)).toBeDefined();
       }
     });
     it("starting artifact lastRefreshTick === 0 (in-season at bootstrap)", () => {
@@ -190,8 +200,14 @@ describe("P10 artifact rules", () => {
     });
     it("deducts composure when equipped artifacts are out-of-season", () => {
       const state = createInitialState("alpha", DEFAULT_CAMPAIGN_NAME);
-      // Set tick past the refresh interval to force out-of-season.
-      const ticksPast = WARDROBE_REFRESH_INTERVAL_TICKS + 5;
+      // P24b (E2): per-family intervals — push the tick past the LARGEST
+      // equipped family's interval (sapphires + mount equipped at bootstrap) so
+      // both equipped artifacts are out-of-season.
+      const ticksPast =
+        Math.max(
+          WARDROBE_REFRESH_INTERVAL_BY_FAMILY.sapphires,
+          WARDROBE_REFRESH_INTERVAL_BY_FAMILY.mount,
+        ) + 5;
       const after = applyPreBallComposurePenaltyPure({ ...state, tick: ticksPast });
       const { player, head: headBefore } = getPlayerHead(state);
       const headAfter = expectDefined(
@@ -209,7 +225,7 @@ describe("P10 artifact rules", () => {
       const state = createInitialState("alpha", DEFAULT_CAMPAIGN_NAME);
       // sapphires has reputationBonusWhileEquipped=8 (valuable >= 6).
       // mount has 3 (not valuable). sapphires is equipped at bootstrap.
-      const picked = selectTargetedArtifactInstance(state);
+      const picked = selectTargetedArtifactInstance(state, PLAYER_HOUSE_ID);
       const pickedInst = expectDefined(picked, "selectTargetedArtifactInstance result");
       expect(pickedInst.definitionId).toBe("sapphires");
     });
@@ -236,9 +252,19 @@ describe("P10 artifact rules", () => {
       const after = advanceTickPure(state);
       // tick incremented → advanceTickPhase ran (slot 1).
       expect(after.tick).toBe(state.tick + 1);
-      // No forgeries surfaced (size 0 → 0); no thief notices (rep below threshold).
-      expect(after.forgeries.size).toBe(0);
-      expect(after.thiefAttempts.size).toBe(0);
+      // A tick never CREATES forgeries (only commission does) — size invariant
+      // holds across the surfacing phase. P24b (E6): the bootstrap may seed
+      // non-player forgeries, so compare to the bootstrap count, not 0.
+      expect(after.forgeries.size).toBe(state.forgeries.size);
+      // No PLAYER-house thief notice (player rep below threshold at bootstrap).
+      // P24b (E4): non-player thefts may fire for rival/society houses, so scope
+      // the assertion to player-owned targets.
+      const playerThefts = [...after.thiefAttempts.values()].filter(
+        (t) =>
+          after.artifactInstances.get(t.targetedArtifactInstanceId)?.ownerHouseId ===
+          PLAYER_HOUSE_ID,
+      );
+      expect(playerThefts.length).toBe(0);
     });
 
     it("applyRivalActionPhase remains the terminal phase", () => {
@@ -627,7 +653,9 @@ describe("P10 artifact rules", () => {
       const commissioned = commission(stateReady, head.id, "sapphires" as ArtifactDefinitionId);
       expect(commissioned.ok).toBe(true);
       if (!commissioned.ok) return;
-      expect(commissioned.state.forgeries.size).toBe(1);
+      // P24b (E6): bootstrap may seed non-player forgeries, so assert the delta
+      // (commission adds exactly one) rather than an absolute count.
+      expect(commissioned.state.forgeries.size).toBe(stateReady.forgeries.size + 1);
       // Pick a rival head as the target (RIVAL_HOUSES_FIXTURE seeds 3 rivals).
       const rivalChar = expectDefined(
         [...commissioned.state.characters.values()].find(

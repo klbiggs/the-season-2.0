@@ -4,7 +4,7 @@
 // bypassed (the bootstrap.ts throw-on-unknown-id hazard, plan E1). This scans the
 // source tree and fails on any stray bare `.get` call against the registry.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -39,8 +39,9 @@ describe("ARTIFACT_REGISTRY.get is confined to the resolver module", () => {
         offenders.push(file.slice(file.indexOf("/src/") + 1));
       }
     }
-    expect(offenders, `Route these through resolveArtifactDefinition:\n${offenders.join("\n")}`).toEqual(
-      [],
-    );
+    expect(
+      offenders,
+      `Route these through resolveArtifactDefinition:\n${offenders.join("\n")}`,
+    ).toEqual([]);
   });
 });

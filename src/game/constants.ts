@@ -877,8 +877,9 @@ export const OBSERVANT_FORGERY_AFFECTION_PENALTY = -4; // smaller than the Vain 
 
 // E6: non-player artifact seeding at bootstrap. Rival + society houses own
 // equipped procedural instances (drawn from a transient sub-stream, discarded).
-export const NON_PLAYER_ARTIFACT_SEED_COUNT_PER_RIVAL = 1;
-export const SOCIETY_ARTIFACT_HOLDER_COUNT = 4; // first N society NPCs (lex by id) get an equipped instance
+// One equipped instance per eligible owner: each rival house head + the first
+// SOCIETY_ARTIFACT_HOLDER_COUNT society NPCs (lex by id).
+export const SOCIETY_ARTIFACT_HOLDER_COUNT = 4;
 export const NON_PLAYER_FORGED_INSTANCE_PCT = 40; // % of forgeable seeded instances flagged forged (→ E3/surfacing targets)
 
 if (PROCEDURAL_ARTIFACT_REP_MIN > PROCEDURAL_ARTIFACT_REP_MAX) {

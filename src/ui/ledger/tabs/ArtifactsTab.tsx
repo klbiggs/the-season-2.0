@@ -55,7 +55,10 @@ export function ArtifactsTab({ store }: Props) {
   // procedural defs). The resolver only reads proceduralArtifactDefinitions, so
   // a minimal synth-state suffices (the `?? fixture` half resolves the rest).
   const resolveDef = (definitionId: ArtifactDefinitionId) =>
-    resolveArtifactDefinition({ proceduralArtifactDefinitions } as unknown as GameState, definitionId);
+    resolveArtifactDefinition(
+      { proceduralArtifactDefinitions } as unknown as GameState,
+      definitionId,
+    );
   // Display name for a targeted instance (theft banners / history), falling back
   // to a generic label when the instance or definition is gone.
   const displayNameForInstance = (instId: ArtifactInstanceId): string => {
