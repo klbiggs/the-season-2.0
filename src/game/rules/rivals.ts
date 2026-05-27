@@ -234,6 +234,51 @@ function dispatchRivalAction(
       );
       return { kind: "Fired", action: "RaiseFactionTension" };
     }
+    case "Seduction": {
+      // P24a: a rival runs a Seduction against the lex-smallest alive
+      // player-house character. tryStartScheme creates the Active scheme; the
+      // discovery branch (applySchemeResolutionPhase) later mounts a NON-player
+      // auto-resolving sprint and lands the discovery scandal on the rival
+      // (owner) house. The per-aggressor Q2 gate may reject if the rival head
+      // already runs an Active Seduction (→ Skipped/OtherRejection).
+      const candidates: CharacterId[] = [];
+      for (const c of state.characters.values()) {
+        if (c.houseId === PLAYER_HOUSE_ID && c.alive) candidates.push(c.id);
+      }
+      candidates.sort();
+      const targetCharId = candidates[0];
+      if (targetCharId === undefined) {
+        return { kind: "Skipped", reason: "PlayerHouseNotFound" };
+      }
+      const accState: GameState = {
+        ...state,
+        houses: acc.houses ?? state.houses,
+        schemes: acc.schemes ?? state.schemes,
+        rng: acc.rng ?? state.rng,
+        whispers: acc.whispers ?? state.whispers,
+        couriers: acc.couriers ?? state.couriers,
+        factionTensions: acc.factionTensions ?? state.factionTensions,
+      };
+      const result = tryStartScheme(accState, rival.houseId, {
+        kind: "Seduction",
+        targetCharacterId: targetCharId,
+        skipWealthDeduction: true,
+      });
+      if (result.ok) {
+        acc.schemes ??= new Map(state.schemes);
+        const newScheme = result.state.schemes.get(result.schemeId);
+        if (newScheme !== undefined) acc.schemes.set(result.schemeId, newScheme);
+        acc.houses ??= new Map(state.houses);
+        for (const [hid, h] of result.state.houses) {
+          if (acc.houses.get(hid) !== h) acc.houses.set(hid, h);
+        }
+        return { kind: "Fired", action: "Seduction" };
+      }
+      if (result.reason.kind === "TargetIsDead") {
+        return { kind: "Skipped", reason: "TargetDead" };
+      }
+      return { kind: "Skipped", reason: "OtherRejection" };
+    }
   }
 }
 

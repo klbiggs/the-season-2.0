@@ -599,10 +599,6 @@ export const TEMPTATION_DISCOUNTED_SCANDAL = 5;
 export const ABANDONMENT_SCANDAL = 30;
 export const ABANDONMENT_RIVAL_HOSTILITY_BUMP = 15;
 
-// P24a (C8): synthetic NPC/rival schemes seeded at bootstrap from a transient
-// RNG sub-stream for opening-turn covert pressure.
-export const STARTING_SCHEME_COUNT = 2;
-
 // Spec §3 "Tutor Influence" (line 471-476).
 export const TUTOR_REASSIGNMENT_WEALTH_COST = 5;
 
@@ -664,19 +660,21 @@ export const RIVAL_HOSTILITY_ACTIVATION_THRESHOLD = 25;
 export const RIVAL_HOSTILITY_DECAY_PER_TICK = -1;
 export const RIVAL_ACTION_COOLDOWN_TICKS = 8;
 
-// Spec §3 line 405 — base weights for the 4 rival actions. Integer-scaled
-// (×100) in computeEffectiveWeights to avoid IEEE-754 cross-engine variance.
+// Spec §3 line 405 — base weights for the 5 rival actions (P24a added Seduction).
+// Integer-scaled (×100) in computeEffectiveWeights to avoid IEEE-754 cross-engine
+// variance.
 export const RIVAL_ACTION_KINDS = [
   "LeakWhisper",
   "PettySabotage",
   "OpenSabotage",
   "RaiseFactionTension",
+  "Seduction",
 ] as const;
 export type RivalActionKind = (typeof RIVAL_ACTION_KINDS)[number];
 
-if (RIVAL_ACTION_KINDS.length !== 4) {
+if (RIVAL_ACTION_KINDS.length !== 5) {
   throw new Error(
-    "RIVAL_ACTION_KINDS length pinned to 4 — bump save version and update tests if changing",
+    "RIVAL_ACTION_KINDS length pinned to 5 — bump save version and update tests if changing",
   );
 }
 
@@ -685,6 +683,7 @@ export const RIVAL_ACTION_WEIGHTS: Readonly<Record<RivalActionKind, number>> = {
   PettySabotage: 2,
   OpenSabotage: 2,
   RaiseFactionTension: 1,
+  Seduction: 1,
 };
 
 // Module-load assertion: every kind has a positive base weight.
