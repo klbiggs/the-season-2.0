@@ -11,7 +11,9 @@ import { applyAbandonMarriagePure } from "./abandonMarriage";
 const M_ID = "m-abandon" as MarriageId;
 const PLAYER_SPOUSE = "player-spouse" as CharacterId;
 const OTHER_SPOUSE = "other-spouse" as CharacterId;
-const RIVAL_HOUSE_ID = RIVAL_HOUSES_FIXTURE[0]!.houseId;
+const [firstRivalHouse] = RIVAL_HOUSES_FIXTURE;
+if (firstRivalHouse === undefined) throw new Error("RIVAL_HOUSES_FIXTURE must be non-empty");
+const RIVAL_HOUSE_ID = firstRivalHouse.houseId;
 
 function setup(
   opts: { otherHouseId?: HouseId; otherHostility?: number; playerScandal?: number } = {},

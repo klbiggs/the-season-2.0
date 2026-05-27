@@ -301,9 +301,32 @@ export function tryStartScheme(
   // CLAUDE.md pure-rule structural-sharing contract.
   const durationTicks = SCHEME_TUNING[kind].durationTicks;
   // P11: explicitAggressorCharacterId overrides selectAggressor's archetype-gated
-  // pick (sibling-rival passes its own characterId; player-elected paths leave undefined).
-  const aggressorCharacterId =
-    input.explicitAggressorCharacterId ?? selectAggressor(state, ownerHouseId, kind);
+  // pick (sibling-rival passes its own characterId; player-elected C2 picker passes
+  // the player's chosen family member). P24a hardening: validate the supplied
+  // aggressor against the SAME constraints selectAggressor enforces. The
+  // house-level MissingArchetype gate above only proves SOME member of the house
+  // qualifies — NOT that the CHOSEN one does. Without this, the C2 picker could
+  // assign an ineligible (wrong-archetype) member to an archetype-gated scheme
+  // (Chaperone needs Spymaster; Assassination/TreasonFraming need a Rake/Exile),
+  // bypassing the prerequisite. Reject (never throw) so the sibling-rival
+  // dispatcher degrades to its existing `result.ok ? state` no-op instead of
+  // crashing the deterministic tick chain; its AutoSabotageScheme passes a live
+  // in-house actor for kind Sabotage (empty prereq), so it is unaffected.
+  let aggressorCharacterId: CharacterId;
+  if (input.explicitAggressorCharacterId !== undefined) {
+    const aggressor = state.characters.get(input.explicitAggressorCharacterId);
+    if (
+      aggressor === undefined ||
+      !aggressor.alive ||
+      aggressor.houseId !== ownerHouseId ||
+      (acceptable.length > 0 && !acceptable.includes(aggressor.archetype))
+    ) {
+      return { ok: false, reason: { kind: "MissingArchetype", required: acceptable } };
+    }
+    aggressorCharacterId = input.explicitAggressorCharacterId;
+  } else {
+    aggressorCharacterId = selectAggressor(state, ownerHouseId, kind);
+  }
 
   // P9 Q2 gate — per-aggressor Seduction concurrency check.
   // Inserted post-selectAggressor (so aggressorCharacterId is in scope) and

@@ -737,6 +737,80 @@ describe("selectAggressor — validation walk == aggressor walk invariant", () =
     expect(aggressor?.houseId).toBe(PLAYER_HOUSE_ID);
   });
 
+  // P24a hardening: the C2 aggressor picker passes explicitAggressorCharacterId.
+  // The house-level MissingArchetype gate only proves SOME member qualifies — so
+  // a player whose family contains a Spymaster could otherwise pick a non-Spymaster
+  // as the Chaperone aggressor and bypass the prerequisite. The explicit aggressor
+  // must itself satisfy the archetype gate.
+  it("rejects an explicit aggressor that does NOT satisfy the archetype prerequisite", () => {
+    const ineligibleHead = makeCharacter({
+      id: "player-head" as CharacterId, // matches synthStateWith's head id
+      houseId: PLAYER_HOUSE_ID,
+      archetype: "None",
+    });
+    const spymasterAunt = makeCharacter({
+      id: "spymaster-aunt" as CharacterId,
+      houseId: PLAYER_HOUSE_ID,
+      archetype: "Spymaster",
+    });
+    const npcTarget = makeCharacter({
+      id: TARGET_ID,
+      houseId: INDEPENDENT_HOUSE_ID,
+    });
+    const state = synthStateWith({
+      characters: new Map([
+        [ineligibleHead.id, ineligibleHead],
+        [spymasterAunt.id, spymasterAunt],
+        [npcTarget.id, npcTarget],
+      ]),
+    });
+    // Family HAS a Spymaster (house gate passes), but the chosen aggressor is the
+    // None-archetype head → must reject rather than launch with an ineligible aggressor.
+    const result = tryStartScheme(state, PLAYER_HOUSE_ID, {
+      kind: "Chaperone",
+      targetCharacterId: TARGET_ID,
+      explicitAggressorCharacterId: ineligibleHead.id,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.reason.kind).toBe("MissingArchetype");
+    // No scheme registered, no wealth deducted (atomic gating).
+    expect(state.schemes.size).toBe(0);
+  });
+
+  it("accepts an explicit aggressor that DOES satisfy the archetype prerequisite", () => {
+    const ineligibleHead = makeCharacter({
+      id: "player-head" as CharacterId,
+      houseId: PLAYER_HOUSE_ID,
+      archetype: "None",
+    });
+    const spymasterAunt = makeCharacter({
+      id: "spymaster-aunt" as CharacterId,
+      houseId: PLAYER_HOUSE_ID,
+      archetype: "Spymaster",
+    });
+    const npcTarget = makeCharacter({
+      id: TARGET_ID,
+      houseId: INDEPENDENT_HOUSE_ID,
+    });
+    const state = synthStateWith({
+      characters: new Map([
+        [ineligibleHead.id, ineligibleHead],
+        [spymasterAunt.id, spymasterAunt],
+        [npcTarget.id, npcTarget],
+      ]),
+    });
+    const result = tryStartScheme(state, PLAYER_HOUSE_ID, {
+      kind: "Chaperone",
+      targetCharacterId: TARGET_ID,
+      explicitAggressorCharacterId: spymasterAunt.id,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    const scheme = result.state.schemes.get(result.schemeId);
+    expect(scheme?.aggressorCharacterId).toBe(spymasterAunt.id);
+  });
+
   it("empty-acceptable kinds bind aggressor to the head of house", () => {
     const state = synthStateWith();
     const result = tryStartScheme(state, PLAYER_HOUSE_ID, {
