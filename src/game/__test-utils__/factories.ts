@@ -64,6 +64,8 @@ export function makeGameState(overrides: Partial<GameState> = {}): GameState {
     artifactInstances: new Map<ArtifactInstanceId, ArtifactInstance>(),
     forgeries: new Map<ForgeryId, ForgeryRecord>(),
     thiefAttempts: new Map<ThiefAttemptId, ThiefAttempt>(),
+    // P24b default — empty procedural artifact definitions (tests opt in).
+    proceduralArtifactDefinitions: new Map(),
     // P13 default — empty global events at fresh state.
     globalEvents: new Map<GlobalEventId, GlobalEvent>(),
     // P18 default — empty flavor content at fresh state.

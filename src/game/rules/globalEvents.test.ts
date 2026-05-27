@@ -24,6 +24,7 @@ import {
 import type { ArtifactInstance, GameState, GlobalEvent } from "../entities";
 import { ARTIFACT_FAMILIES, ARTIFACT_REGISTRY, type ArtifactFamily } from "../fixtures/artifacts";
 import {
+  type ArtifactDefinitionId,
   type ArtifactInstanceId,
   type CharacterId,
   type GlobalEventId,
@@ -357,7 +358,7 @@ describe("MonarchsMood per-tick effects", () => {
           "m" as ArtifactInstanceId,
           {
             id: "m" as ArtifactInstanceId,
-            definitionId: "sapphires",
+            definitionId: "sapphires" as ArtifactDefinitionId,
             ownerHouseId: PLAYER_HOUSE_ID,
             ownerCharacterId: PLAYER_HEAD_ID,
             lastRefreshTick: 0,
@@ -395,7 +396,7 @@ describe("MonarchsMood per-tick effects", () => {
           instId,
           {
             id: instId,
-            definitionId: "sapphires",
+            definitionId: "sapphires" as ArtifactDefinitionId,
             ownerHouseId: PLAYER_HOUSE_ID,
             ownerCharacterId: deadHeadId,
             lastRefreshTick: 0,

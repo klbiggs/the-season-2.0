@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { makeCharacter, makeGameState, makeHouse } from "../../../game/__test-utils__/factories";
 import type { ArtifactInstance, GameState, ThiefAttempt } from "../../../game/entities";
 import {
+  type ArtifactDefinitionId,
   type ArtifactInstanceId,
   type CharacterId,
   PLAYER_HOUSE_ID,
@@ -27,7 +28,7 @@ function stateWithUnequippedSapphires(overrides: Partial<GameState> = {}): GameS
   });
   const instance: ArtifactInstance = {
     id: SAPPHIRES,
-    definitionId: "sapphires",
+    definitionId: "sapphires" as ArtifactDefinitionId,
     ownerHouseId: PLAYER_HOUSE_ID,
     ownerCharacterId: HEAD,
     lastRefreshTick: 0,
@@ -102,7 +103,7 @@ describe("ArtifactsTab (matrix #22-29)", () => {
     const snuffbox = "artifact-snuffbox-0" as ArtifactInstanceId;
     const equipped: ArtifactInstance = {
       id: SAPPHIRES,
-      definitionId: "sapphires",
+      definitionId: "sapphires" as ArtifactDefinitionId,
       ownerHouseId: PLAYER_HOUSE_ID,
       ownerCharacterId: HEAD,
       lastRefreshTick: 0,
@@ -110,7 +111,7 @@ describe("ArtifactsTab (matrix #22-29)", () => {
     };
     const unequippedOverdue: ArtifactInstance = {
       id: snuffbox,
-      definitionId: "snuffbox",
+      definitionId: "snuffbox" as ArtifactDefinitionId,
       ownerHouseId: PLAYER_HOUSE_ID,
       ownerCharacterId: HEAD,
       lastRefreshTick: 0,
@@ -146,7 +147,7 @@ describe("ArtifactsTab (matrix #22-29)", () => {
     });
     const equipped: ArtifactInstance = {
       id: SAPPHIRES,
-      definitionId: "sapphires",
+      definitionId: "sapphires" as ArtifactDefinitionId,
       ownerHouseId: PLAYER_HOUSE_ID,
       ownerCharacterId: HEAD,
       lastRefreshTick: 0,

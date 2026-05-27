@@ -63,6 +63,7 @@ function makeState(overrides: Partial<GameState>): GameState {
     artifactInstances: new Map(),
     forgeries: new Map(),
     thiefAttempts: new Map(),
+    proceduralArtifactDefinitions: new Map(),
     globalEvents: new Map(),
     flavorText: new Map(),
     betrothals: new Map(),

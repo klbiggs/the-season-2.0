@@ -46,6 +46,10 @@ export type FactionPairKey = string & { readonly __brand: "FactionPairKey" };
 export type ArtifactInstanceId = string & { readonly __brand: "ArtifactInstanceId" };
 export type ForgeryId = string & { readonly __brand: "ForgeryId" };
 export type ThiefAttemptId = string & { readonly __brand: "ThiefAttemptId" };
+// P24b: artifact DEFINITION id (registry key + procedural `proc-artifact-<i>`).
+// Distinct brand from ArtifactInstanceId — the definition is the type, the
+// instance is the per-owner copy; they coexist on ArtifactInstance.
+export type ArtifactDefinitionId = string & { readonly __brand: "ArtifactDefinitionId" };
 // P11: brands for the three new sibling-rival / inherited-secret / blood-feud
 // entities. SiblingRivalActorId is unique-by-construction (one actor per
 // promoted sibling Character). InheritedSecretId is index-counted per
@@ -126,6 +130,10 @@ export const FactionPairKeySchema = z.string().transform((s) => s as FactionPair
 export const ArtifactInstanceIdSchema = z.string().transform((s) => s as ArtifactInstanceId);
 export const ForgeryIdSchema = z.string().transform((s) => s as ForgeryId);
 export const ThiefAttemptIdSchema = z.string().transform((s) => s as ThiefAttemptId);
+// P24b: brand schema for ArtifactDefinitionId. Used by ArtifactDefinitionSchema.id,
+// ArtifactInstanceSchema.definitionId, and z.map(ArtifactDefinitionIdSchema, ...)
+// for state.proceduralArtifactDefinitions.
+export const ArtifactDefinitionIdSchema = z.string().transform((s) => s as ArtifactDefinitionId);
 // P11: brand schemas for SiblingRivalActorId / InheritedSecretId / BloodFeudId.
 // These IDs are stored on House arrays (siblingRivals/inheritedSecrets/bloodFeuds),
 // NOT top-level Maps. Same `.transform` pattern; round-trip stability is byte-exact.

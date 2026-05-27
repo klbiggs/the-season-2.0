@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ConversationPairKey, Exchange } from "./conversation/types";
+import type { ArtifactDefinition } from "./fixtures/artifacts";
 import type {
   ArtifactInstance,
   Betrothal,
@@ -24,6 +25,7 @@ import type {
   Whisper,
 } from "./entities";
 import type {
+  ArtifactDefinitionId,
   ArtifactInstanceId,
   BetrothalId,
   CharacterId,
@@ -91,6 +93,9 @@ export function hashableState(state: GameState): {
   artifactInstances: Array<[ArtifactInstanceId, ArtifactInstance]>;
   forgeries: Array<[ForgeryId, ForgeryRecord]>;
   thiefAttempts: Array<[ThiefAttemptId, ThiefAttempt]>;
+  // P24b: procedural artifact definitions. Seed-deterministic + persisted →
+  // replay-stable; in the hash like any registry-in-state. Lex-sorted via serializeRegistry.
+  proceduralArtifactDefinitions: Array<[ArtifactDefinitionId, ArtifactDefinition]>;
   // P13: global events Map (the era flip itself is captured by the `era`
   // field already; this projection captures the event lifecycle entries).
   // Lex-sorted via serializeRegistry.
@@ -137,6 +142,8 @@ export function hashableState(state: GameState): {
     artifactInstances: serializeRegistry(state.artifactInstances),
     forgeries: serializeRegistry(state.forgeries),
     thiefAttempts: serializeRegistry(state.thiefAttempts),
+    // P24b: procedural artifact definitions. Lex-sorted via serializeRegistry.
+    proceduralArtifactDefinitions: serializeRegistry(state.proceduralArtifactDefinitions),
     // P13: global events Map. Lex-sorted via serializeRegistry.
     globalEvents: serializeRegistry(state.globalEvents),
     // P18: generated flavor content. Lex-sorted via serializeRegistry.

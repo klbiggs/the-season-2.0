@@ -20,6 +20,7 @@ import {
 } from "../fixtures/artifacts";
 import { hashState } from "../hash";
 import {
+  type ArtifactDefinitionId,
   type ArtifactInstanceId,
   type CharacterId,
   type HouseId,
@@ -256,10 +257,10 @@ describe("P10 artifact rules", () => {
       const state = createInitialState("max-family", DEFAULT_CAMPAIGN_NAME);
       const { head } = getPlayerHead(state);
       // Mint a second sapphires instance owned by the head.
-      const secondId = makeArtifactInstanceId(state, "sapphires");
+      const secondId = makeArtifactInstanceId(state, "sapphires" as ArtifactDefinitionId);
       const secondInst: ArtifactInstance = {
         id: secondId,
-        definitionId: "sapphires",
+        definitionId: "sapphires" as ArtifactDefinitionId,
         ownerHouseId: PLAYER_HOUSE_ID,
         ownerCharacterId: head.id,
         lastRefreshTick: state.tick,
@@ -510,10 +511,10 @@ describe("P10 artifact rules", () => {
         alive: true,
       });
       // Mint a snuffbox instance owned by the family member.
-      const snuffboxId = makeArtifactInstanceId(state, "snuffbox");
+      const snuffboxId = makeArtifactInstanceId(state, "snuffbox" as ArtifactDefinitionId);
       const snuffboxInst: ArtifactInstance = {
         id: snuffboxId,
-        definitionId: "snuffbox",
+        definitionId: "snuffbox" as ArtifactDefinitionId,
         ownerHouseId: PLAYER_HOUSE_ID,
         ownerCharacterId: familyMemberId,
         lastRefreshTick: state.tick,
@@ -623,7 +624,7 @@ describe("P10 artifact rules", () => {
       const stateReady: GameState = { ...state, characters: newChars, houses: newHouses };
       // Commission a sapphires forgery.
       const { applyCommissionForgeryPure: commission } = await import("./artifacts");
-      const commissioned = commission(stateReady, head.id, "sapphires");
+      const commissioned = commission(stateReady, head.id, "sapphires" as ArtifactDefinitionId);
       expect(commissioned.ok).toBe(true);
       if (!commissioned.ok) return;
       expect(commissioned.state.forgeries.size).toBe(1);

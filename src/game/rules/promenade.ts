@@ -27,7 +27,7 @@ import type { GameState } from "../entities";
 // MOUNT_FAMILY narrows "mount" to the typed ArtifactFamily literal —
 // single source of truth shared with src/game/bootstrap.ts's
 // bootstrapNpcMountFamily helper (which imports MOUNT_FAMILY from here).
-import { ARTIFACT_REGISTRY, type ArtifactFamily } from "../fixtures/artifacts";
+import { type ArtifactFamily, resolveArtifactDefinition } from "../fixtures/artifacts";
 import type { LocationId } from "../fixtures/locations";
 import { RIVAL_CHARACTER_IDS_SET } from "../fixtures/rivals";
 import {
@@ -210,7 +210,7 @@ export function characterEquipsMountFamily(
   for (const instId of equippedArtifactIds) {
     const inst = state.artifactInstances.get(instId);
     if (inst === undefined) continue;
-    const def = ARTIFACT_REGISTRY.get(inst.definitionId);
+    const def = resolveArtifactDefinition(state, inst.definitionId);
     if (def === undefined) continue;
     if (def.family === MOUNT_FAMILY) return true;
   }

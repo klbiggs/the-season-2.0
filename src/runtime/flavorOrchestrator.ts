@@ -22,7 +22,7 @@
 
 import { FLAVOR_REQUEST_TIMEOUT_MS } from "../game/constants";
 import type { GameState } from "../game/entities";
-import { ARTIFACT_REGISTRY } from "../game/fixtures/artifacts";
+import { resolveArtifactDefinition } from "../game/fixtures/artifacts";
 import { PLAYER_HOUSE_ID } from "../game/rng";
 import type { FlavorContentId } from "../game/rng";
 import type { StoreState } from "../game/store";
@@ -170,7 +170,7 @@ export function aggregateScandalEvents(state: GameState, sinceTick: number): str
       const defName =
         inst === undefined
           ? "an heirloom"
-          : (ARTIFACT_REGISTRY.get(inst.definitionId)?.displayName ?? inst.definitionId);
+          : (resolveArtifactDefinition(state, inst.definitionId)?.displayName ?? inst.definitionId);
       events.push({
         tick: forgery.surfacedAtTick as number,
         text: `a forged ${defName} was exposed as counterfeit`,

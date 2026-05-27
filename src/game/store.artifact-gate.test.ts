@@ -10,7 +10,14 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import type { ElopementSprintState } from "./entities";
-import type { ArtifactInstanceId, CharacterId, ElopementId, SchemeId, ThiefAttemptId } from "./rng";
+import type {
+  ArtifactDefinitionId,
+  ArtifactInstanceId,
+  CharacterId,
+  ElopementId,
+  SchemeId,
+  ThiefAttemptId,
+} from "./rng";
 import { PLAYER_HOUSE_ID } from "./rng";
 import { createStore } from "./store";
 
@@ -66,7 +73,7 @@ describe("P10 modal-state gate matrix — PlayerExiled", () => {
   });
   it("commissionForgery rejects PlayerExiled", () => {
     const store = setupWithExiled();
-    const result = store.getState().commissionForgery(DUMMY_CHAR, "sapphires");
+    const result = store.getState().commissionForgery(DUMMY_CHAR, "sapphires" as ArtifactDefinitionId);
     expect(result).toEqual({ ok: false, reason: { kind: "PlayerExiled" } });
   });
   it("thwartTheft rejects PlayerExiled", () => {
@@ -89,7 +96,7 @@ describe("P10 modal-state gate matrix — ElopementInProgress", () => {
   });
   it("commissionForgery rejects ElopementInProgress", () => {
     const store = setupWithActiveSprint();
-    const result = store.getState().commissionForgery(DUMMY_CHAR, "sapphires");
+    const result = store.getState().commissionForgery(DUMMY_CHAR, "sapphires" as ArtifactDefinitionId);
     expect(result).toEqual({ ok: false, reason: { kind: "ElopementInProgress" } });
   });
   it("thwartTheft rejects ElopementInProgress", () => {

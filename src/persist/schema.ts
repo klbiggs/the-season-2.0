@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { bootstrapNpcMountFamily } from "../game/bootstrap";
 import { ConversationPairKeySchema, ExchangeSchema } from "../game/conversation/types";
+import { ArtifactDefinitionSchema } from "../game/fixtures/artifacts";
 import {
   ArtifactInstanceSchema,
   BetrothalSchema,
@@ -26,6 +27,7 @@ import {
   WhisperSchema,
 } from "../game/entities";
 import {
+  ArtifactDefinitionIdSchema,
   ArtifactInstanceIdSchema,
   BetrothalIdSchema,
   CharacterIdSchema,
@@ -81,6 +83,12 @@ export const SaveV1Schema = z.object({
   artifactInstances: z.array(z.tuple([ArtifactInstanceIdSchema, ArtifactInstanceSchema])),
   forgeries: z.array(z.tuple([ForgeryIdSchema, ForgeryRecordSchema])),
   thiefAttempts: z.array(z.tuple([ThiefAttemptIdSchema, ThiefAttemptSchema])),
+  // P24b: procedural artifact definitions (persisted; re-read verbatim, never
+  // regenerated — campaignSeed is not persisted). Save-format z.array(z.tuple)
+  // mirror of the in-memory z.map (same bridge as artifactInstances).
+  proceduralArtifactDefinitions: z.array(
+    z.tuple([ArtifactDefinitionIdSchema, ArtifactDefinitionSchema]),
+  ),
   globalEvents: z.array(z.tuple([GlobalEventIdSchema, GlobalEventSchema])),
   flavorText: z.array(z.tuple([FlavorContentIdSchema, FlavorContentEntrySchema])),
   // P23: betrothal registry. Save-format z.array(z.tuple) mirror of the
@@ -118,6 +126,7 @@ export function toSaveV1(state: GameState): SaveV1 {
     artifactInstances: serializeRegistry(state.artifactInstances),
     forgeries: serializeRegistry(state.forgeries),
     thiefAttempts: serializeRegistry(state.thiefAttempts),
+    proceduralArtifactDefinitions: serializeRegistry(state.proceduralArtifactDefinitions),
     globalEvents: serializeRegistry(state.globalEvents),
     flavorText: serializeRegistry(state.flavorText),
     betrothals: serializeRegistry(state.betrothals),
@@ -160,6 +169,9 @@ export function fromSaveV1Bare(save: SaveV1): GameState {
     ) as GameState["artifactInstances"],
     forgeries: deserializeRegistry(save.forgeries) as GameState["forgeries"],
     thiefAttempts: deserializeRegistry(save.thiefAttempts) as GameState["thiefAttempts"],
+    proceduralArtifactDefinitions: deserializeRegistry(
+      save.proceduralArtifactDefinitions,
+    ) as GameState["proceduralArtifactDefinitions"],
     globalEvents: deserializeRegistry(save.globalEvents) as GameState["globalEvents"],
     flavorText: deserializeRegistry(save.flavorText) as GameState["flavorText"],
     betrothals: deserializeRegistry(save.betrothals) as GameState["betrothals"],

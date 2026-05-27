@@ -25,6 +25,7 @@ export type {
   GrievanceId,
   DuelId,
   ArtifactInstanceId,
+  ArtifactDefinitionId,
   ForgeryId,
   ThiefAttemptId,
   PromenadeSessionId,

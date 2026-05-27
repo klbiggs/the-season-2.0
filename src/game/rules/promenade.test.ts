@@ -18,6 +18,7 @@ import { makePairKey } from "../conversation/types";
 import type { ArtifactInstance, GameState } from "../entities";
 import { RIVAL_CHARACTER_IDS_SET } from "../fixtures/rivals";
 import {
+  type ArtifactDefinitionId,
   type ArtifactInstanceId,
   type CharacterId,
   type HouseId,
@@ -71,7 +72,7 @@ function attachMountToCharacter(state: GameState, charId: CharacterId, instId: s
   if (char === undefined) throw new Error("attachMountToCharacter: char not found");
   const inst: ArtifactInstance = {
     id: instId as ArtifactInstanceId,
-    definitionId: "mount",
+    definitionId: "mount" as ArtifactDefinitionId,
     ownerHouseId: char.houseId,
     ownerCharacterId: char.id,
     lastRefreshTick: 0,

@@ -24,7 +24,11 @@ import {
   WAR_EFFORT_WEALTH_PER_TICK,
 } from "../constants";
 import type { GameState, GlobalEvent, House } from "../entities";
-import { ARTIFACT_FAMILIES, ARTIFACT_REGISTRY, type ArtifactFamily } from "../fixtures/artifacts";
+import {
+  ARTIFACT_FAMILIES,
+  type ArtifactFamily,
+  resolveArtifactDefinition,
+} from "../fixtures/artifacts";
 import {
   type CharacterId,
   type GlobalEventId,
@@ -270,7 +274,7 @@ export function houseHasFamilyEquipped(
     for (const instId of c.equippedArtifactIds) {
       const inst = state.artifactInstances.get(instId);
       if (inst === undefined) continue;
-      const def = ARTIFACT_REGISTRY.get(inst.definitionId);
+      const def = resolveArtifactDefinition(state, inst.definitionId);
       if (def === undefined) continue;
       if (def.family === family) return true;
     }

@@ -46,13 +46,14 @@ import type {
 } from "../entities";
 import type { Archetype } from "../fixtures/archetypes";
 import {
-  ARTIFACT_REGISTRY,
   type ArtifactFamily,
   makeArtifactInstanceId,
   makeForgeryId,
   makeThiefAttemptId,
+  resolveArtifactDefinition,
 } from "../fixtures/artifacts";
 import {
+  type ArtifactDefinitionId,
   type ArtifactInstanceId,
   type CharacterId,
   type CourierPayloadId,
@@ -90,7 +91,7 @@ export type CommissionRejection =
   | { kind: "CharacterNotFound" }
   | { kind: "CharacterDead" }
   | { kind: "MissingArchetype"; required: readonly Archetype[] }
-  | { kind: "UnknownDefinition"; definitionId: string }
+  | { kind: "UnknownDefinition"; definitionId: ArtifactDefinitionId }
   | { kind: "NotForgeable" }
   | { kind: "InsufficientWealth"; have: number; need: number }
   | { kind: "PlayerExiled" }
@@ -119,7 +120,7 @@ export function getEffectiveReputation(state: GameState, houseId: HouseId): numb
     for (const instId of ch.equippedArtifactIds) {
       const inst = state.artifactInstances.get(instId);
       if (!inst) continue;
-      const def = ARTIFACT_REGISTRY.get(inst.definitionId);
+      const def = resolveArtifactDefinition(state, inst.definitionId);
       if (!def) continue;
       bonus += def.reputationBonusWhileEquipped;
     }
@@ -137,7 +138,7 @@ export function getEffectiveTraits(state: GameState, characterId: CharacterId): 
   for (const instId of ch.equippedArtifactIds) {
     const inst = state.artifactInstances.get(instId);
     if (!inst) continue;
-    const def = ARTIFACT_REGISTRY.get(inst.definitionId);
+    const def = resolveArtifactDefinition(state, inst.definitionId);
     if (!def) continue;
     for (const t of def.traitGrantsWhileEquipped) {
       if (!ch.traits.includes(t) && !granted.includes(t)) granted.push(t);
@@ -155,7 +156,7 @@ export function effectiveScandalContributionFromArtifacts(state: GameState): num
     for (const instId of ch.equippedArtifactIds) {
       const inst = state.artifactInstances.get(instId);
       if (!inst) continue;
-      const def = ARTIFACT_REGISTRY.get(inst.definitionId);
+      const def = resolveArtifactDefinition(state, inst.definitionId);
       if (!def) continue;
       total += def.scandalRiskWhileEquipped;
     }
@@ -174,7 +175,7 @@ export function selectTargetedArtifactInstance(state: GameState): ArtifactInstan
     for (const instId of ch.equippedArtifactIds) {
       const inst = state.artifactInstances.get(instId);
       if (!inst) continue;
-      const def = ARTIFACT_REGISTRY.get(inst.definitionId);
+      const def = resolveArtifactDefinition(state, inst.definitionId);
       if (!def) continue;
       if (def.reputationBonusWhileEquipped >= VALUABLE_ARTIFACT_THRESHOLD) {
         candidates.push(inst);
@@ -206,7 +207,7 @@ export function applyEquipArtifactPure(
   if (ch.equippedArtifactIds.includes(artifactInstanceId)) {
     return { ok: false, reason: { kind: "AlreadyEquipped" } };
   }
-  const def = ARTIFACT_REGISTRY.get(inst.definitionId);
+  const def = resolveArtifactDefinition(state, inst.definitionId);
   if (!def) {
     throw new Error(
       `applyEquipArtifactPure: artifact ${inst.id} references unknown definition ${inst.definitionId}`,
@@ -217,7 +218,7 @@ export function applyEquipArtifactPure(
   for (const otherId of ch.equippedArtifactIds) {
     const other = state.artifactInstances.get(otherId);
     if (!other) continue;
-    const otherDef = ARTIFACT_REGISTRY.get(other.definitionId);
+    const otherDef = resolveArtifactDefinition(state, other.definitionId);
     if (!otherDef) continue;
     if (otherDef.family === targetFamily) {
       return {
@@ -259,7 +260,7 @@ export function applyUnequipArtifactPure(
 export function applyCommissionForgeryPure(
   state: GameState,
   forgerCharacterId: CharacterId,
-  definitionId: string,
+  definitionId: ArtifactDefinitionId,
 ):
   | { ok: true; state: GameState; forgeryId: ForgeryId }
   | { ok: false; reason: CommissionRejection } {
@@ -273,7 +274,7 @@ export function applyCommissionForgeryPure(
   if (forger.archetype !== "BohemianRake") {
     return { ok: false, reason: { kind: "MissingArchetype", required: ["BohemianRake"] } };
   }
-  const def = ARTIFACT_REGISTRY.get(definitionId);
+  const def = resolveArtifactDefinition(state, definitionId);
   if (!def) return { ok: false, reason: { kind: "UnknownDefinition", definitionId } };
   if (!def.forgeable) return { ok: false, reason: { kind: "NotForgeable" } };
   const playerHouse = state.houses.get(PLAYER_HOUSE_ID);

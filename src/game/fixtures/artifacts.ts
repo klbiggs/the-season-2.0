@@ -1,16 +1,20 @@
 // Canonical artifact registry per spec §3 line 553 + §4 line 553. Seven
 // entries verbatim from the spec: sapphires, tiara, snuffbox, phaeton,
-// mount, family-deed, ancestral-portrait. Procedural artifact generation
-// (P16) extends this set later.
+// mount, family-deed, ancestral-portrait.
 //
-// Definitions are fixture-only (NOT in GameState). Each ArtifactInstance
-// in state.artifactInstances references its definition by string ID; the
-// registry is the lookup table.
+// P24b: this fixture registry is now the FIXED half of artifact definitions.
+// The PROCEDURAL half lives in `state.proceduralArtifactDefinitions` (generated
+// at bootstrap). All definition lookups route through `resolveArtifactDefinition`
+// (artifactDefinitions.ts), which falls through ARTIFACT_REGISTRY → the
+// procedural map. Each ArtifactInstance references its definition by
+// ArtifactDefinitionId (FK into either half).
 
 import { z } from "zod";
 
 import type { GameState } from "../entities";
 import {
+  type ArtifactDefinitionId,
+  ArtifactDefinitionIdSchema,
   type ArtifactInstanceId,
   type CharacterId,
   type ForgeryId,
@@ -30,7 +34,7 @@ export const ARTIFACT_FAMILIES = [
 export type ArtifactFamily = (typeof ARTIFACT_FAMILIES)[number];
 
 export const ArtifactDefinitionSchema = z.object({
-  id: z.string(),
+  id: ArtifactDefinitionIdSchema,
   displayName: z.string(),
   family: z.enum(ARTIFACT_FAMILIES),
   reputationBonusWhileEquipped: z.number().int(),
@@ -41,98 +45,86 @@ export const ArtifactDefinitionSchema = z.object({
 });
 export type ArtifactDefinition = z.infer<typeof ArtifactDefinitionSchema>;
 
-export const ARTIFACT_REGISTRY: ReadonlyMap<string, ArtifactDefinition> = new Map([
-  [
-    "sapphires",
-    {
-      id: "sapphires",
-      displayName: "The Carrington Sapphires",
-      family: "sapphires",
-      reputationBonusWhileEquipped: 8,
-      scandalRiskWhileEquipped: 1,
-      traitGrantsWhileEquipped: [],
-      forgeable: true,
-      forgeWealthCost: 30,
-    },
-  ],
-  [
-    "tiara",
-    {
-      id: "tiara",
-      displayName: "The Marlborough Tiara",
-      family: "tiara",
-      reputationBonusWhileEquipped: 10,
-      scandalRiskWhileEquipped: 1,
-      traitGrantsWhileEquipped: [],
-      forgeable: true,
-      forgeWealthCost: 40,
-    },
-  ],
-  [
-    "snuffbox",
-    {
-      id: "snuffbox",
-      displayName: "The Imperial Snuffbox",
-      family: "snuffbox",
-      reputationBonusWhileEquipped: 4,
-      scandalRiskWhileEquipped: 0,
-      traitGrantsWhileEquipped: [],
-      forgeable: true,
-      forgeWealthCost: 15,
-    },
-  ],
-  [
-    "phaeton",
-    {
-      id: "phaeton",
-      displayName: "The Crimson Phaeton",
-      family: "phaeton",
-      reputationBonusWhileEquipped: 6,
-      scandalRiskWhileEquipped: 0,
-      traitGrantsWhileEquipped: [],
-      forgeable: false,
-      forgeWealthCost: 0,
-    },
-  ],
-  [
-    "mount",
-    {
-      id: "mount",
-      displayName: "Thoroughbred",
-      family: "mount",
-      reputationBonusWhileEquipped: 3,
-      scandalRiskWhileEquipped: 0,
-      traitGrantsWhileEquipped: [],
-      forgeable: false,
-      forgeWealthCost: 0,
-    },
-  ],
-  [
-    "family-deed",
-    {
-      id: "family-deed",
-      displayName: "Norfolk Land Deed",
-      family: "family-deed",
-      reputationBonusWhileEquipped: 5,
-      scandalRiskWhileEquipped: 0,
-      traitGrantsWhileEquipped: [],
-      forgeable: false,
-      forgeWealthCost: 0,
-    },
-  ],
-  [
-    "ancestral-portrait",
-    {
-      id: "ancestral-portrait",
-      displayName: "The Founder's Portrait",
-      family: "ancestral-portrait",
-      reputationBonusWhileEquipped: 5,
-      scandalRiskWhileEquipped: 0,
-      traitGrantsWhileEquipped: [],
-      forgeable: false,
-      forgeWealthCost: 0,
-    },
-  ],
+// brandDef applies the ArtifactDefinitionId brand at a single point so the
+// registry literal below stays plain-string. The id doubles as the Map key.
+function brandDef(
+  d: Omit<ArtifactDefinition, "id"> & { id: string },
+): readonly [ArtifactDefinitionId, ArtifactDefinition] {
+  const id = d.id as ArtifactDefinitionId;
+  return [id, { ...d, id }];
+}
+
+export const ARTIFACT_REGISTRY: ReadonlyMap<ArtifactDefinitionId, ArtifactDefinition> = new Map([
+  brandDef({
+    id: "sapphires",
+    displayName: "The Carrington Sapphires",
+    family: "sapphires",
+    reputationBonusWhileEquipped: 8,
+    scandalRiskWhileEquipped: 1,
+    traitGrantsWhileEquipped: [],
+    forgeable: true,
+    forgeWealthCost: 30,
+  }),
+  brandDef({
+    id: "tiara",
+    displayName: "The Marlborough Tiara",
+    family: "tiara",
+    reputationBonusWhileEquipped: 10,
+    scandalRiskWhileEquipped: 1,
+    traitGrantsWhileEquipped: [],
+    forgeable: true,
+    forgeWealthCost: 40,
+  }),
+  brandDef({
+    id: "snuffbox",
+    displayName: "The Imperial Snuffbox",
+    family: "snuffbox",
+    reputationBonusWhileEquipped: 4,
+    scandalRiskWhileEquipped: 0,
+    traitGrantsWhileEquipped: [],
+    forgeable: true,
+    forgeWealthCost: 15,
+  }),
+  brandDef({
+    id: "phaeton",
+    displayName: "The Crimson Phaeton",
+    family: "phaeton",
+    reputationBonusWhileEquipped: 6,
+    scandalRiskWhileEquipped: 0,
+    traitGrantsWhileEquipped: [],
+    forgeable: false,
+    forgeWealthCost: 0,
+  }),
+  brandDef({
+    id: "mount",
+    displayName: "Thoroughbred",
+    family: "mount",
+    reputationBonusWhileEquipped: 3,
+    scandalRiskWhileEquipped: 0,
+    traitGrantsWhileEquipped: [],
+    forgeable: false,
+    forgeWealthCost: 0,
+  }),
+  brandDef({
+    id: "family-deed",
+    displayName: "Norfolk Land Deed",
+    family: "family-deed",
+    reputationBonusWhileEquipped: 5,
+    scandalRiskWhileEquipped: 0,
+    traitGrantsWhileEquipped: [],
+    forgeable: false,
+    forgeWealthCost: 0,
+  }),
+  brandDef({
+    id: "ancestral-portrait",
+    displayName: "The Founder's Portrait",
+    family: "ancestral-portrait",
+    reputationBonusWhileEquipped: 5,
+    scandalRiskWhileEquipped: 0,
+    traitGrantsWhileEquipped: [],
+    forgeable: false,
+    forgeWealthCost: 0,
+  }),
 ]);
 
 // Module-load assertions (P10 hardening):
@@ -166,6 +158,19 @@ export const ARTIFACT_REGISTRY: ReadonlyMap<string, ArtifactDefinition> = new Ma
   }
 }
 
+// P24b: the SINGLE sanctioned artifact-definition lookup. Falls through the
+// fixed ARTIFACT_REGISTRY → the procedural definitions in state. EVERY consumer
+// (rules, bootstrap, store, runtime, UI) routes definition lookups through here;
+// a lint/test guard bans bare `ARTIFACT_REGISTRY.get` outside this module so the
+// procedural half can never be silently bypassed (the bootstrap.ts throw-on-
+// unknown-id hazard). Returns undefined for an unknown id (callers handle).
+export function resolveArtifactDefinition(
+  state: GameState,
+  definitionId: ArtifactDefinitionId,
+): ArtifactDefinition | undefined {
+  return ARTIFACT_REGISTRY.get(definitionId) ?? state.proceduralArtifactDefinitions.get(definitionId);
+}
+
 // Player bootstrap inventory. Three instances on a fresh campaign; two
 // start equipped on the player head. Deterministic via lex-sorted IDs.
 // sapphires + snuffbox cover the wardrobe-refresh / forgery loop; mount lets
@@ -174,13 +179,17 @@ export const ARTIFACT_REGISTRY: ReadonlyMap<string, ArtifactDefinition> = new Ma
 // lastRefreshTick is set to 0 at bootstrap (in-season for the first
 // WARDROBE_REFRESH_INTERVAL_TICKS ticks).
 export const PLAYER_STARTING_ARTIFACTS: ReadonlyArray<{
-  definitionId: string;
+  definitionId: ArtifactDefinitionId;
   equippedFromStart: boolean;
   lastRefreshTick: number;
 }> = [
-  { definitionId: "sapphires", equippedFromStart: true, lastRefreshTick: 0 },
-  { definitionId: "snuffbox", equippedFromStart: false, lastRefreshTick: 0 },
-  { definitionId: "mount", equippedFromStart: true, lastRefreshTick: 0 },
+  { definitionId: "sapphires" as ArtifactDefinitionId, equippedFromStart: true, lastRefreshTick: 0 },
+  {
+    definitionId: "snuffbox" as ArtifactDefinitionId,
+    equippedFromStart: false,
+    lastRefreshTick: 0,
+  },
+  { definitionId: "mount" as ArtifactDefinitionId, equippedFromStart: true, lastRefreshTick: 0 },
 ];
 
 // P12: NPC mount-family bootstrap. Two named baseline NPCs ship with an
@@ -194,11 +203,31 @@ export const PLAYER_STARTING_ARTIFACTS: ReadonlyArray<{
 // (always 0 on fresh state; save.tick on the live-load path).
 export const NPC_STARTING_MOUNT_FAMILY: ReadonlyArray<{
   characterId: CharacterId;
-  definitionId: string;
+  definitionId: ArtifactDefinitionId;
 }> = [
-  { characterId: "npc-blackwood" as CharacterId, definitionId: "mount" },
-  { characterId: "npc-carrington" as CharacterId, definitionId: "mount" },
+  { characterId: "npc-blackwood" as CharacterId, definitionId: "mount" as ArtifactDefinitionId },
+  { characterId: "npc-carrington" as CharacterId, definitionId: "mount" as ArtifactDefinitionId },
 ];
+
+// P24b: per-family display-name banks for procedural artifact definitions.
+// generateArtifactDefinitions (rules/proceduralArtifacts.ts) draws a name by
+// index over the chosen family's bank. Distinct from the fixture displayNames
+// above — these are the "lesser" period-flavored variants the procedural set
+// scatters across houses.
+export const PROCEDURAL_ARTIFACT_NAMES: Readonly<Record<ArtifactFamily, readonly string[]>> = {
+  sapphires: ["The Ashby Emeralds", "The Wexford Rubies", "The Pendleton Pearls", "A Garnet Parure"],
+  tiara: ["The Hartwell Coronet", "A Diamond Aigrette", "The Sterne Diadem", "A Pearl Circlet"],
+  snuffbox: ["An Enamelled Snuffbox", "A Tortoiseshell Box", "A Gilt Bonbonnière", "A Vinaigrette"],
+  phaeton: ["A High-Perch Phaeton", "A Curricle", "A Barouche", "A Town Chariot"],
+  mount: ["A Bay Hunter", "A Grey Hack", "A Matched Pair", "An Arab Mare"],
+  "family-deed": ["A Yorkshire Holding", "A Cornish Estate", "A Fen Grant", "A Border Manor"],
+  "ancestral-portrait": [
+    "A Lely Portrait",
+    "A Reynolds Canvas",
+    "The Dowager's Likeness",
+    "A Miniature",
+  ],
+};
 
 // Deterministic ID factories. Each walks existing state to find the next
 // per-definitionId / per-source counter, matching the P6 deterministic-id
@@ -208,7 +237,10 @@ export const NPC_STARTING_MOUNT_FAMILY: ReadonlyArray<{
 // instances with the same definitionId. Per-definitionId scope means each
 // definition has its own 0-based counter (sapphires-0, snuffbox-0, mount-0
 // at bootstrap; a second sapphires forgery would land at sapphires-1).
-export function makeArtifactInstanceId(state: GameState, definitionId: string): ArtifactInstanceId {
+export function makeArtifactInstanceId(
+  state: GameState,
+  definitionId: ArtifactDefinitionId,
+): ArtifactInstanceId {
   let index = 0;
   for (const inst of state.artifactInstances.values()) {
     if (inst.definitionId === definitionId) index += 1;
@@ -243,4 +275,10 @@ export function makeThiefAttemptId(
 }
 
 // Re-exports for convenience (consumers tend to want both factory + types).
-export type { ArtifactInstanceId, CharacterId, ForgeryId, ThiefAttemptId } from "../rng";
+export type {
+  ArtifactDefinitionId,
+  ArtifactInstanceId,
+  CharacterId,
+  ForgeryId,
+  ThiefAttemptId,
+} from "../rng";

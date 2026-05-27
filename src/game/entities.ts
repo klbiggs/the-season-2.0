@@ -27,11 +27,12 @@ import {
 } from "./constants";
 import { ConversationPairKeySchema, ExchangeSchema } from "./conversation/types";
 import { ArchetypeSchema } from "./fixtures/archetypes";
-import { ARTIFACT_FAMILIES } from "./fixtures/artifacts";
+import { ARTIFACT_FAMILIES, ArtifactDefinitionSchema } from "./fixtures/artifacts";
 import { LocationIdSchema } from "./fixtures/locations";
 import { MoodSchema } from "./fixtures/moods";
 import { RoleSchema } from "./fixtures/roles";
 import {
+  ArtifactDefinitionIdSchema,
   ArtifactInstanceIdSchema,
   BetrothalIdSchema,
   BloodFeudIdSchema,
@@ -520,7 +521,7 @@ export type ElopementSprintState = z.infer<typeof ElopementSprintStateSchema>;
 // instance and an unequipped instance's clock stays frozen.
 export const ArtifactInstanceSchema = z.object({
   id: ArtifactInstanceIdSchema,
-  definitionId: z.string(), // FK into ARTIFACT_REGISTRY
+  definitionId: ArtifactDefinitionIdSchema, // FK into ARTIFACT_REGISTRY ∪ proceduralArtifactDefinitions
   ownerHouseId: HouseIdSchema,
   ownerCharacterId: CharacterIdSchema,
   lastRefreshTick: z.number().int().nonnegative(),
@@ -669,6 +670,15 @@ export const GameStateSchema = z.object({
   artifactInstances: z.map(ArtifactInstanceIdSchema, ArtifactInstanceSchema),
   forgeries: z.map(ForgeryIdSchema, ForgeryRecordSchema),
   thiefAttempts: z.map(ThiefAttemptIdSchema, ThiefAttemptSchema),
+  // P24b addition — procedurally-generated artifact DEFINITIONS, keyed by
+  // ArtifactDefinitionId (`proc-artifact-<i>`). Generated once at bootstrap from
+  // the transient `${campaignSeed}|procedural-artifacts` sub-stream; deterministic
+  // from seed → replay-stable; PERSISTED in the save + re-read verbatim on load
+  // (never regenerated — no seed persists). resolveArtifactDefinition falls
+  // through ARTIFACT_REGISTRY → here. Quint-sync surfaces: GameStateSchema (here),
+  // hashableState (hash.ts), selectGameState (store.ts), overwriteFromGameState
+  // (store.ts), createInitialState (store.ts). Per CLAUDE.md non-negotiable.
+  proceduralArtifactDefinitions: z.map(ArtifactDefinitionIdSchema, ArtifactDefinitionSchema),
   // P13 addition — global events Map (WarEffort / MarketCrash / MonarchsMood).
   // Empty Map on fresh state and every legacy lift (no event mid-flight at
   // bootstrap). Quint-sync surfaces: GameStateSchema (here), hashableState

@@ -12,7 +12,12 @@
 // draws for NPC construction. The bootstrap draw budget stays at 1
 // (player head's deathAge only), unchanged from P3.
 
-import { HAPPINESS_INITIAL, LIFESPAN_RANGE, PROCEDURAL_NPC_COUNT } from "./constants";
+import {
+  HAPPINESS_INITIAL,
+  LIFESPAN_RANGE,
+  PROCEDURAL_ARTIFACT_DEF_COUNT,
+  PROCEDURAL_NPC_COUNT,
+} from "./constants";
 import type {
   ArtifactInstance,
   Character,
@@ -22,10 +27,11 @@ import type {
   StaffMember,
 } from "./entities";
 import {
-  ARTIFACT_REGISTRY,
+  type ArtifactDefinition,
   NPC_STARTING_MOUNT_FAMILY,
   PLAYER_STARTING_ARTIFACTS,
   makeArtifactInstanceId,
+  resolveArtifactDefinition,
 } from "./fixtures/artifacts";
 import { hashCharIdToGender } from "./fixtures/hashCharIdToGender";
 import { STARTING_HEAD_CHARACTER_ID, STARTING_HEAD_NAME } from "./fixtures/names";
@@ -48,6 +54,7 @@ import {
   drawInt,
 } from "./rng";
 import { PLAYER_HOUSE_ID } from "./rng";
+import { generateArtifactDefinitions } from "./rules/proceduralArtifacts";
 import { generateSocietyNpcs } from "./rules/proceduralNpcs";
 import { MOUNT_FAMILY } from "./rules/promenade";
 
@@ -63,6 +70,9 @@ export function seedStartingFamily(
   // The migration path produces byte-identical structures via the V8→V9 seeder.
   rivalActors: ReadonlyArray<RivalActorState>;
   rivalRngEntries: ReadonlyArray<[HouseId, RngState]>;
+  // P24b (E1): procedurally-generated artifact definitions. Drawn from a
+  // transient sub-stream (discarded) and persisted into state.
+  proceduralArtifactDefinitions: ReadonlyArray<ArtifactDefinition>;
 } {
   // Roll deathAge ∈ [70, 95] inclusive via drawInt(_, 26) + 70.
   // This is the ONLY draw consumed by this helper (NPC deathAges are
@@ -183,6 +193,14 @@ export function seedStartingFamily(
     PROCEDURAL_NPC_COUNT,
   ).characters;
 
+  // P24b (E1): procedural artifact definitions. Drawn from a SEPARATE transient
+  // sub-stream (`${campaignSeed}|procedural-artifacts`) consumed here and
+  // discarded — never added to state.rng (mirrors the |procedural-npcs pattern).
+  const proceduralArtifactDefinitions = generateArtifactDefinitions(
+    createRngState(`${campaignSeed}|procedural-artifacts`),
+    PROCEDURAL_ARTIFACT_DEF_COUNT,
+  ).definitions;
+
   return {
     rngState: postDeathRoll,
     houses: [playerHouse, independentHouse, ...rivalHouses],
@@ -190,6 +208,7 @@ export function seedStartingFamily(
     staff,
     rivalActors,
     rivalRngEntries,
+    proceduralArtifactDefinitions,
   };
 }
 
@@ -211,18 +230,23 @@ function computeStartingArtifactInstances(
   playerHouseId: HouseId,
   _tick: number,
 ): ArtifactInstance[] {
-  const synthState: { artifactInstances: Map<ArtifactInstanceId, ArtifactInstance> } = {
+  // synthState carries an empty proceduralArtifactDefinitions — player starters
+  // are all fixture defs, so resolveArtifactDefinition's fixture half resolves
+  // (the `??` never reaches the procedural map). The empty Map keeps the
+  // resolver non-throwing regardless.
+  const synthState = {
     artifactInstances: new Map(existing),
-  };
+    proceduralArtifactDefinitions: new Map(),
+  } as unknown as GameState;
   const result: ArtifactInstance[] = [];
   for (const starter of PLAYER_STARTING_ARTIFACTS) {
-    const def = ARTIFACT_REGISTRY.get(starter.definitionId);
+    const def = resolveArtifactDefinition(synthState, starter.definitionId);
     if (!def) {
       throw new Error(
         `bootstrapPlayerArtifacts: definition ${starter.definitionId} missing from ARTIFACT_REGISTRY`,
       );
     }
-    const id = makeArtifactInstanceId(synthState as unknown as GameState, def.id);
+    const id = makeArtifactInstanceId(synthState, def.id);
     const inst: ArtifactInstance = {
       id,
       definitionId: def.id,
@@ -303,10 +327,16 @@ export function bootstrapNpcMountFamily(
     const npc = characters.get(characterId);
     if (npc === undefined) continue; // legacy/migrated save missing this NPC
     // Idempotence: skip if this NPC already equips ANY mount-family instance.
+    // resolveState carries an empty proceduralArtifactDefinitions — NPC mounts
+    // are fixture defs, so the resolver's fixture half resolves.
+    const resolveState = {
+      artifactInstances,
+      proceduralArtifactDefinitions: new Map(),
+    } as unknown as GameState;
     const alreadyEquipped = npc.equippedArtifactIds.some((instId) => {
       const inst = artifactInstances.get(instId);
       if (inst === undefined) return false;
-      const def = ARTIFACT_REGISTRY.get(inst.definitionId);
+      const def = resolveArtifactDefinition(resolveState, inst.definitionId);
       // Typed `MOUNT_FAMILY` constant from rules/promenade.ts — single source
       // of truth (avoids a parallel "mount" literal in this file).
       return def?.family === MOUNT_FAMILY;

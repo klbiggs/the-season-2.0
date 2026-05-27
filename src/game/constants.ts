@@ -2,6 +2,7 @@
 // non-negotiable §10: designer constants in one canonical location each.
 
 import type { Archetype } from "./fixtures/archetypes";
+import type { ArtifactFamily } from "./fixtures/artifacts";
 import type { LocationId } from "./fixtures/locations";
 import type { Mood } from "./fixtures/moods";
 import type { TraitId } from "./rng";
@@ -831,6 +832,74 @@ if (PRE_BALL_COMPOSURE_PENALTY_PER_OUT_OF_SEASON_ARTIFACT < 0) {
   throw new Error(
     "PRE_BALL_COMPOSURE_PENALTY_PER_OUT_OF_SEASON_ARTIFACT < 0: bonus instead of penalty",
   );
+}
+
+// ── P24b: Procedural Artifacts, Per-Family Wardrobe Decay, Observant Detection ──
+
+// E1: procedural artifact DEFINITIONS generated once at bootstrap from the
+// transient `${campaignSeed}|procedural-artifacts` sub-stream. FIXED draw budget
+// per def (family, displayName, repBonus, scandalRisk, traitGrant, forgeable,
+// forgeCost) so the draw count is part of the determinism contract.
+export const PROCEDURAL_ARTIFACT_DEF_COUNT = 12;
+export const PROCEDURAL_ARTIFACT_DRAWS_PER_DEF = 7;
+export const PROCEDURAL_ARTIFACT_REP_MIN = 2;
+export const PROCEDURAL_ARTIFACT_REP_MAX = 9;
+export const PROCEDURAL_ARTIFACT_SCANDAL_MAX = 2; // drawn in [0, MAX]
+export const PROCEDURAL_ARTIFACT_FORGEABLE_PCT = 50; // % of procedural defs flagged forgeable
+export const PROCEDURAL_ARTIFACT_FORGE_COST_MIN = 10;
+export const PROCEDURAL_ARTIFACT_FORGE_COST_MAX = 45;
+// 0-1 benign conversation-bonus trait granted while equipped. The generator
+// draws an index into [none, ...pool]; index 0 ⇒ no grant.
+export const PROCEDURAL_ARTIFACT_TRAIT_POOL: readonly TraitId[] = [
+  "Charming" as TraitId,
+  "Sophisticated" as TraitId,
+  "Eloquent" as TraitId,
+];
+
+// E2: per-artifact-family wardrobe-refresh interval (§10 Q10). The pre-ball
+// penalty reads the per-instance family's interval here; WARDROBE_REFRESH_INTERVAL_TICKS
+// stays the fallback for any family absent from this table. Jewels/portraits/deeds
+// are timeless (slow decay); carriages/mounts are fashion-bound (fast decay).
+export const WARDROBE_REFRESH_INTERVAL_BY_FAMILY: Readonly<Record<ArtifactFamily, number>> = {
+  sapphires: 60,
+  tiara: 60,
+  "ancestral-portrait": 80,
+  "family-deed": 80,
+  snuffbox: 40,
+  phaeton: 25,
+  mount: 25,
+};
+
+// E3: Observant-trait PRIVATE forgery detection (§10 Q11). A quieter parallel to
+// the Vain public cascade — does NOT flip `surfaced`, smaller affection penalty.
+export const OBSERVANT_FORGERY_DETECTION_PROBABILITY_BASIS_POINTS = 200; // 2%/tick per (Observant NPC × unsurfaced forgery)
+export const OBSERVANT_FORGERY_AFFECTION_PENALTY = -4; // smaller than the Vain -10
+
+// E6: non-player artifact seeding at bootstrap. Rival + society houses own
+// equipped procedural instances (drawn from a transient sub-stream, discarded).
+export const NON_PLAYER_ARTIFACT_SEED_COUNT_PER_RIVAL = 1;
+export const SOCIETY_ARTIFACT_HOLDER_COUNT = 4; // first N society NPCs (lex by id) get an equipped instance
+export const NON_PLAYER_FORGED_INSTANCE_PCT = 40; // % of forgeable seeded instances flagged forged (→ E3/surfacing targets)
+
+if (PROCEDURAL_ARTIFACT_REP_MIN > PROCEDURAL_ARTIFACT_REP_MAX) {
+  throw new Error("PROCEDURAL_ARTIFACT_REP_MIN > PROCEDURAL_ARTIFACT_REP_MAX");
+}
+if (PROCEDURAL_ARTIFACT_FORGE_COST_MIN <= 0) {
+  throw new Error(
+    "PROCEDURAL_ARTIFACT_FORGE_COST_MIN <= 0: violates ArtifactDefinition forgeable⇒cost>0 coherence",
+  );
+}
+if (PROCEDURAL_ARTIFACT_FORGE_COST_MIN > PROCEDURAL_ARTIFACT_FORGE_COST_MAX) {
+  throw new Error("PROCEDURAL_ARTIFACT_FORGE_COST_MIN > PROCEDURAL_ARTIFACT_FORGE_COST_MAX");
+}
+if (OBSERVANT_FORGERY_AFFECTION_PENALTY >= 0) {
+  throw new Error("OBSERVANT_FORGERY_AFFECTION_PENALTY >= 0: bonus instead of penalty");
+}
+if (
+  OBSERVANT_FORGERY_DETECTION_PROBABILITY_BASIS_POINTS <= 0 ||
+  OBSERVANT_FORGERY_DETECTION_PROBABILITY_BASIS_POINTS >= 10000
+) {
+  throw new Error("OBSERVANT_FORGERY_DETECTION_PROBABILITY_BASIS_POINTS out of (0, 10000)");
 }
 
 // ============================================================================

@@ -11,10 +11,15 @@ import {
   WARDROBE_REFRESH_INTERVAL_TICKS,
   WARDROBE_REFRESH_WEALTH_COST,
 } from "../../../game/constants";
-import type { ArtifactInstance, Character } from "../../../game/entities";
-import { ARTIFACT_REGISTRY } from "../../../game/fixtures/artifacts";
+import type { ArtifactInstance, Character, GameState } from "../../../game/entities";
+import { ARTIFACT_REGISTRY, resolveArtifactDefinition } from "../../../game/fixtures/artifacts";
 import { flavorStubFor } from "../../../game/fixtures/flavorStubs";
-import type { ArtifactInstanceId, CharacterId, FlavorContentId } from "../../../game/rng.seeds";
+import type {
+  ArtifactDefinitionId,
+  ArtifactInstanceId,
+  CharacterId,
+  FlavorContentId,
+} from "../../../game/rng.seeds";
 import { PLAYER_HOUSE_ID } from "../../../game/rng.seeds";
 import { hasActivePlayerElopement } from "../../../game/rules/elopement";
 import type { SeasonStore } from "../../../game/store";
@@ -27,7 +32,15 @@ type Props = {
 const FORGEABLE_DEFS = [...ARTIFACT_REGISTRY.values()].filter((d) => d.forgeable);
 
 export function ArtifactsTab({ store }: Props) {
-  const { artifactInstances, forgeries, thiefAttempts, characters, houses, flavorText } = store(
+  const {
+    artifactInstances,
+    forgeries,
+    thiefAttempts,
+    characters,
+    houses,
+    flavorText,
+    proceduralArtifactDefinitions,
+  } = store(
     useShallow((s) => ({
       artifactInstances: s.artifactInstances,
       forgeries: s.forgeries,
@@ -35,8 +48,20 @@ export function ArtifactsTab({ store }: Props) {
       characters: s.characters,
       houses: s.houses,
       flavorText: s.flavorText,
+      proceduralArtifactDefinitions: s.proceduralArtifactDefinitions,
     })),
   );
+  // P24b: definition lookups route through the resolver (fixture registry +
+  // procedural defs). The resolver only reads proceduralArtifactDefinitions, so
+  // a minimal synth-state suffices (the `?? fixture` half resolves the rest).
+  const resolveDef = (definitionId: ArtifactDefinitionId) =>
+    resolveArtifactDefinition({ proceduralArtifactDefinitions } as unknown as GameState, definitionId);
+  // Display name for a targeted instance (theft banners / history), falling back
+  // to a generic label when the instance or definition is gone.
+  const displayNameForInstance = (instId: ArtifactInstanceId): string => {
+    const did = artifactInstances.get(instId)?.definitionId;
+    return (did !== undefined ? resolveDef(did)?.displayName : undefined) ?? "an artifact";
+  };
   const equipArtifact = store((s) => s.equipArtifact);
   const unequipArtifact = store((s) => s.unequipArtifact);
   const refreshWardrobe = store((s) => s.refreshWardrobe);
@@ -45,7 +70,10 @@ export function ArtifactsTab({ store }: Props) {
   const tick = store((s) => s.tick);
 
   const [toast, setToast] = useState<string | null>(null);
-  const [forgeChoice, setForgeChoice] = useState<string>("");
+  const [forgeChoice, setForgeChoice] = useState<ArtifactDefinitionId | "">("");
+  // P24b (E5): chosen forger among multiple living Rakes ("" → default to the
+  // lex-smallest). Only surfaced when >1 Rake exists.
+  const [forgerChoice, setForgerChoice] = useState<CharacterId | "">("");
 
   const playerHouse = houses.get(PLAYER_HOUSE_ID);
   const playerExiled = playerHouse?.exiled === true;
@@ -67,12 +95,21 @@ export function ArtifactsTab({ store }: Props) {
     return out;
   }, [artifactInstances]);
 
-  const livingRake = useMemo(() => {
-    const rakes = [...characters.values()]
-      .filter((c) => c.houseId === PLAYER_HOUSE_ID && c.alive && c.archetype === "BohemianRake")
-      .sort((a, b) => a.id.localeCompare(b.id));
-    return rakes[0] ?? null;
-  }, [characters]);
+  // P24b (E5): ALL living player-house Rakes (lex-sorted), so the player can
+  // pick which one commissions when more than one exists.
+  const livingRakes = useMemo(
+    () =>
+      [...characters.values()]
+        .filter((c) => c.houseId === PLAYER_HOUSE_ID && c.alive && c.archetype === "BohemianRake")
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    [characters],
+  );
+  const livingRake = livingRakes[0] ?? null;
+  // Resolve the chosen forger; falls back to the lex-smallest Rake when the
+  // picker is at its default or the prior choice has died/changed houses.
+  const selectedForger =
+    (forgerChoice !== "" ? livingRakes.find((r) => r.id === forgerChoice) : undefined) ??
+    livingRake;
 
   const livingSpymaster = useMemo(
     () =>
@@ -88,13 +125,13 @@ export function ArtifactsTab({ store }: Props) {
   // Mirror the rule-layer max-one-per-family gate: equip is blocked when the
   // holder already equips a different instance of the same family.
   const familyConflict = (holder: Character, inst: ArtifactInstance): boolean => {
-    const candidateFamily = ARTIFACT_REGISTRY.get(inst.definitionId)?.family;
+    const candidateFamily = resolveDef(inst.definitionId)?.family;
     if (candidateFamily === undefined) return false;
     for (const equippedId of holder.equippedArtifactIds) {
       if (equippedId === inst.id) continue;
       const equippedInst = artifactInstances.get(equippedId);
       if (equippedInst === undefined) continue;
-      if (ARTIFACT_REGISTRY.get(equippedInst.definitionId)?.family === candidateFamily) return true;
+      if (resolveDef(equippedInst.definitionId)?.family === candidateFamily) return true;
     }
     return false;
   };
@@ -112,8 +149,8 @@ export function ArtifactsTab({ store }: Props) {
     if (!r.ok) setToast(`Cannot refresh wardrobe: ${r.reason.kind}.`);
   };
   const onCommission = () => {
-    if (livingRake === null || forgeChoice === "") return;
-    const r = commissionForgery(livingRake.id, forgeChoice);
+    if (selectedForger === null || forgeChoice === "") return;
+    const r = commissionForgery(selectedForger.id, forgeChoice);
     if (!r.ok) setToast(`Cannot commission forgery: ${r.reason.kind}.`);
     else setForgeChoice("");
   };
@@ -143,11 +180,8 @@ export function ArtifactsTab({ store }: Props) {
               className="flex items-center gap-3 rounded-md border-2 border-red-500 bg-red-50 px-3 py-2 text-sm"
             >
               <span className="flex-1 font-medium text-red-800">
-                Thief targeting{" "}
-                {ARTIFACT_REGISTRY.get(
-                  artifactInstances.get(t.targetedArtifactInstanceId)?.definitionId ?? "",
-                )?.displayName ?? "an artifact"}{" "}
-                (noticed t{t.noticedAtTick})
+                Thief targeting {displayNameForInstance(t.targetedArtifactInstanceId)} (noticed t
+                {t.noticedAtTick})
               </span>
               <button
                 type="button"
@@ -186,7 +220,7 @@ export function ArtifactsTab({ store }: Props) {
                 <h3 className="text-sm font-medium text-stone-500">{holder?.name ?? ownerId}</h3>
                 <ul className="space-y-1">
                   {instances.map((inst) => {
-                    const def = ARTIFACT_REGISTRY.get(inst.definitionId);
+                    const def = resolveDef(inst.definitionId);
                     // P18: persisted backstory if generated, else the designer
                     // stub. The id is "artifact:<definitionId>".
                     const backstoryId = `artifact:${inst.definitionId}` as FlavorContentId;
@@ -312,10 +346,26 @@ export function ArtifactsTab({ store }: Props) {
                 ))}
             </ul>
             <div className="flex items-center gap-2">
+              {livingRakes.length > 1 && (
+                <select
+                  data-testid="forger-choice"
+                  value={forgerChoice}
+                  onChange={(e) => setForgerChoice(e.target.value as CharacterId | "")}
+                  title="Which Bohemian Rake commissions the forgery"
+                  className="rounded border border-stone-300 px-2 py-1 text-sm"
+                >
+                  <option value="">Forger: {livingRake?.name ?? "—"} (default)</option>
+                  {livingRakes.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              )}
               <select
                 data-testid="forge-choice"
                 value={forgeChoice}
-                onChange={(e) => setForgeChoice(e.target.value)}
+                onChange={(e) => setForgeChoice(e.target.value as ArtifactDefinitionId | "")}
                 className="rounded border border-stone-300 px-2 py-1 text-sm"
               >
                 <option value="">Choose an artifact to forge…</option>
@@ -351,10 +401,7 @@ export function ArtifactsTab({ store }: Props) {
                 className="flex items-center gap-3 rounded-md border border-stone-200 px-3 py-2 text-sm"
               >
                 <span className="flex-1 text-stone-600">
-                  {ARTIFACT_REGISTRY.get(
-                    artifactInstances.get(t.targetedArtifactInstanceId)?.definitionId ?? "",
-                  )?.displayName ?? "an artifact"}{" "}
-                  (t{t.noticedAtTick})
+                  {displayNameForInstance(t.targetedArtifactInstanceId)} (t{t.noticedAtTick})
                 </span>
                 <span
                   className={`rounded px-2 py-0.5 text-xs font-medium ${t.thwarted ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
