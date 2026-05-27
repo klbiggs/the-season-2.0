@@ -15,13 +15,18 @@ import {
   STAFF_BRIBERY_LOYALTY_THRESHOLD,
   STAFF_BRIBERY_PROBABILITY_BASE,
   STAFF_BRIBE_DRIVER_CADENCE_TICKS,
+  STAFF_HIRE_WEALTH_COST,
   STAFF_INTERCEPT_MAIL_CADENCE_TICKS,
   STAFF_LOYALTY_DRIFT_GREEDY_UNDERPAID_PER_TICK,
   STAFF_LOYALTY_DRIFT_UNDERPAID_PER_TICK,
+  STAFF_ROSTER_MAX,
   STAFF_SNOOP_CADENCE_TICKS,
   type StaffAssignment,
+  WHISPERS_PERK_BRIBERY_RESISTANCE_MULTIPLIER,
 } from "../constants";
 import type { GameState, StaffMember } from "../entities";
+import type { LocationId } from "../fixtures/locations";
+import { buildProceduralStaffMember, makeStaffId } from "../fixtures/staff";
 import {
   type CharacterId,
   type CourierPayloadId,
@@ -33,6 +38,7 @@ import {
 } from "../rng";
 import { clamp } from "../util/clamp";
 import { getHouseOrThrow } from "../util/lookups";
+import { hasDynastyPerk } from "./dynastyLegacies";
 import { generateSynergyWhisper, generateWhisperCourier } from "./whispers";
 
 // ── Public input/result types ────────────────────────────────────────────
@@ -86,6 +92,13 @@ export function applyStaffOutputsPhase(state: GameState): GameState {
   for (const staffId of sortedStaffIds) {
     const s0 = acc.staff.get(staffId);
     if (s0 === undefined) continue;
+    // P24c: dismissed (fired) + promoted (→ Character) staff are INERT — never
+    // deleted, but skipped here (no loyalty drift, no bribery roll, no cadence
+    // output). The bribery roll is the only RNG draw in this loop, so skipping
+    // an inert member consumes ZERO draws (an inert member never would have
+    // drawn unless Greedy + sub-threshold; the skip is BEFORE the draw gate, so
+    // a future fire of a Greedy member removes its per-tick draw — intended).
+    if (s0.dismissedAtTick !== null || s0.promotedToCharacterId !== null) continue;
     let s = s0;
 
     // ── Step 1: loyalty drift ──────────────────────────────────────────
@@ -107,7 +120,14 @@ export function applyStaffOutputsPhase(state: GameState): GameState {
       const rngBefore = getOrThrow(acc.rng, s.houseId);
       const { next, rngState: rngAfter } = drawNext(rngBefore);
       acc = { ...acc, rng: new Map(acc.rng).set(s.houseId, rngAfter) };
-      if (next < STAFF_BRIBERY_PROBABILITY_BASE) {
+      // P24c (I4): the Whispers dynasty perk's espionage-resistance half lowers
+      // the bribery THRESHOLD (not the draw count — the draw above already
+      // fired). Player-house staff only (the perk is a player-house legacy).
+      const briberyThreshold =
+        s.houseId === PLAYER_HOUSE_ID && hasDynastyPerk(acc, "Whispers")
+          ? STAFF_BRIBERY_PROBABILITY_BASE * WHISPERS_PERK_BRIBERY_RESISTANCE_MULTIPLIER
+          : STAFF_BRIBERY_PROBABILITY_BASE;
+      if (next < briberyThreshold) {
         s = {
           ...s,
           assignment: "BribedByRival",
@@ -164,9 +184,12 @@ function produceCadenceOutput(acc: GameState, staff: StaffMember): GameState {
   switch (staff.assignment) {
     case "Snoop":
     case "BribeDriver": {
-      // Subject = lex-smallest living non-PLAYER non-self CharacterId.
-      // Subject-set is identical at v1 (cadence differs only in cadence).
-      const subject = pickStaffWhisperSubject(acc);
+      // P24c (I3): BribeDriver targets NPCs at the player's CURRENT location
+      // (spec §3 L457 — "whispers about characters whose recent travel matches");
+      // Snoop stays location-agnostic. This differentiates the two by SUBJECT
+      // SET, not just cadence.
+      const location = staff.assignment === "BribeDriver" ? ownerHouse.currentLocation : null;
+      const subject = pickStaffWhisperSubject(acc, location);
       if (subject === null) return acc;
       const w = generateSynergyWhisper(acc, headOfHouseId, subject, acc.tick);
       const newWhispers = new Map(acc.whispers);
@@ -218,17 +241,28 @@ function produceCadenceOutput(acc: GameState, staff: StaffMember): GameState {
   }
 }
 
-function pickStaffWhisperSubject(state: GameState): CharacterId | null {
+// P24c (I3): subject picker, now location-aware. `location === null` (Snoop) →
+// lex-smallest living non-player NPC. `location !== null` (BribeDriver) →
+// lex-smallest living non-player NPC AT that location (the player's current
+// travel destination); FALLS BACK to the location-agnostic pick when no NPC
+// matches, so the assignment still produces a whisper.
+function pickStaffWhisperSubject(
+  state: GameState,
+  location: LocationId | null,
+): CharacterId | null {
   const candidates: CharacterId[] = [];
   for (const c of state.characters.values()) {
-    if (c.alive && c.houseId !== PLAYER_HOUSE_ID) {
-      candidates.push(c.id);
-    }
+    if (!c.alive || c.houseId === PLAYER_HOUSE_ID) continue;
+    if (location !== null && c.assignedLocationId !== location) continue;
+    candidates.push(c.id);
   }
-  if (candidates.length === 0) return null;
-  candidates.sort();
-  // biome-ignore lint/style/noNonNullAssertion: candidates is non-empty per length check
-  return candidates[0]!;
+  if (candidates.length > 0) {
+    candidates.sort();
+    // biome-ignore lint/style/noNonNullAssertion: candidates is non-empty per length check
+    return candidates[0]!;
+  }
+  // No location match → fall back to the location-agnostic lex-smallest pick.
+  return location === null ? null : pickStaffWhisperSubject(state, null);
 }
 
 // ── Player actions ───────────────────────────────────────────────────────
@@ -317,4 +351,79 @@ export function trySpymasterMailIntercept(state: GameState): SpymasterInterceptR
   const target = state.couriers.get(targetId)!;
   newCouriers.set(targetId, { ...target, status: "Intercepted", resolvedAtTick: state.tick });
   return { ok: true, state: { ...state, houses: newHouses, couriers: newCouriers } };
+}
+
+// ── P24c: hire / fire ──────────────────────────────────────────────────────
+
+export type HireStaffRejection =
+  | { kind: "RosterFull"; cap: number }
+  | { kind: "InsufficientWealth"; have: number; need: number }
+  | { kind: "PlayerExiled" }
+  | { kind: "ElopementInProgress" };
+
+export type HireStaffResult =
+  | { ok: true; state: GameState; staffId: StaffId }
+  | { ok: false; reason: HireStaffRejection };
+
+export type FireStaffRejection =
+  | { kind: "StaffNotFound"; staffId: StaffId }
+  | { kind: "StaffInactive"; staffId: StaffId } // already dismissed or promoted
+  | { kind: "PlayerExiled" }
+  | { kind: "ElopementInProgress" };
+
+export type FireStaffResult =
+  | { ok: true; state: GameState }
+  | { ok: false; reason: FireStaffRejection };
+
+// Active = not dismissed AND not promoted — drives the roster cap (+ excludes
+// inert members from any "how many staff do I have" count).
+export function activeStaffCount(state: GameState): number {
+  let n = 0;
+  for (const s of state.staff.values()) {
+    if (s.dismissedAtTick === null && s.promotedToCharacterId === null) n += 1;
+  }
+  return n;
+}
+
+// hireStaff — atomic-gated (roster cap, then wealth), then mint a procedurally-
+// identified staff member (4 draws on the player stream) + deduct wealth.
+export function hireStaff(state: GameState): HireStaffResult {
+  if (activeStaffCount(state) >= STAFF_ROSTER_MAX) {
+    return { ok: false, reason: { kind: "RosterFull", cap: STAFF_ROSTER_MAX } };
+  }
+  const player = getHouseOrThrow(state, PLAYER_HOUSE_ID);
+  if (player.wealth < STAFF_HIRE_WEALTH_COST) {
+    return {
+      ok: false,
+      reason: { kind: "InsufficientWealth", have: player.wealth, need: STAFF_HIRE_WEALTH_COST },
+    };
+  }
+  const id = makeStaffId(state);
+  const rngBefore = getOrThrow(state.rng, PLAYER_HOUSE_ID);
+  const { staff, rngState: rngAfter } = buildProceduralStaffMember(id, rngBefore);
+  const newRng = new Map(state.rng).set(PLAYER_HOUSE_ID, rngAfter);
+  const newHouses = new Map(state.houses).set(PLAYER_HOUSE_ID, {
+    ...player,
+    wealth: player.wealth - STAFF_HIRE_WEALTH_COST,
+  });
+  const newStaff = new Map(state.staff).set(id, staff);
+  return {
+    ok: true,
+    state: { ...state, rng: newRng, houses: newHouses, staff: newStaff },
+    staffId: id,
+  };
+}
+
+// fireStaff — set dismissedAtTick (never deleted; inert thereafter). Firing a
+// BribedByRival member is ALLOWED — the only way to remove a turned member.
+export function fireStaff(state: GameState, staffId: StaffId): FireStaffResult {
+  const staff = state.staff.get(staffId);
+  if (staff === undefined) {
+    return { ok: false, reason: { kind: "StaffNotFound", staffId } };
+  }
+  if (staff.dismissedAtTick !== null || staff.promotedToCharacterId !== null) {
+    return { ok: false, reason: { kind: "StaffInactive", staffId } };
+  }
+  const newStaff = new Map(state.staff).set(staffId, { ...staff, dismissedAtTick: state.tick });
+  return { ok: true, state: { ...state, staff: newStaff } };
 }

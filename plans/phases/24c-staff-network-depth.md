@@ -1,6 +1,6 @@
 # P24c — Downstairs Network Depth: Staff (v1.5)
 
-> **Status: 📋 planned (fleshed).** Track: v1.5. Source: [MASTER.md §11.2-I](../MASTER.md#112-v15--deferred-backlog-aggregated-deduped). Split from the converged combined P24 (Stage I of three: P24a schemes/elopement · P24b artifacts · P24c staff).
+> **Status: ✅ implemented (all gates green; 977 tests incl. 30-run replay determinism + promotion determinism).** Track: v1.5. Source: [MASTER.md §11.2-I](../MASTER.md#112-v15--deferred-backlog-aggregated-deduped). Split from the converged combined P24 (Stage I of three: P24a schemes/elopement · P24b artifacts · P24c staff).
 > Turns the static 4-staff roster into a managed network: hire (procedural identity), fire, promote-to-character, location-specialized BribeDriver, and dynasty-perk bribery resistance.
 
 ## Depends on

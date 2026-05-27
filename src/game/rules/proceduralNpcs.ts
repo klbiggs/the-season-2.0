@@ -16,6 +16,7 @@ import {
 } from "../constants";
 import type { Character } from "../entities";
 import { classifyArchetype } from "../fixtures/archetypes";
+import { npcAssignedLocation } from "../fixtures/hashCharIdToGender";
 import { GIVEN_NAMES, SURNAMES, honorificFor } from "../fixtures/nameBanks";
 import { PROCEDURAL_PROFILES, type ProceduralProfile } from "../fixtures/proceduralProfiles";
 import {
@@ -25,7 +26,6 @@ import {
   type TraitId,
   drawInt,
 } from "../rng";
-import { npcAssignedLocation } from "../fixtures/hashCharIdToGender";
 import { applyLifespanModifiers } from "./lifespan";
 
 // Shared id convention. The legacy-emit filter (persist/schema.ts) excludes

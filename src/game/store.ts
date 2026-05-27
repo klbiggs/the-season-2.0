@@ -101,10 +101,15 @@ import {
 } from "./rules/schemes";
 import {
   type AssignStaffRejection,
+  type FireStaffRejection,
+  type HireStaffRejection,
   type SpymasterInterceptRejection,
+  fireStaff as fireStaffPure,
+  hireStaff as hireStaffPure,
   tryAssignStaff,
   trySpymasterMailIntercept,
 } from "./rules/staff";
+import { type PromoteStaffRejection, promoteStaffToCharacter } from "./rules/staffPromotion";
 import { applyTravel, canTravel } from "./rules/travel";
 import type { TravelRejection } from "./rules/travel";
 import { applyWardrobeRefresh, canRefreshWardrobe } from "./rules/wardrobeRefresh";
@@ -321,6 +326,12 @@ export type StoreActions = {
     newAssignment: StaffAssignment,
   ) => { ok: true } | { ok: false; reason: AssignStaffRejection };
   spymasterIntercept: () => { ok: true } | { ok: false; reason: SpymasterInterceptRejection };
+  // P24c: staff network lifecycle (free actions; direct-publish their own events).
+  hireStaff: () => { ok: true; staffId: StaffId } | { ok: false; reason: HireStaffRejection };
+  fireStaff: (staffId: StaffId) => { ok: true } | { ok: false; reason: FireStaffRejection };
+  promoteStaff: (
+    staffId: StaffId,
+  ) => { ok: true; characterId: CharacterId } | { ok: false; reason: PromoteStaffRejection };
   // P7 family actions. proposeMarriage is tick-advancing (pre-tick action
   // pattern). assignTutor and chooseTutorBonusTrait are FREE actions.
   proposeMarriage: (targetCharacterId: CharacterId) => ProposalOutcome;
@@ -1543,6 +1554,64 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         }
         publishWhisperTransitions(before, result.state, new Set([`reassign:${staffId}`]));
         return { ok: true };
+      },
+      // ── P24c staff network lifecycle (free actions; direct-publish) ──────
+      hireStaff: () => {
+        const before = get();
+        if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (hasActivePlayerElopement(before)) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        const result = hireStaffPure(before);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((draft) => {
+          overwriteFromGameState(draft, result.state);
+        });
+        whisperBus.publish({
+          kind: "StaffHired",
+          tick: result.state.tick,
+          staffId: result.staffId,
+        });
+        return { ok: true, staffId: result.staffId };
+      },
+      fireStaff: (staffId: StaffId) => {
+        const before = get();
+        if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (hasActivePlayerElopement(before)) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        const result = fireStaffPure(before, staffId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((draft) => {
+          overwriteFromGameState(draft, result.state);
+        });
+        whisperBus.publish({ kind: "StaffDismissed", tick: result.state.tick, staffId });
+        return { ok: true };
+      },
+      promoteStaff: (staffId: StaffId) => {
+        const before = get();
+        if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (hasActivePlayerElopement(before)) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        const result = promoteStaffToCharacter(before, staffId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((draft) => {
+          overwriteFromGameState(draft, result.state);
+        });
+        whisperBus.publish({
+          kind: "StaffPromoted",
+          tick: result.state.tick,
+          staffId,
+          characterId: result.characterId,
+        });
+        return { ok: true, characterId: result.characterId };
       },
       spymasterIntercept: () => {
         const before = get();

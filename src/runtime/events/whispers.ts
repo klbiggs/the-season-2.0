@@ -63,6 +63,11 @@ export type WhisperEvent =
       to: StaffAssignment;
     }
   | { kind: "StaffBribed"; tick: number; staffId: StaffId }
+  // P24c: staff-lifecycle events — direct-published from the hire/fire/promote
+  // free actions (NOT part of the tick-advancing publisher set / diff helper).
+  | { kind: "StaffHired"; tick: number; staffId: StaffId }
+  | { kind: "StaffDismissed"; tick: number; staffId: StaffId }
+  | { kind: "StaffPromoted"; tick: number; staffId: StaffId; characterId: CharacterId }
   | { kind: "PlayerExileBlocked"; tick: number; action: string };
 
 export const whisperBus = new EventBus<WhisperEvent>();

@@ -13,7 +13,6 @@
 
 import { HAPPINESS_INITIAL } from "../constants";
 import type { Character, House, RivalActorState } from "../entities";
-import { npcAssignedLocation } from "./hashCharIdToGender";
 import {
   type CharacterId,
   type FactionId,
@@ -23,6 +22,7 @@ import {
   type TraitId,
   createRngState,
 } from "../rng";
+import { npcAssignedLocation } from "./hashCharIdToGender";
 
 export type RivalCharacterSeed = {
   characterId: CharacterId;
