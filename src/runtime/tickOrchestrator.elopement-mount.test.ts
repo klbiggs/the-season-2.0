@@ -8,7 +8,12 @@
 // discovery → mount path.
 
 import { describe, expect, it } from "vitest";
-import { SEDUCTION_DISCOVERY_PROBABILITY } from "../game/constants";
+import {
+  SEDUCTION_AFFECTION_CEILING,
+  SEDUCTION_SUSPICION_BASE,
+  SEDUCTION_SUSPICION_CEILING,
+  SEDUCTION_SUSPICION_SLOPE,
+} from "../game/constants";
 import type { GameState, Scheme } from "../game/entities";
 import { drawNext } from "../game/rng";
 import { PLAYER_HOUSE_ID } from "../game/rng";
@@ -16,22 +21,31 @@ import type { CharacterId, SchemeId } from "../game/rng";
 import { applySchemeResolutionPhase } from "../game/rules/schemes";
 import { createInitialState } from "../game/store";
 
-// Walk a fixed seed's draw stream until we find a call-count offset that
-// yields a draw < SEDUCTION_DISCOVERY_PROBABILITY at the next draw site.
-// Returns { seed, callCount } such that state.rng[player] = { seed, callCount }
-// produces a discovery hit on the next `drawNext` call.
-function findDiscoveringRngState(seedString: string): { seed: string; callCount: number } {
+// P24a: the per-tick suspicion probability when accumulatedAffection is at the
+// ceiling (the max ramp). The discovery mount test pre-sets accumulatedAffection
+// to the ceiling so the suspicion roll is meaningful + a discovery draw is
+// findable.
+const MAX_SUSPICION_P = Math.min(
+  SEDUCTION_SUSPICION_BASE + SEDUCTION_AFFECTION_CEILING * SEDUCTION_SUSPICION_SLOPE,
+  SEDUCTION_SUSPICION_CEILING,
+);
+
+// Walk a fixed seed's draw stream until we find a call-count offset that yields a
+// draw < `threshold` at the next draw site. Returns { seed, callCount } such that
+// state.rng[player] = { seed, callCount } produces that hit on the next drawNext.
+function findRngStateBelow(
+  seedString: string,
+  threshold: number,
+): { seed: string; callCount: number } {
   let rng = { seed: seedString, callCount: 0 };
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 400; i++) {
     const { next, rngState } = drawNext(rng);
-    if (next < SEDUCTION_DISCOVERY_PROBABILITY) {
+    if (next < threshold) {
       return rng;
     }
     rng = rngState;
   }
-  throw new Error(
-    "findDiscoveringRngState: no discovery draw found in 100 iterations — seed unsuitable",
-  );
+  throw new Error(`findRngStateBelow: no draw < ${threshold} found in 400 iterations`);
 }
 
 function makeStateWithSeductionAtEndTick(seedString: string): {
@@ -63,10 +77,13 @@ function makeStateWithSeductionAtEndTick(seedString: string): {
     status: "Active",
     resolvedAtTick: null,
     failureReason: null,
-    accumulatedAffection: 0,
+    // P24a: pre-set to the ceiling so the per-tick suspicion roll is at its max
+    // ramp — a discovery draw is then findable in the seed stream.
+    accumulatedAffection: SEDUCTION_AFFECTION_CEILING,
   };
-  // Prime the player house's RNG so the next draw lands < discovery probability.
-  const primedRng = findDiscoveringRngState(seedString);
+  // Prime the player house's RNG so the next (suspicion) draw lands < the max
+  // suspicion probability → discovery fires this tick.
+  const primedRng = findRngStateBelow(seedString, MAX_SUSPICION_P);
   const newRng = new Map(fresh.rng);
   newRng.set(PLAYER_HOUSE_ID, primedRng);
   const state: GameState = {
@@ -112,11 +129,13 @@ describe("applySchemeResolutionPhase: discovered Seduction mounts state.elopemen
     const aggressorId = fresh.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId;
     if (targetId === undefined || aggressorId === undefined) throw new Error("unreachable");
     const schemeId = `${PLAYER_HOUSE_ID}:Seduction:0:0` as SchemeId;
-    // Find an rng state where the next draw is ≥ 0.2 (no discovery).
+    // Find an rng state where the next (suspicion) draw is ≥ the max suspicion p
+    // (so no discovery fires regardless of the per-tick ramp; accumulatedAffection
+    // is 0 here, well below the ceiling).
     let rng = { seed: "non-discover-test", callCount: 0 };
     for (let i = 0; i < 100; i++) {
       const { next, rngState } = drawNext(rng);
-      if (next >= SEDUCTION_DISCOVERY_PROBABILITY) break;
+      if (next >= MAX_SUSPICION_P) break;
       rng = rngState;
     }
     const newRng = new Map(fresh.rng);

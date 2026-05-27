@@ -13,7 +13,7 @@ import {
   makeHousesMap,
 } from "../__test-utils__/factories";
 import {
-  SEDUCTION_AFFECTION_DELTA_ON_SUCCESS,
+  SEDUCTION_AFFECTION_PER_TICK,
   SEDUCTION_PERK_AFFECTION_BASE_BONUS,
   WHISPERS_PERK_VERIFICATION_MULTIPLIER,
   WHISPER_VERIFICATION_PER_TICK,
@@ -403,16 +403,14 @@ describe("Seduction resolver — base bonus + counter increment", () => {
     const baseline = findSuccess([]);
     const baselineKey = [...baseline.affectionMap.keys()].find((k) => k.includes(TARGET_ID));
     const baselineDelta = baselineKey ? (baseline.affectionMap.get(baselineKey) ?? 0) : 0;
-    // base 80 → 80 (no clamp at 0 start).
-    expect(baselineDelta).toBe(SEDUCTION_AFFECTION_DELTA_ON_SUCCESS);
+    // P24a: a single completing tick accrues one per-tick delta (multi-tick model).
+    expect(baselineDelta).toBe(SEDUCTION_AFFECTION_PER_TICK);
 
     const withPerk = findSuccess([award("Seduction")]);
     const perkKey = [...withPerk.affectionMap.keys()].find((k) => k.includes(TARGET_ID));
     const perkDelta = perkKey ? (withPerk.affectionMap.get(perkKey) ?? 0) : 0;
-    // base 80 + bonus 15 = 95.
-    expect(perkDelta).toBe(
-      SEDUCTION_AFFECTION_DELTA_ON_SUCCESS + SEDUCTION_PERK_AFFECTION_BASE_BONUS,
-    );
+    // P24a: per-tick accrual + the one-time completion perk bonus.
+    expect(perkDelta).toBe(SEDUCTION_AFFECTION_PER_TICK + SEDUCTION_PERK_AFFECTION_BASE_BONUS);
     expect(perkDelta).toBeGreaterThan(baselineDelta);
     // Sanity: the pair-key shape the resolver writes under contains the target.
     expect(makePairKey(PLAYER_HOUSE_ID, TARGET_ID)).toContain(TARGET_ID);

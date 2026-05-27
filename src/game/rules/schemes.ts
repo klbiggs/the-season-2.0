@@ -19,11 +19,14 @@ import {
   SCHEME_ERA_REQUIREMENTS,
   SCHEME_PREREQUISITES,
   SCHEME_TUNING,
-  SEDUCTION_AFFECTION_DELTA_ON_SUCCESS,
-  SEDUCTION_DISCOVERY_PROBABILITY,
+  SEDUCTION_AFFECTION_CEILING,
+  SEDUCTION_AFFECTION_PER_TICK,
   SEDUCTION_DISCOVERY_SCANDAL,
   SEDUCTION_PERK_AFFECTION_BASE_BONUS,
   SEDUCTION_PERK_DISCOVERY_SCANDAL_MULTIPLIER,
+  SEDUCTION_SUSPICION_BASE,
+  SEDUCTION_SUSPICION_CEILING,
+  SEDUCTION_SUSPICION_SLOPE,
   type SchemeFailureReasonKind,
   type SchemeKind,
   type SchemeStatus,
@@ -379,7 +382,10 @@ function resolveSchemeCompletion(state: GameState, scheme: Scheme): GameState {
     case "Sabotage":
       return resolveSabotage(state, scheme);
     case "Seduction":
-      return resolveSeduction(state, scheme);
+      // P24a: Seduction is processed per-tick (see applySchemeResolutionPhase
+      // pass 2). This dispatcher branch keeps the switch exhaustive and routes a
+      // direct call through the same per-tick processor.
+      return processSeductionTick(state, scheme);
     case "Chaperone":
       return resolveChaperone(state, scheme);
     case "Smuggling":
@@ -528,33 +534,67 @@ function resolveSabotage(state: GameState, scheme: Scheme): GameState {
   return flipSchemeStatus(baseState, scheme.id, "Completed");
 }
 
-function resolveSeduction(state: GameState, scheme: Scheme): GameState {
+// P24a (C1, Q6): multi-tick Seduction. Called EVERY tick a Seduction is Active
+// (not just at endsAtTick — see applySchemeResolutionPhase pass 2). Each tick:
+//   1. accrue affection toward the target (per-tick base × WarEffort multiplier),
+//      bumping the scheme's accumulatedAffection (capped at the ceiling);
+//   2. roll a suspicion check whose probability RAMPS with accumulatedAffection.
+// On a hit → discovery mid-flight (scandal + elopement sprint + Failed/Discovered).
+// Reaching endsAtTick without discovery → Completed (+ a one-time perk affection
+// bonus + the cumulative-successes counter for player-owned). One draw/tick on
+// the owner stream; the target-dead branch draws nothing (call-count invariant).
+function processSeductionTick(state: GameState, scheme: Scheme): GameState {
   const targetId = scheme.targetCharacterId;
   if (targetId === null) {
-    throw new Error(`resolveSeduction: scheme ${scheme.id} has no target`);
+    throw new Error(`processSeductionTick: scheme ${scheme.id} has no target`);
   }
   const target = state.characters.get(targetId);
   if (target === undefined || !target.alive) {
-    // Target-dead branch: NO draw, NO mutation beyond status flip. Preserves
-    // the per-house RNG call-count invariant. A Seduction that completes
-    // against a dead target does NOT advance the discovery draw count.
     return flipSchemeStatus(state, scheme.id, "Failed", "TargetDied");
   }
-  // Discovery roll on the owner's per-house RNG. drawNext returns
-  // { next, rngState } — rename via destructure to `postDraw` (using
-  // "state" as the rename target would shadow the outer state).
+
+  const key = makePairKey(scheme.ownerHouseId, targetId);
+  const isPlayerOwned = scheme.ownerHouseId === PLAYER_HOUSE_ID;
+
+  // 1. Per-tick affection accrual. WarEffort × MilitaryOfficer multiplier applies
+  // to the per-tick base (dormant at v1 — no officer acquisition path).
+  const aggressor = state.characters.get(scheme.aggressorCharacterId);
+  const isOfficer = aggressor?.traits.includes(MILITARY_OFFICER) === true;
+  const hasActiveWarEffort = [...state.globalEvents.values()].some((e) => e.kind === "WarEffort");
+  const warMultiplier =
+    isOfficer && hasActiveWarEffort ? WAR_EFFORT_SEDUCTION_AFFECTION_MULTIPLIER : 1.0;
+  const tickDelta = Math.round(SEDUCTION_AFFECTION_PER_TICK * warMultiplier);
+
+  const newAffection = new Map(state.affectionMap);
+  newAffection.set(key, clamp((newAffection.get(key) ?? 0) + tickDelta, 0, 100));
+  const newAccumulated = Math.min(
+    scheme.accumulatedAffection + tickDelta,
+    SEDUCTION_AFFECTION_CEILING,
+  );
+  const newSchemes = new Map(state.schemes);
+  newSchemes.set(scheme.id, { ...scheme, accumulatedAffection: newAccumulated });
+
+  // 2. Per-tick suspicion roll (probability ramps with accumulatedAffection).
   const rngState = getOrThrow(state.rng, scheme.ownerHouseId);
   const { next, rngState: postDraw } = drawNext(rngState);
-  const discovered = next < SEDUCTION_DISCOVERY_PROBABILITY;
   const newRng = new Map(state.rng);
   newRng.set(scheme.ownerHouseId, postDraw);
-  const baseState = { ...state, rng: newRng };
 
-  if (discovered) {
-    // P7: SEDUCTION_DISCOVERY_SCANDAL retro-add. The aggressor's
-    // temptationHookUnlocked latch + target-is-non-spouse selects the
-    // discounted vs full scandal delta (§10 Q23 resolution).
-    const aggressor = state.characters.get(scheme.aggressorCharacterId);
+  const baseState: GameState = {
+    ...state,
+    affectionMap: newAffection,
+    schemes: newSchemes,
+    rng: newRng,
+  };
+
+  const suspicion = clamp(
+    SEDUCTION_SUSPICION_BASE + newAccumulated * SEDUCTION_SUSPICION_SLOPE,
+    0,
+    SEDUCTION_SUSPICION_CEILING,
+  );
+  if (next < suspicion) {
+    // Discovered mid-flight. Discovery scandal selection: temptation discount
+    // (aggressor's latch + non-spouse target) + P15 perk-halving (player-owned).
     const aggressorMarriage =
       aggressor !== undefined && aggressor.marriageId !== null
         ? state.marriages.get(aggressor.marriageId)
@@ -570,20 +610,12 @@ function resolveSeduction(state: GameState, scheme: Scheme): GameState {
       aggressor?.temptationHookUnlocked === true && !targetIsSpouse
         ? TEMPTATION_DISCOUNTED_SCANDAL
         : SEDUCTION_DISCOVERY_SCANDAL;
-    // P15: the Seduction perk halves the discovery scandal for player-owned
-    // Seductions. Composes with the temptation discount above (halves whichever
-    // delta was selected). Gated to player-owned: rival Seductions never count
-    // and never get effects.
     const scandalDelta =
-      scheme.ownerHouseId === PLAYER_HOUSE_ID && hasDynastyPerk(state, "Seduction")
+      isPlayerOwned && hasDynastyPerk(state, "Seduction")
         ? Math.round(selectedScandalDelta * SEDUCTION_PERK_DISCOVERY_SCANDAL_MULTIPLIER)
         : selectedScandalDelta;
-    // P9: the discovery branch composes scandal + sprint mount + status flip.
-    // startElopementSprintFromDiscoveredSeduction applies the scandal and sets
-    // state.elopement to a fresh ElopementSprintState in one atomic step; the
-    // status flip via flipSchemeStatus drives the SeductionDiscovered bus event
-    // (the diff helper's publisher discriminator routes Failed/Discovered to
-    // SeductionDiscovered, NOT SchemeFailed).
+    // Mounts the elopement sprint (isPlayerControlled derived from the owner) +
+    // applies the discovery scandal; the status flip drives SeductionDiscovered.
     const stateWithScandalAndSprint = startElopementSprintFromDiscoveredSeduction(
       baseState,
       scheme,
@@ -592,53 +624,32 @@ function resolveSeduction(state: GameState, scheme: Scheme): GameState {
     return flipSchemeStatus(stateWithScandalAndSprint, scheme.id, "Failed", "Discovered");
   }
 
-  // Not-discovered: apply success affection (clamped), flip to Completed.
-  // P13: WarEffort × MilitaryOfficer multiplier composes here. The aggressor
-  // gets a +50% affection delta on success when ALL of: (a) aggressor has
-  // MilitaryOfficer trait, (b) at least one WarEffort event is currently
-  // active in state.globalEvents. Pure positive-outcome buff — discovery roll
-  // above is NOT modulated. Per the wired-but-inert design pin, no v1 path
-  // produces a MilitaryOfficer-tagged character, so this branch is dormant
-  // until a future v1.5 acquisition path ships.
-  const aggressor = baseState.characters.get(scheme.aggressorCharacterId);
-  const isOfficer = aggressor?.traits.includes(MILITARY_OFFICER);
-  const hasActiveWarEffort = [...baseState.globalEvents.values()].some(
-    (e) => e.kind === "WarEffort",
-  );
-  const seductionMultiplier =
-    isOfficer && hasActiveWarEffort ? WAR_EFFORT_SEDUCTION_AFFECTION_MULTIPLIER : 1.0;
-  // P15: the Seduction perk adds a fixed positive base to the success affection
-  // delta BEFORE the WarEffort multiplier scales it (documented order). Gated to
-  // player-owned Seductions.
-  const isPlayerOwned = scheme.ownerHouseId === PLAYER_HOUSE_ID;
-  const perkBonus =
-    isPlayerOwned && hasDynastyPerk(state, "Seduction") ? SEDUCTION_PERK_AFFECTION_BASE_BONUS : 0;
-  const finalDelta = Math.round(
-    (SEDUCTION_AFFECTION_DELTA_ON_SUCCESS + perkBonus) * seductionMultiplier,
-  );
+  // Not discovered this tick. Still in flight until endsAtTick.
+  if (state.tick < scheme.endsAtTick) {
+    return baseState;
+  }
 
-  const newAffection = new Map(baseState.affectionMap);
-  const key = makePairKey(scheme.ownerHouseId, targetId);
-  const current = newAffection.get(key) ?? 0;
-  newAffection.set(key, clamp(current + finalDelta, 0, 100));
-  let stateWithAffection = { ...baseState, affectionMap: newAffection };
-
-  // P15: increment the player house's cumulative-successful-Seductions counter
-  // on player-owned successes. The success branch writes affectionMap ONLY —
-  // there is NO existing houses clone to reuse, so add a fresh new Map clone for
-  // the counter write. The Seduction perk awards at the terminal eval phase.
+  // Reached endsAtTick without discovery → Completed. P15: a one-time perk
+  // affection bonus on the successful completion (player-owned) + the cumulative
+  // counter (the perk awards at the terminal eval phase).
+  let completedState = baseState;
+  if (isPlayerOwned && hasDynastyPerk(state, "Seduction")) {
+    const a = new Map(completedState.affectionMap);
+    a.set(key, clamp((a.get(key) ?? 0) + SEDUCTION_PERK_AFFECTION_BASE_BONUS, 0, 100));
+    completedState = { ...completedState, affectionMap: a };
+  }
   if (isPlayerOwned) {
-    const playerHouse = baseState.houses.get(PLAYER_HOUSE_ID);
+    const playerHouse = completedState.houses.get(PLAYER_HOUSE_ID);
     if (playerHouse !== undefined) {
-      const newHouses = new Map(baseState.houses);
+      const newHouses = new Map(completedState.houses);
       newHouses.set(PLAYER_HOUSE_ID, {
         ...playerHouse,
         cumulativeSuccessfulSeductions: playerHouse.cumulativeSuccessfulSeductions + 1,
       });
-      stateWithAffection = { ...stateWithAffection, houses: newHouses };
+      completedState = { ...completedState, houses: newHouses };
     }
   }
-  return flipSchemeStatus(stateWithAffection, scheme.id, "Completed");
+  return flipSchemeStatus(completedState, scheme.id, "Completed");
 }
 
 function resolveChaperone(state: GameState, scheme: Scheme): GameState {
@@ -745,9 +756,17 @@ function resolveAssassination(state: GameState, scheme: Scheme): GameState {
 // contract, not a lex-sort coincidence.
 export function applySchemeResolutionPhase(state: GameState): GameState {
   const chaperoneIds: SchemeId[] = [];
+  const seductionIds: SchemeId[] = [];
   const otherIds: SchemeId[] = [];
   for (const [id, scheme] of state.schemes) {
-    if (scheme.status !== "Active" || scheme.endsAtTick !== state.tick) continue;
+    if (scheme.status !== "Active") continue;
+    if (scheme.kind === "Seduction") {
+      // P24a: Seductions are processed EVERY tick of flight (per-tick accrual +
+      // suspicion ramp), NOT only at endsAtTick. Collected regardless of tick.
+      seductionIds.push(id);
+      continue;
+    }
+    if (scheme.endsAtTick !== state.tick) continue;
     if (scheme.kind === "Chaperone") {
       chaperoneIds.push(id);
     } else {
@@ -755,9 +774,11 @@ export function applySchemeResolutionPhase(state: GameState): GameState {
     }
   }
   chaperoneIds.sort();
+  seductionIds.sort();
   otherIds.sort();
 
-  // Pass 1: Chaperones. May flip same-tick Seductions to "Cancelled"
+  // Pass 1: Chaperones. resolveChaperone scans ALL Active Seductions on the
+  // target (incl. mid-flight ones, any tick), flipping them to "Cancelled"
   // BEFORE pass 2 sees them.
   const afterChaperones = chaperoneIds.reduce<GameState>((acc, id) => {
     const scheme = acc.schemes.get(id);
@@ -765,13 +786,19 @@ export function applySchemeResolutionPhase(state: GameState): GameState {
     return resolveSchemeCompletion(acc, scheme);
   }, state);
 
-  // Pass 2: all other kinds. Reading each scheme from acc.schemes.get(id)
-  // (not from a captured ref) so a pass-1 Chaperone's cancel of a same-tick
-  // Seduction is visible — the Seduction's resolver short-circuits on
-  // status !== "Active".
+  // Pass 2: per-tick Seduction processing. Reads each scheme from acc (not a
+  // captured ref) so a pass-1 Chaperone's cancel short-circuits here. One draw
+  // per Active Seduction per tick on the owner stream (lex-sorted by id).
+  const afterSeductions = seductionIds.reduce<GameState>((acc, id) => {
+    const scheme = acc.schemes.get(id);
+    if (scheme === undefined || scheme.status !== "Active") return acc;
+    return processSeductionTick(acc, scheme);
+  }, afterChaperones);
+
+  // Pass 3: all other completions at endsAtTick (deterministic, no draws).
   return otherIds.reduce<GameState>((acc, id) => {
     const scheme = acc.schemes.get(id);
     if (scheme === undefined || scheme.status !== "Active") return acc;
     return resolveSchemeCompletion(acc, scheme);
-  }, afterChaperones);
+  }, afterSeductions);
 }

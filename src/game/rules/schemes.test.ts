@@ -8,8 +8,9 @@ import { makeCharacter, makeHouse } from "../__test-utils__/factories";
 import {
   ERA_TRANSITION_TICK,
   SCHEME_TUNING,
-  SEDUCTION_DISCOVERY_PROBABILITY,
+  SEDUCTION_AFFECTION_PER_TICK,
   type SchemeKind,
+  WAR_EFFORT_SEDUCTION_AFFECTION_MULTIPLIER,
 } from "../constants";
 import type { GameState, Scheme } from "../entities";
 import { hashState } from "../hash";
@@ -418,8 +419,9 @@ describe("Seduction WarEffort × MilitaryOfficer multiplier (P13 matrix #14)", (
   // branch). The multiplier only kicks in on the success path; if the seed
   // discovers, the test path is vacuous.
   function findSuccessSeed(): string {
-    // Sweep a small set; SEDUCTION_DISCOVERY_PROBABILITY = 0.2, so ~80% of
-    // seeds land in success. Test fails loudly if 100 seeds all discover.
+    // Sweep a small set; the per-tick suspicion p is small for a single
+    // completing tick (accumulatedAffection starts at 0), so most seeds land in
+    // the success branch. Test fails loudly if 100 seeds all discover.
     for (let i = 0; i < 100; i += 1) {
       const seed = `multiplier-probe-${i}`;
       const initial = synthStateWith({
@@ -525,13 +527,12 @@ describe("Seduction WarEffort × MilitaryOfficer multiplier (P13 matrix #14)", (
     if (officerKey === undefined) throw new Error("officer missing affection key");
     const officerDelta = officerResolved.affectionMap.get(officerKey) ?? 0;
 
-    // Both paths complete; affection deltas are post-clamp. Baseline is at
-    // most 80 (since starting affection is 0). Officer-with-multiplier path
-    // post-clamps to 100 (Math.round(80 × 1.5) = 120, clamped to 100).
-    // So officerDelta > baselineDelta IFF the multiplier fired AND the
-    // resulting value exceeded the baseline (true when baseline < 100).
-    expect(baselineDelta).toBeLessThanOrEqual(100);
-    expect(officerDelta).toBe(100); // pre-clamp 120 → post-clamp 100
+    // P24a (multi-tick): a single completing tick accrues one per-tick delta;
+    // the WarEffort × officer multiplier scales the per-tick base.
+    expect(baselineDelta).toBe(SEDUCTION_AFFECTION_PER_TICK);
+    expect(officerDelta).toBe(
+      Math.round(SEDUCTION_AFFECTION_PER_TICK * WAR_EFFORT_SEDUCTION_AFFECTION_MULTIPLIER),
+    );
     expect(officerDelta).toBeGreaterThan(baselineDelta);
   });
 });
@@ -632,14 +633,6 @@ describe("two-pass resolver — Chaperone preempts Seduction", () => {
     // Chaperone completed; Seduction cancelled (NOT Failed/Discovered)
     expect(resolved.schemes.get(chap.schemeId)?.status).toBe("Completed");
     expect(resolved.schemes.get(sed.schemeId)?.status).toBe("Cancelled");
-  });
-});
-
-// ── SEDUCTION_DISCOVERY_PROBABILITY pin smoke test ───────────────────────
-
-describe("SEDUCTION_DISCOVERY_PROBABILITY", () => {
-  it("is pinned at 0.2 per OQ #6 resolution", () => {
-    expect(SEDUCTION_DISCOVERY_PROBABILITY).toBe(0.2);
   });
 });
 

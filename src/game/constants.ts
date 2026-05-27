@@ -381,22 +381,14 @@ export const SCHEME_TUNING: Readonly<
 // non-negotiable §6).
 export const COURTING_AFFECTION_DELTA = 40;
 export const SABOTAGE_COMPOSURE_DELTA = -30;
-export const SEDUCTION_AFFECTION_DELTA_ON_SUCCESS = 80;
 export const ASSASSINATION_SCANDAL_DELTA = 25;
 
-// Spec §10 Q#6 resolution at P5: Seduction discovery is a one-shot binary
-// at completion. 0.2 = 20% per completion. Designer-tunable per playtest;
-// P15 dynasty perk "halves discovery-scandal" applies as a multiplier
-// downstream, NOT to this probability.
-export const SEDUCTION_DISCOVERY_PROBABILITY = 0.2;
-
-// P24a (C1, Q6): multi-tick Seduction-discovery suspicion supersedes the
-// one-shot completion roll above. Affection accrues per tick of flight and the
-// per-tick discovery probability ramps with accumulated affection. Tuned so a
-// ~7-tick Seduction accrues ~80 affection and integrates to ~0.2 total
-// discovery probability — matching the retired one-shot model. Designer-tunable.
-// SEDUCTION_DISCOVERY_PROBABILITY is retired at the multi-tick cutover in
-// resolveSeduction (kept here until that rewrite lands; see P24a task 7).
+// P24a (C1, Q6): multi-tick Seduction-discovery suspicion (supersedes the
+// retired one-shot SEDUCTION_DISCOVERY_PROBABILITY / SEDUCTION_AFFECTION_DELTA_ON_SUCCESS).
+// Affection accrues per tick of flight and the per-tick discovery probability
+// ramps with accumulated affection. Tuned so a ~7-tick Seduction accrues ~80
+// affection and integrates to ~0.2 total discovery probability — matching the
+// old one-shot model. Designer-tunable.
 export const SEDUCTION_AFFECTION_PER_TICK = 12;
 export const SEDUCTION_AFFECTION_CEILING = 80;
 export const SEDUCTION_SUSPICION_BASE = 0.0;
@@ -999,9 +991,10 @@ export const WAR_EFFORT_OFFICER_DEATH_PROBABILITY_BASIS_POINTS = 100;
 // sizes (0 officers per the wired-but-inert design), this is dormant.
 // Death follows the canonical pruneOrphanedConversationKeys cascade.
 export const WAR_EFFORT_SEDUCTION_AFFECTION_MULTIPLIER = 1.5;
-// ↑ Multiplies the success-branch affection delta (SEDUCTION_AFFECTION_DELTA_ON_SUCCESS = 80)
-// for MilitaryOfficer aggressors only, while a WarEffort is active.
-// Discovery-roll probability is NOT modified — positive-outcome buff only.
+// ↑ P24a: multiplies the PER-TICK Seduction affection accrual
+// (SEDUCTION_AFFECTION_PER_TICK) for MilitaryOfficer aggressors only, while a
+// WarEffort is active. The suspicion-roll probability is NOT modified —
+// positive-outcome buff only.
 
 // MarketCrash (spec line 389: 5 ticks, -3 wealth per tick)
 export const MARKET_CRASH_DURATION_TICKS = 5;
