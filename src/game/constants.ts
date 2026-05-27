@@ -390,6 +390,26 @@ export const ASSASSINATION_SCANDAL_DELTA = 25;
 // downstream, NOT to this probability.
 export const SEDUCTION_DISCOVERY_PROBABILITY = 0.2;
 
+// P24a (C1, Q6): multi-tick Seduction-discovery suspicion supersedes the
+// one-shot completion roll above. Affection accrues per tick of flight and the
+// per-tick discovery probability ramps with accumulated affection. Tuned so a
+// ~7-tick Seduction accrues ~80 affection and integrates to ~0.2 total
+// discovery probability — matching the retired one-shot model. Designer-tunable.
+// SEDUCTION_DISCOVERY_PROBABILITY is retired at the multi-tick cutover in
+// resolveSeduction (kept here until that rewrite lands; see P24a task 7).
+export const SEDUCTION_AFFECTION_PER_TICK = 12;
+export const SEDUCTION_AFFECTION_CEILING = 80;
+export const SEDUCTION_SUSPICION_BASE = 0.0;
+export const SEDUCTION_SUSPICION_SLOPE = 0.0006; // probability per accumulated-affection point
+export const SEDUCTION_SUSPICION_CEILING = 0.1; // per-tick cap
+
+// P24a (C6): a scheme completion that drops a target's composure below this
+// threshold locks the target Defensive for SCHEME_COMPLETION_MOOD_LOCK_TICKS
+// (reuses the moodLockUntilTick field; applied in resolveSabotage as a pure
+// Map clone, NOT the store-layer faux-pas write).
+export const SCHEME_COMPLETION_MOOD_LOCK_COMPOSURE_THRESHOLD = 20;
+export const SCHEME_COMPLETION_MOOD_LOCK_TICKS = 5;
+
 // Spec §2 line 227 canonical reading: Spymaster for Chaperone; Bohemian
 // Rake for Assassination/Forgery; Country Exile as deniable proxy. Empty
 // arrays mean "no archetype prereq". Checked in tryStartScheme via
@@ -573,6 +593,16 @@ export const SEDUCTION_DISCOVERY_SCANDAL = 25;
 // AND the Seduction target is non-spouse (§10 Q23 resolution).
 export const TEMPTATION_DISCOUNTED_SCANDAL = 5;
 
+// P24a (C3, Q25): deliberate marriage dissolution (Abandonment/Divorce). Scandal
+// to the player house on abandonment; an added hostility bump if the abandoned
+// spouse belongs to a rival house (symmetric with the betrothal-break bump).
+export const ABANDONMENT_SCANDAL = 30;
+export const ABANDONMENT_RIVAL_HOSTILITY_BUMP = 15;
+
+// P24a (C8): synthetic NPC/rival schemes seeded at bootstrap from a transient
+// RNG sub-stream for opening-turn covert pressure.
+export const STARTING_SCHEME_COUNT = 2;
+
 // Spec §3 "Tutor Influence" (line 471-476).
 export const TUTOR_REASSIGNMENT_WEALTH_COST = 5;
 
@@ -726,6 +756,33 @@ export const ELOPEMENT_FRESH_HORSES_PLAYER_ADVANCE = 2;
 export const ELOPEMENT_FRESH_HORSES_WEALTH_COST = 10;
 export const ELOPEMENT_FRESH_HORSES_MAX_USES = 3;
 export const ELOPEMENT_LOSS_SCANDAL_DELTA = 50;
+
+// P24a (C4): per-tick chance a non-player AUTO-resolving sprint "uses fresh
+// horses" (eloper tile +ELOPEMENT_FRESH_HORSES_PLAYER_ADVANCE) while uses
+// remain. Player sprints stay interactive; this only drives applyElopementAutoResolvePhase.
+export const ELOPEMENT_AUTO_FRESH_HORSES_PROBABILITY = 0.25;
+
+// P24a (C5): pursuit-speed trait modifiers. Eloper traits speed the eloping
+// tile; pursuer (the target's house head) traits speed the father tile. Applied
+// in BOTH the interactive Push/FreshHorses advances and the auto-resolve phase.
+// Trait-id validity is asserted at module load in the consumer
+// (src/game/rules/elopement.ts), matching the LIFESPAN_TRAIT_MODIFIERS pattern.
+export const PURSUIT_SPEED_ELOPER_TRAIT_MODIFIERS: ReadonlyMap<TraitId, number> = new Map<
+  TraitId,
+  number
+>([
+  ["Bold" as TraitId, 1],
+  ["Brash" as TraitId, 1],
+  ["Hedonistic" as TraitId, 1],
+]);
+export const PURSUIT_SPEED_PURSUER_TRAIT_MODIFIERS: ReadonlyMap<TraitId, number> = new Map<
+  TraitId,
+  number
+>([
+  ["Cunning" as TraitId, 1],
+  ["Suspicious" as TraitId, 1],
+  ["Ambitious" as TraitId, 1],
+]);
 
 if (ELOPEMENT_PLAYER_START_TILE >= ELOPEMENT_TRACK_LENGTH) {
   throw new Error(

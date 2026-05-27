@@ -18,6 +18,10 @@ export type BallSessionId = string & { readonly __brand: "BallSessionId" };
 // from the (perpetrator, source, tick, index) tuple for FauxPas grievances.
 export type SchemeId = string & { readonly __brand: "SchemeId" };
 export type GrievanceId = string & { readonly __brand: "GrievanceId" };
+// P24a (C4): elopement-sprint branded id. state.elopements is a Map keyed by
+// ElopementId; the deterministic state-walking factory lives at
+// fixtures/elopementIdFactory.ts (per the *IdFactory.ts convention).
+export type ElopementId = string & { readonly __brand: "ElopementId" };
 // P6: whisper / courier-payload / staff branded identifiers. WhisperId is
 // deterministic (factory at fixtures/whisperIdFactory.ts:
 // `${sourceCharacterId}:${subjectCharacterId}:${tick}:${index}`).
@@ -101,6 +105,8 @@ export const TraitIdSchema = z.string().transform((s) => s as TraitId);
 // and house.grievances arrays carry GrievanceId via id field).
 export const SchemeIdSchema = z.string().transform((s) => s as SchemeId);
 export const GrievanceIdSchema = z.string().transform((s) => s as GrievanceId);
+// P24a (C4): brand schema for ElopementId; composes into z.map(ElopementIdSchema, ...).
+export const ElopementIdSchema = z.string().transform((s) => s as ElopementId);
 // P6: brand schemas for WhisperId / CourierPayloadId / StaffId. Same
 // `.transform` pattern; state.whispers / state.couriers / state.staff use
 // z.map(K, V) keyed on these brands.

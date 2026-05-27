@@ -41,6 +41,7 @@ import {
   FactionIdSchema,
   FactionPairKeySchema,
   FlavorContentIdSchema,
+  ElopementIdSchema,
   ForgeryIdSchema,
   GlobalEventIdSchema,
   GrievanceIdSchema,
@@ -316,6 +317,10 @@ export const MarriageRecordSchema = z.object({
   // Emit-side strip helper drops the field for toSaveV1..V9 round-trip
   // byte-identity parity.
   viaElopement: z.boolean().default(false),
+  // P24a (C3, Q25): true ONLY when the marriage was deliberately dissolved via
+  // the Abandonment/Divorce action (vs. a spouse-death dissolution). `.default(false)`
+  // parse-side backfill; pre-release so no strip-cascade.
+  viaAbandonment: z.boolean().default(false),
 });
 export type MarriageRecord = z.infer<typeof MarriageRecordSchema>;
 
@@ -467,20 +472,38 @@ export const DuelSchema = z.object({
 });
 export type Duel = z.infer<typeof DuelSchema>;
 
-// P9: ElopementSprintState entity. Spec §4 line 551. Singleton (NOT a Map)
-// hosted on GameState.elopement (nullable). The Q2 verdict's per-aggressor
-// `tryStartScheme` gate makes concurrent sprints unreachable; the singleton
-// matches the spec's "overlay route" framing. Numeric bounds reference the
-// canonical constants from constants.ts; entities.ts already imports at
-// runtime so no module-load cycle exists.
+// P9/P24a: ElopementSprintState entity. Spec §4 line 551. As of P24a, sprints
+// live in a `state.elopements: Map<ElopementId, ElopementSprintState>` (NOT a
+// singleton) so the player can run concurrent sprints AND rivals/society run
+// auto-resolving sprints. `isPlayerControlled` gates the interactive overlay +
+// the modal "suspend time" rule; non-player sprints auto-resolve in
+// applyElopementAutoResolvePhase. `resolved` (+ resolvedAtTick/outcome) lets a
+// terminated sprint PERSIST in the Map (never-delete invariant) rather than
+// being nulled — terminal detection keys off `resolved`, NOT map-absence.
+// Numeric bounds reference the canonical constants from constants.ts.
+export const ElopementOutcomeSchema = z.enum(["Won", "Lost"]);
+export type ElopementOutcome = z.infer<typeof ElopementOutcomeSchema>;
 export const ElopementSprintStateSchema = z.object({
+  id: ElopementIdSchema,
   // The originating Seduction whose Discovered branch launched this sprint.
   schemeId: SchemeIdSchema,
   elopingCharacterId: CharacterIdSchema, // = source scheme's aggressorCharacterId
   targetCharacterId: CharacterIdSchema, // = source scheme's targetCharacterId
+  initiatorHouseId: HouseIdSchema, // the eloping party's house (= source scheme owner)
+  pursuerHouseId: HouseIdSchema, // the target's house — the pursuing "father"
+  isPlayerControlled: z.boolean(), // initiatorHouseId === PLAYER_HOUSE_ID → interactive
   playerTilePosition: z.number().int().min(0).max(ELOPEMENT_TRACK_LENGTH),
   fatherTilePosition: z.number().int().min(0).max(ELOPEMENT_TRACK_LENGTH),
   freshHorsesUsedCount: z.number().int().min(0).max(ELOPEMENT_FRESH_HORSES_MAX_USES),
+  // P24a (C3): player-elected per-sprint flag — on a Won sprint where a party is
+  // already married, dissolve-then-mint (Abandonment) instead of rep-halve-only.
+  abandonOnWin: z.boolean(),
+  // Terminal state. `resolved` is the canonical "is this sprint over" flag;
+  // outcome/resolvedAtTick are set together on resolution. A resolved sprint
+  // stays in the Map (never-delete) — do NOT detect termination via map-absence.
+  resolved: z.boolean(),
+  outcome: ElopementOutcomeSchema.nullable(),
+  resolvedAtTick: z.number().int().nonnegative().nullable(),
   // Provenance anchor for the P14 ledger (sprint duration display); never
   // read by resolution logic (tile positions drive outcome). Hash-relevant
   // so mid-sprint save/load reproduces exactly.
@@ -633,13 +656,12 @@ export const GameStateSchema = z.object({
   rivalActors: z.map(HouseIdSchema, RivalActorStateSchema),
   factionTensions: z.map(FactionPairKeySchema, z.number().int().min(0).max(100)),
   duels: z.map(DuelIdSchema, DuelSchema),
-  // P9 addition — nullable singleton holding the active elopement sprint, or
-  // null when no sprint is in flight. Hits the quint-sync surfaces (CLAUDE.md
-  // non-negotiable + the 5th surface createInitialState in store.ts). The Q2
-  // verdict's per-aggressor `tryStartScheme` gate makes concurrent sprints
-  // unreachable; the singleton matches the spec's overlay-route framing.
-  // Hash-relevant when non-null (mid-sprint save/load reproduces tile state).
-  elopement: ElopementSprintStateSchema.nullable(),
+  // P9/P24a — was a nullable singleton; now a Map keyed by ElopementId so the
+  // player can run concurrent sprints AND rivals/society run auto-resolving
+  // sprints. Hits the quint-sync surfaces (CLAUDE.md non-negotiable + the 5th
+  // overwriteFromGameState surface in store.ts). Hash-relevant (mid-sprint
+  // save/load reproduces tile state); resolved sprints persist per never-delete.
+  elopements: z.map(ElopementIdSchema, ElopementSprintStateSchema),
   // P10 additions — three new top-level Maps. All hit the quint-sync surfaces
   // (CLAUDE.md non-negotiable: schema/hashableState/selectGameState/
   // overwriteFromGameState + createInitialState). Player-only ownership at v1
