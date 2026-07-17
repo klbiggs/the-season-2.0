@@ -218,6 +218,29 @@ describe("P10 artifact rules", () => {
       const expectedDeduction = 2 * PRE_BALL_COMPOSURE_PENALTY_PER_OUT_OF_SEASON_ARTIFACT;
       expect(headBefore.composure - headAfter.composure).toBe(expectedDeduction);
     });
+    it("penalizes ONLY the shorter-interval family when elapsed lands between the two intervals", () => {
+      // P24b (E2) discriminator: bootstrap equips mount (interval 25) +
+      // sapphires (interval 60), both lastRefreshTick=0. Elapsed 41 is
+      // strictly between the two per-family intervals, so exactly the mount
+      // is out-of-season. Any single-global-interval implementation gives
+      // both instances the SAME status (the retired global 40 → both out →
+      // 2× penalty; a global ≥ 41 → both in → 0), never exactly 1×.
+      const state = createInitialState("alpha", DEFAULT_CAMPAIGN_NAME);
+      const mountInterval = WARDROBE_REFRESH_INTERVAL_BY_FAMILY.mount;
+      const sapphiresInterval = WARDROBE_REFRESH_INTERVAL_BY_FAMILY.sapphires;
+      const elapsed = 41;
+      expect(elapsed).toBeGreaterThan(mountInterval);
+      expect(elapsed).toBeLessThanOrEqual(sapphiresInterval);
+      const after = applyPreBallComposurePenaltyPure({ ...state, tick: elapsed });
+      const { player, head: headBefore } = getPlayerHead(state);
+      const headAfter = expectDefined(
+        after.characters.get(player.headOfHouseCharacterId),
+        "head after penalty",
+      );
+      expect(headBefore.composure - headAfter.composure).toBe(
+        PRE_BALL_COMPOSURE_PENALTY_PER_OUT_OF_SEASON_ARTIFACT,
+      );
+    });
   });
 
   describe("selectTargetedArtifactInstance", () => {

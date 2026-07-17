@@ -7,8 +7,14 @@ import { describe, expect, it } from "vitest";
 import { makeCharacter, makeHouse } from "../__test-utils__/factories";
 import {
   ERA_TRANSITION_TICK,
+  SCHEME_COMPLETION_MOOD_LOCK_COMPOSURE_THRESHOLD,
+  SCHEME_COMPLETION_MOOD_LOCK_TICKS,
   SCHEME_TUNING,
+  SEDUCTION_AFFECTION_CEILING,
   SEDUCTION_AFFECTION_PER_TICK,
+  SEDUCTION_SUSPICION_BASE,
+  SEDUCTION_SUSPICION_CEILING,
+  SEDUCTION_SUSPICION_SLOPE,
   type SchemeKind,
   WAR_EFFORT_SEDUCTION_AFFECTION_MULTIPLIER,
 } from "../constants";
@@ -20,6 +26,7 @@ import {
   PLAYER_HOUSE_ID,
   type SchemeId,
   createRngState,
+  drawNext,
 } from "../rng";
 import { applySchemeResolutionPhase, cancelScheme, tryStartScheme } from "./schemes";
 
@@ -858,5 +865,115 @@ describe("aggressorCharacterId — hash-relevance", () => {
       ]),
     });
     expect(hashState(stateA)).not.toBe(hashState(stateB));
+  });
+});
+
+// ── P24a close-out: C1 mid-flight branches + C6 mood-lock ────────────────
+
+describe("Seduction mid-flight (endsAtTick > tick)", () => {
+  it("accrues per-tick affection and stays Active on a non-completing, non-discovery tick", () => {
+    const state = synthStateWith();
+    const start = tryStartScheme(state, PLAYER_HOUSE_ID, {
+      kind: "Seduction",
+      targetCharacterId: TARGET_ID,
+    });
+    if (!start.ok) throw new Error("unreachable");
+    const scheme = start.state.schemes.get(start.schemeId);
+    if (scheme === undefined) throw new Error("scheme missing");
+
+    // Precondition pin for the fixture seed: the first post-start draw MISSES
+    // the tick-1 suspicion probability (accrual of one tick's affection).
+    const rngPre = start.state.rng.get(PLAYER_HOUSE_ID);
+    if (rngPre === undefined) throw new Error("player rng missing");
+    const accruedTick1 = Math.min(SEDUCTION_AFFECTION_PER_TICK, SEDUCTION_AFFECTION_CEILING);
+    const suspicionTick1 = Math.min(
+      SEDUCTION_SUSPICION_BASE + accruedTick1 * SEDUCTION_SUSPICION_SLOPE,
+      SEDUCTION_SUSPICION_CEILING,
+    );
+    expect(drawNext(rngPre).next).toBeGreaterThanOrEqual(suspicionTick1);
+
+    const midTick = scheme.endsAtTick - 2;
+    expect(midTick).toBeGreaterThan(start.state.tick - 1);
+    const resolved = applySchemeResolutionPhase({ ...start.state, tick: midTick });
+    const post = resolved.schemes.get(start.schemeId);
+    expect(post?.status).toBe("Active");
+    expect(post?.accumulatedAffection).toBe(accruedTick1);
+    expect([...resolved.affectionMap.values()]).toContain(accruedTick1);
+    expect(resolved.rng.get(PLAYER_HOUSE_ID)?.callCount).toBe(rngPre.callCount + 1);
+  });
+
+  it("a Chaperone completing at T cancels an Active Seduction whose endsAtTick > T", () => {
+    const base = synthStateWith();
+    const spymaster = makeCharacter({
+      id: "spymaster-aunt" as CharacterId,
+      houseId: PLAYER_HOUSE_ID,
+      archetype: "Spymaster",
+      name: "Spymaster Aunt",
+    });
+    const characters = new Map(base.characters);
+    characters.set(spymaster.id, spymaster);
+    const state = { ...base, characters };
+    const sed = tryStartScheme(state, PLAYER_HOUSE_ID, {
+      kind: "Seduction",
+      targetCharacterId: TARGET_ID,
+    });
+    if (!sed.ok) throw new Error("seduction start failed");
+    // Launch the Chaperone LATER so it completes strictly BEFORE the Seduction's
+    // endsAtTick — exercising the unconditional Active-scan (not same-tick).
+    const chapLaunch = { ...sed.state, tick: sed.state.tick + 1 };
+    const chap = tryStartScheme(chapLaunch, PLAYER_HOUSE_ID, {
+      kind: "Chaperone",
+      targetCharacterId: TARGET_ID,
+    });
+    if (!chap.ok) throw new Error("chaperone start failed");
+    const chapEnds = chap.state.schemes.get(chap.schemeId)?.endsAtTick;
+    const sedEnds = chap.state.schemes.get(sed.schemeId)?.endsAtTick;
+    if (chapEnds === undefined || sedEnds === undefined) throw new Error("scheme missing");
+    expect(chapEnds).toBeLessThan(sedEnds);
+
+    const resolved = applySchemeResolutionPhase({ ...chap.state, tick: chapEnds });
+    expect(resolved.schemes.get(chap.schemeId)?.status).toBe("Completed");
+    expect(resolved.schemes.get(sed.schemeId)?.status).toBe("Cancelled");
+  });
+});
+
+describe("Sabotage completion mood-lock (C6)", () => {
+  it("locks the target Defensive when the composure crash lands below the threshold", () => {
+    const initial = synthStateWith();
+    const target = initial.characters.get(TARGET_ID);
+    if (target === undefined) throw new Error("target missing");
+    const characters = new Map(initial.characters);
+    // -30 crash lands at threshold - 5 (strictly below) → lock fires.
+    characters.set(TARGET_ID, {
+      ...target,
+      composure: SCHEME_COMPLETION_MOOD_LOCK_COMPOSURE_THRESHOLD + 25,
+    });
+    const start = tryStartScheme({ ...initial, characters }, PLAYER_HOUSE_ID, {
+      kind: "Sabotage",
+      targetCharacterId: TARGET_ID,
+    });
+    if (!start.ok) throw new Error("unreachable");
+    const { state: resolved, scheme } = advanceSchemeToEndTick(start.state, start.schemeId);
+    expect(scheme.status).toBe("Completed");
+    const post = resolved.characters.get(TARGET_ID);
+    expect(post?.composure).toBe(SCHEME_COMPLETION_MOOD_LOCK_COMPOSURE_THRESHOLD - 5);
+    expect(post?.mood).toBe("Defensive");
+    expect(post?.moodLockUntilTick).toBe(resolved.tick + SCHEME_COMPLETION_MOOD_LOCK_TICKS);
+  });
+
+  it("does NOT lock when the crash stays at or above the threshold", () => {
+    const initial = synthStateWith();
+    const moodBefore = initial.characters.get(TARGET_ID)?.mood;
+    const start = tryStartScheme(initial, PLAYER_HOUSE_ID, {
+      kind: "Sabotage",
+      targetCharacterId: TARGET_ID,
+    });
+    if (!start.ok) throw new Error("unreachable");
+    const { state: resolved, scheme } = advanceSchemeToEndTick(start.state, start.schemeId);
+    expect(scheme.status).toBe("Completed");
+    const post = resolved.characters.get(TARGET_ID);
+    expect(post?.composure).toBeGreaterThanOrEqual(SCHEME_COMPLETION_MOOD_LOCK_COMPOSURE_THRESHOLD);
+    expect(post?.mood).toBe(moodBefore);
+    expect(post?.moodLockUntilTick).toBe(0);
   });
 });

@@ -1,6 +1,7 @@
 # P24a — Covert Operations Depth: Schemes, Seduction & Elopement (v1.5)
 
-> **Status: 📋 planned (fleshed).** Track: v1.5. Source: [MASTER.md §11.2-C](../MASTER.md#112-v15--deferred-backlog-aggregated-deduped). Split from the converged combined P24 (Stage C of three: P24a schemes/elopement · P24b artifacts · P24c staff).
+> **Status: ✅ done (closed 2026-07-17; all gates green incl. 30-run replay).** Track: v1.5. Source: [MASTER.md §11.2-C](../MASTER.md#112-v15--deferred-backlog-aggregated-deduped). Split from the converged combined P24 (Stage C of three: P24a schemes/elopement · P24b artifacts · P24c staff).
+> **Close-out (2026-07-17):** the two deferred items landed — `publishElopementTransitions` now rides `runYearPass` (death-cascade Branch 5 resolutions; publisher set recounted **13/13/12**) and the dedicated ≥30-run auto-resolve determinism test shipped (`elopement.test.ts`). C8 (synthetic starting schemes) stays DEFERRED (high downstream-RNG ripple; `STARTING_SCHEME_COUNT` removed). Close-out audit added coverage for C1 mid-flight, C4 non-player-not-blocked, C5 trait modifiers, C6 mood-lock, C7 flag-clear, and the staff-wrapper modal gates. Remaining accepted gaps are UI-affordance coverage only (suspicion bar, aggressor picker — per the CLAUDE.md "coverage on UI is lower priority" convention).
 > Deepens the player's covert apparatus: multi-tick Seduction suspicion, aggressor choice, deliberate marriage dissolution, and a first-class multi-sprint elopement subsystem (player-interactive + rival/NPC auto-resolving).
 
 ## Depends on

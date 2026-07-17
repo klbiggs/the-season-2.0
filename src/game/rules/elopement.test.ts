@@ -7,6 +7,7 @@
 // sprint PERSISTS in the Map — terminal is NOT detected via map-absence).
 
 import { describe, expect, it } from "vitest";
+import { advanceTickPure } from "../../runtime/tickOrchestrator";
 import { makeCharacter, makeGameState, makeHouse, makeMarriage } from "../__test-utils__/factories";
 import {
   ELOPEMENT_FATHER_START_TILE,
@@ -20,10 +21,13 @@ import {
   ELOPEMENT_PUSH_PLAYER_ADVANCE,
   ELOPEMENT_TRACK_LENGTH,
 } from "../constants";
-import type { ElopementSprintState } from "../entities";
-import type { CharacterId, ElopementId, MarriageId, SchemeId } from "../rng";
-import { PLAYER_HOUSE_ID } from "../rng";
+import type { ElopementSprintState, GameState } from "../entities";
+import { hashState } from "../hash";
+import type { CharacterId, ElopementId, HouseId, MarriageId, SchemeId, TraitId } from "../rng";
+import { INDEPENDENT_HOUSE_ID, PLAYER_HOUSE_ID, createRngState } from "../rng";
+import { DEFAULT_CAMPAIGN_NAME, createInitialState } from "../store";
 import {
+  applyElopementAutoResolvePhase,
   applyElopementFreshHorsesPure,
   applyElopementPushPure,
   applyElopementSurrenderPure,
@@ -347,5 +351,221 @@ describe("isAvailableForRemarriage", () => {
     });
     const char = makeCharacter({ marriageId });
     expect(isAvailableForRemarriage(char, state)).toBe(false);
+  });
+});
+
+// ── P24a close-out: dedicated auto-resolve determinism (verification C4) ──
+//
+// The 30-run replay harness covers determinism broadly, but a fresh campaign
+// only mounts a non-player sprint when a rival Seduction fires AND its
+// multi-tick discovery lands — not guaranteed inside a short window. This
+// suite FORCES a rival-initiated sprint into bootstrap state (synthetic
+// hand-craft per the store.elopement-gate.test.ts precedent) and drives the
+// full tick chain through applyElopementAutoResolvePhase to terminal.
+describe("applyElopementAutoResolvePhase — forced non-player sprint determinism", () => {
+  const AUTO_SPRINT_ID = "elopement:auto-test:0" as ElopementId;
+
+  function runCampaign(): GameState {
+    let s = createInitialState("auto-resolve-determinism", DEFAULT_CAMPAIGN_NAME);
+    const sprint: ElopementSprintState = {
+      id: AUTO_SPRINT_ID,
+      schemeId: "auto-test" as SchemeId,
+      elopingCharacterId: "rival-ashford-a2" as CharacterId,
+      targetCharacterId: "proc-npc-0" as CharacterId,
+      initiatorHouseId: "rival-ashford" as HouseId,
+      pursuerHouseId: INDEPENDENT_HOUSE_ID,
+      isPlayerControlled: false,
+      playerTilePosition: 0,
+      fatherTilePosition: 0,
+      freshHorsesUsedCount: 0,
+      abandonOnWin: false,
+      resolved: false,
+      outcome: null,
+      resolvedAtTick: null,
+      startedAtTick: 0,
+    };
+    s = { ...s, elopements: new Map([[sprint.id, sprint]]) };
+    for (let t = 0; t < 15; t++) s = advanceTickPure(s);
+    return s;
+  }
+
+  it("auto-resolves a rival-initiated sprint to terminal without suspending time", () => {
+    const state = runCampaign();
+    const sprint = state.elopements.get(AUTO_SPRINT_ID);
+    expect(sprint?.resolved).toBe(true);
+    expect(sprint?.outcome === "Won" || sprint?.outcome === "Lost").toBe(true);
+    expect(sprint?.resolvedAtTick).not.toBeNull();
+    // Non-player sprints never suspend the tick clock.
+    expect(state.tick).toBe(15);
+  });
+
+  it("produces identical hashes across 30 runs", () => {
+    const baseline = hashState(runCampaign());
+    for (let iter = 0; iter < 30; iter++) {
+      expect(hashState(runCampaign())).toBe(baseline);
+    }
+  });
+});
+
+// ── P24a C5: pursuit-speed trait modifiers on sprint advances ─────────────
+//
+// Eloper-side traits (PURSUIT_SPEED_ELOPER_TRAIT_MODIFIERS) speed the eloping
+// tile; pursuer-side traits on the PURSUER house's head speed the father tile.
+// A distinct pursuer house is required here — makeSprintState points
+// pursuerHouseId at the player house whose head IS the eloper, which would
+// conflate the two bonus lookups.
+describe("pursuit-speed trait modifiers (P24a C5)", () => {
+  const PURSUER_HOUSE_ID = "pursuer-house" as HouseId;
+  const FATHER_ID = "father-1" as CharacterId;
+
+  function makeTraitSprintState(opts: {
+    eloperTraits?: TraitId[];
+    pursuerHeadTraits?: TraitId[];
+    sprint?: Partial<ElopementSprintState>;
+  }): GameState {
+    const eloping = makeCharacter({
+      id: ELOPING_ID,
+      name: "Eloper",
+      role: "HeadOfHouse",
+      composure: 100,
+      maxComposure: 100,
+      traits: opts.eloperTraits ?? [],
+    });
+    const target = makeCharacter({
+      id: TARGET_ID,
+      name: "Target",
+      role: "Spinster",
+      houseId: PURSUER_HOUSE_ID,
+    });
+    const father = makeCharacter({
+      id: FATHER_ID,
+      name: "Father",
+      role: "HeadOfHouse",
+      houseId: PURSUER_HOUSE_ID,
+      traits: opts.pursuerHeadTraits ?? [],
+    });
+    return makeGameState({
+      tick: 5,
+      houses: new Map([
+        [PLAYER_HOUSE_ID, makeHouse({ id: PLAYER_HOUSE_ID, headOfHouseCharacterId: ELOPING_ID })],
+        [PURSUER_HOUSE_ID, makeHouse({ id: PURSUER_HOUSE_ID, headOfHouseCharacterId: FATHER_ID })],
+      ]),
+      characters: new Map([
+        [ELOPING_ID, eloping],
+        [TARGET_ID, target],
+        [FATHER_ID, father],
+      ]),
+      elopements: new Map([
+        [SPRINT_ID, makeSprint({ pursuerHouseId: PURSUER_HOUSE_ID, ...opts.sprint })],
+      ]),
+    });
+  }
+
+  it("Push advances eloper tile by base+1 with an eloper-boost trait and father tile by base+1 with a pursuer-boost trait", () => {
+    const state = makeTraitSprintState({
+      eloperTraits: ["Bold" as TraitId],
+      pursuerHeadTraits: ["Cunning" as TraitId],
+    });
+    const result = applyElopementPushPure(state, SPRINT_ID);
+    if ("ok" in result) throw new Error("expected GameState, got rejection");
+    const sprint = result.elopements.get(SPRINT_ID);
+    expect(sprint?.playerTilePosition).toBe(
+      ELOPEMENT_PLAYER_START_TILE + ELOPEMENT_PUSH_PLAYER_ADVANCE + 1,
+    );
+    expect(sprint?.fatherTilePosition).toBe(
+      ELOPEMENT_FATHER_START_TILE + ELOPEMENT_PUSH_FATHER_ADVANCE + 1,
+    );
+    expect(sprint?.resolved).toBe(false);
+  });
+
+  it("Push advances both tiles by exactly the base amounts when both parties are traitless (control)", () => {
+    const state = makeTraitSprintState({});
+    const result = applyElopementPushPure(state, SPRINT_ID);
+    if ("ok" in result) throw new Error("expected GameState, got rejection");
+    const sprint = result.elopements.get(SPRINT_ID);
+    expect(sprint?.playerTilePosition).toBe(
+      ELOPEMENT_PLAYER_START_TILE + ELOPEMENT_PUSH_PLAYER_ADVANCE,
+    );
+    expect(sprint?.fatherTilePosition).toBe(
+      ELOPEMENT_FATHER_START_TILE + ELOPEMENT_PUSH_FATHER_ADVANCE,
+    );
+  });
+
+  it("Push does not cross-apply tables: pursuer-side traits on the eloper add nothing", () => {
+    const state = makeTraitSprintState({
+      eloperTraits: ["Cunning" as TraitId, "Suspicious" as TraitId],
+    });
+    const result = applyElopementPushPure(state, SPRINT_ID);
+    if ("ok" in result) throw new Error("expected GameState, got rejection");
+    const sprint = result.elopements.get(SPRINT_ID);
+    expect(sprint?.playerTilePosition).toBe(
+      ELOPEMENT_PLAYER_START_TILE + ELOPEMENT_PUSH_PLAYER_ADVANCE,
+    );
+    expect(sprint?.fatherTilePosition).toBe(
+      ELOPEMENT_FATHER_START_TILE + ELOPEMENT_PUSH_FATHER_ADVANCE,
+    );
+  });
+
+  it("Fresh Horses adds the eloper bonus to the player tile and leaves the father tile untouched", () => {
+    const state = makeTraitSprintState({
+      eloperTraits: ["Brash" as TraitId],
+      pursuerHeadTraits: ["Ambitious" as TraitId],
+    });
+    const result = applyElopementFreshHorsesPure(state, SPRINT_ID);
+    if ("ok" in result) throw new Error("expected GameState, got rejection");
+    const sprint = result.elopements.get(SPRINT_ID);
+    expect(sprint?.playerTilePosition).toBe(
+      ELOPEMENT_PLAYER_START_TILE + ELOPEMENT_FRESH_HORSES_PLAYER_ADVANCE + 1,
+    );
+    expect(sprint?.fatherTilePosition).toBe(ELOPEMENT_FATHER_START_TILE);
+  });
+
+  it("applyElopementAutoResolvePhase applies both trait bonuses to a non-player sprint", () => {
+    const INITIATOR_HOUSE_ID = "rival-init" as HouseId;
+    // freshHorsesUsedCount at max suppresses the auto-fresh-horses branch, so
+    // the advance is exactly Push-base + bonuses regardless of the draw value.
+    const base = makeTraitSprintState({
+      eloperTraits: ["Hedonistic" as TraitId],
+      pursuerHeadTraits: ["Suspicious" as TraitId],
+      sprint: {
+        initiatorHouseId: INITIATOR_HOUSE_ID,
+        isPlayerControlled: false,
+        freshHorsesUsedCount: ELOPEMENT_FRESH_HORSES_MAX_USES,
+        playerTilePosition: 1,
+        fatherTilePosition: 0,
+      },
+    });
+    const state: GameState = {
+      ...base,
+      rng: new Map([[INITIATOR_HOUSE_ID, createRngState("c5-auto-resolve")]]),
+    };
+    const result = applyElopementAutoResolvePhase(state);
+    const sprint = result.elopements.get(SPRINT_ID);
+    expect(sprint?.playerTilePosition).toBe(1 + ELOPEMENT_PUSH_PLAYER_ADVANCE + 1);
+    expect(sprint?.fatherTilePosition).toBe(0 + ELOPEMENT_PUSH_FATHER_ADVANCE + 1);
+    expect(sprint?.freshHorsesUsedCount).toBe(ELOPEMENT_FRESH_HORSES_MAX_USES);
+    expect(sprint?.resolved).toBe(false);
+    expect(result.rng.get(INITIATOR_HOUSE_ID)?.callCount).toBe(1);
+  });
+
+  it("applyElopementAutoResolvePhase advances a traitless non-player sprint by exactly the Push bases (control)", () => {
+    const INITIATOR_HOUSE_ID = "rival-init" as HouseId;
+    const base = makeTraitSprintState({
+      sprint: {
+        initiatorHouseId: INITIATOR_HOUSE_ID,
+        isPlayerControlled: false,
+        freshHorsesUsedCount: ELOPEMENT_FRESH_HORSES_MAX_USES,
+        playerTilePosition: 1,
+        fatherTilePosition: 0,
+      },
+    });
+    const state: GameState = {
+      ...base,
+      rng: new Map([[INITIATOR_HOUSE_ID, createRngState("c5-auto-resolve")]]),
+    };
+    const result = applyElopementAutoResolvePhase(state);
+    const sprint = result.elopements.get(SPRINT_ID);
+    expect(sprint?.playerTilePosition).toBe(1 + ELOPEMENT_PUSH_PLAYER_ADVANCE);
+    expect(sprint?.fatherTilePosition).toBe(0 + ELOPEMENT_PUSH_FATHER_ADVANCE);
   });
 });

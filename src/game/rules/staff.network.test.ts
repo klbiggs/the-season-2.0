@@ -174,6 +174,53 @@ describe("I3 — BribeDriver location specialization", () => {
     // Snoop is location-agnostic → lex-smallest non-player = npc-capital.
     expect(snoopWhisper?.subjectCharacterId).toBe("npc-capital" as CharacterId);
   });
+
+  it("BribeDriver falls back to the location-agnostic lex-smallest NPC when none share the player's location", () => {
+    // Player at Country, ALL living non-player NPCs at Capital → the location
+    // pick finds no candidates and the picker re-picks with null location
+    // (staff.ts fallback branch), so the assignment still produces a whisper.
+    const state = makeGameState({
+      tick: 20,
+      rng: new Map([[PLAYER_HOUSE_ID, createRngState("loc-fallback-seed")]]),
+      houses: new Map([
+        [
+          PLAYER_HOUSE_ID,
+          makeHouse({
+            id: PLAYER_HOUSE_ID,
+            headOfHouseCharacterId: HEAD,
+            currentLocation: "Country",
+            wealth: 100,
+          }),
+        ],
+      ]),
+      characters: new Map([
+        [HEAD, makeCharacter({ id: HEAD, houseId: PLAYER_HOUSE_ID })],
+        [
+          "npc-a" as CharacterId,
+          makeCharacter({
+            id: "npc-a" as CharacterId,
+            houseId: "indep" as HouseId,
+            assignedLocationId: "Capital",
+          }),
+        ],
+        [
+          "npc-b" as CharacterId,
+          makeCharacter({
+            id: "npc-b" as CharacterId,
+            houseId: "indep" as HouseId,
+            assignedLocationId: "Capital",
+          }),
+        ],
+      ]),
+      staff: new Map([
+        ["s-0" as StaffId, staff("s-0", { assignment: "BribeDriver", lastOutputTick: 0 })],
+      ]),
+    });
+    const after = applyStaffOutputsPhase(state);
+    expect(after.whispers.size).toBe(1); // fallback still produced a whisper
+    const whisper = [...after.whispers.values()][0];
+    expect(whisper?.subjectCharacterId).toBe("npc-a" as CharacterId);
+  });
 });
 
 describe("I4 — Whispers perk bribery resistance", () => {
