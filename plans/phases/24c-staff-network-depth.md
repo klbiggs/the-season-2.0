@@ -1,6 +1,7 @@
 # P24c — Downstairs Network Depth: Staff (v1.5)
 
-> **Status: ✅ implemented (all gates green; 977 tests incl. 30-run replay determinism + promotion determinism).** Track: v1.5. Source: [MASTER.md §11.2-I](../MASTER.md#112-v15--deferred-backlog-aggregated-deduped). Split from the converged combined P24 (Stage I of three: P24a schemes/elopement · P24b artifacts · P24c staff).
+> **Status: ✅ done (closed 2026-07-17; all gates green incl. 30-run replay determinism + promotion determinism).** Track: v1.5.
+> **Close-out (2026-07-17):** audit added coverage for the I3 BribeDriver fallback branch, the I2 archetype-via-classifyArchetype assertion, and the hire/fire/promote wrapper modal gates. Accepted gap: the `StaffPromoted` bus publish and `npcAssignedLocation` golden pairs remain untested directly (exercised implicitly via hash-parity). Source: [MASTER.md §11.2-I](../MASTER.md#112-v15--deferred-backlog-aggregated-deduped). Split from the converged combined P24 (Stage I of three: P24a schemes/elopement · P24b artifacts · P24c staff).
 > Turns the static 4-staff roster into a managed network: hire (procedural identity), fire, promote-to-character, location-specialized BribeDriver, and dynasty-perk bribery resistance.
 
 ## Depends on

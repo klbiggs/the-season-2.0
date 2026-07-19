@@ -717,9 +717,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           });
           return;
         }
-        // P9 Q4 — ElopementInProgress gate. Branch-5 of pruneOrphaned-
-        // ConversationKeys is therefore unreachable through runYearPass at
-        // v1 (a future v1.5+ relaxation would need re-evaluation).
+        // P9 Q4 gate, P24a-narrowed: only PLAYER-controlled sprints suspend
+        // year-pass. Non-player sprints keep running, so death-cascade
+        // Branch 5 IS reachable through runYearPass for them — the
+        // elopement-transition diff helper rides below to surface those.
         if (hasActivePlayerElopement(exileGate)) {
           elopementBus.publish({
             kind: "ElopementBlocked",
@@ -754,6 +755,11 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishSiblingRivalTransitions(before, after);
         publishInheritedSecretTransitions(before, after);
         publishBloodFeudTransitions(before, after);
+        // P24a: an aging-step death of a sprint participant flips a non-player
+        // sprint resolved/Lost via death-cascade Branch 5 — publish it. No
+        // double-publish risk: the interactive sprint actions direct-publish
+        // and never run inside year-pass (player sprints gate year-pass above).
+        publishElopementTransitions(before, after);
         // P15: dynasty-perk awards ride runYearPass too (the Patronage perk
         // awards at the year-pass terminal STEPS slot 6) — 12/12/10 set.
         publishDynastyPerkAwards(before, after);

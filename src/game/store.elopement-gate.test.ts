@@ -13,7 +13,7 @@
 
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
-import { elopementBus } from "../runtime/events/elopement";
+import { type ElopementEvent, elopementBus } from "../runtime/events/elopement";
 import type { ElopementSprintState } from "./entities";
 import type {
   CharacterId,
@@ -199,5 +199,115 @@ describe("Elopement gate exemptions", () => {
     expect(() => {
       store.getState().replaceState({ ...store.getState(), tick: 999 });
     }).not.toThrow();
+  });
+});
+
+// ── P24a close-out: runYearPass elopement-publisher ride ──────────────────
+//
+// Non-player sprints do NOT gate runYearPass (hasActivePlayerElopement checks
+// player-controlled only), so an aging-step death of a sprint participant
+// resolves the sprint via death-cascade Branch 5 DURING year-pass. The wrapper
+// must ride publishElopementTransitions to surface that ElopementResolved.
+describe("runYearPass elopement-publisher ride", () => {
+  it("publishes ElopementResolved when a year-pass death resolves a non-player sprint", () => {
+    const store = createStore({ seed: "elopement-yearpass-ride" });
+    const s = store.getState();
+    // Force the rival head to die on this year-pass (age reaches deathAge).
+    const eloper = s.characters.get("rival-ashford-head" as CharacterId);
+    if (eloper === undefined) throw new Error("rival-ashford-head missing from bootstrap");
+    const chars = new Map(s.characters);
+    chars.set(eloper.id, { ...eloper, age: eloper.deathAge - 1 });
+    const sprint: ElopementSprintState = {
+      ...SYNTH_SPRINT,
+      id: "elopement:yearpass-ride:0" as ElopementId,
+      schemeId: "yearpass-ride" as SchemeId,
+      elopingCharacterId: eloper.id,
+      targetCharacterId: "proc-npc-0" as CharacterId,
+      initiatorHouseId: "rival-ashford" as HouseId,
+      pursuerHouseId: "independent" as HouseId,
+      isPlayerControlled: false,
+    };
+    store.setState({ characters: chars, elopements: new Map([[sprint.id, sprint]]) });
+
+    const events: ElopementEvent[] = [];
+    const unsubscribe = elopementBus.subscribe("ElopementResolved", (e) => events.push(e));
+    // Also proves the gate: a non-player sprint does NOT block runYearPass.
+    store.getState().runYearPass();
+    unsubscribe();
+
+    const resolved = store.getState().elopements.get(sprint.id);
+    expect(resolved?.resolved).toBe(true);
+    expect(resolved?.outcome).toBe("Lost");
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    if (event?.kind !== "ElopementResolved") throw new Error("expected ElopementResolved");
+    expect(event.outcome).toBe("Lost");
+  });
+});
+
+// ── P24a close-out: staff-lifecycle wrappers join the gate matrix (P24c) ───
+describe("Elopement gate — staff lifecycle wrappers", () => {
+  it("hireStaff returns ElopementInProgress", () => {
+    const store = setupWithActiveSprint();
+    const result = store.getState().hireStaff();
+    expect(result).toEqual({ ok: false, reason: { kind: "ElopementInProgress" } });
+  });
+
+  it("fireStaff returns ElopementInProgress", () => {
+    const store = setupWithActiveSprint();
+    const result = store.getState().fireStaff("staff-mrs-hudson" as StaffId);
+    expect(result).toEqual({ ok: false, reason: { kind: "ElopementInProgress" } });
+  });
+
+  it("promoteStaff returns ElopementInProgress", () => {
+    const store = setupWithActiveSprint();
+    const result = store.getState().promoteStaff("staff-mrs-hudson" as StaffId);
+    expect(result).toEqual({ ok: false, reason: { kind: "ElopementInProgress" } });
+  });
+});
+
+// ── P24a close-out: non-player sprints do NOT suspend time (C4) ────────────
+describe("Elopement gate — non-player sprints do not block", () => {
+  const NON_PLAYER_SPRINT: ElopementSprintState = {
+    ...SYNTH_SPRINT,
+    id: "elopement:rival-scheme:0" as ElopementId,
+    schemeId: "rival-scheme" as SchemeId,
+    initiatorHouseId: "rival-ashford" as HouseId,
+    pursuerHouseId: "independent" as HouseId,
+    isPlayerControlled: false,
+  };
+
+  function setupWithNonPlayerSprint() {
+    const store = createStore({ seed: "elopement-gate-nonplayer" });
+    store.setState({
+      elopements: new Map([[NON_PLAYER_SPRINT.id, NON_PLAYER_SPRINT]]),
+    });
+    return store;
+  }
+
+  it("advanceTick advances the clock with an unresolved non-player sprint present", () => {
+    const store = setupWithNonPlayerSprint();
+    const tickBefore = store.getState().tick;
+    store.getState().advanceTick();
+    expect(store.getState().tick).toBe(tickBefore + 1);
+  });
+
+  it("travel is not ElopementInProgress-blocked by a non-player sprint", () => {
+    const store = setupWithNonPlayerSprint();
+    const result = store.getState().travel("Country");
+    if (!result.ok) {
+      expect(result.reason).not.toEqual({ kind: "ElopementInProgress" });
+    }
+  });
+
+  it("startScheme is not ElopementInProgress-blocked by a non-player sprint", () => {
+    const store = setupWithNonPlayerSprint();
+    const result = store.getState().startScheme({
+      kind: "Courting",
+      targetCharacterId: "proc-npc-0" as CharacterId,
+    });
+    if (!result.ok) {
+      expect(result.reason).not.toEqual({ kind: "ElopementInProgress" });
+    }
   });
 });

@@ -11,21 +11,30 @@ import {
   OBSERVANT_FORGERY_AFFECTION_PENALTY,
   OBSERVANT_FORGERY_DETECTION_PROBABILITY_BASIS_POINTS,
   THIEF_NOTICE_PROBABILITY_BASIS_POINTS,
+  THWART_SUCCESS_PROBABILITY_BASIS_POINTS,
+  THWART_WEALTH_COST,
 } from "../constants";
 import { makePairKey } from "../conversation/types";
-import type { ArtifactInstance, ForgeryRecord, ThiefAttempt } from "../entities";
+import type { ArtifactInstance, CourierPayload, ForgeryRecord, ThiefAttempt } from "../entities";
 import {
   type ArtifactDefinitionId,
   type ArtifactInstanceId,
   type CharacterId,
+  type CourierPayloadId,
   type ForgeryId,
   type HouseId,
+  PLAYER_HOUSE_ID,
   type ThiefAttemptId,
   type TraitId,
+  type WhisperId,
   createRngState,
   drawNext,
 } from "../rng";
-import { applyForgerySurfacingPhase, applyThiefNoticePhase } from "./artifacts";
+import {
+  applyForgerySurfacingPhase,
+  applyThiefNoticePhase,
+  applyThwartTheftPure,
+} from "./artifacts";
 
 const OWNER_HOUSE = "owner-house" as HouseId;
 const OBSERVER_HOUSE = "observer-house" as HouseId;
@@ -179,5 +188,117 @@ describe("E4 — NPC thefts fire + auto-resolve against non-player houses", () =
     expect(after.characters.get(OWNER_HEAD)?.equippedArtifactIds).not.toContain(
       "art-rival" as ArtifactInstanceId,
     );
+  });
+});
+
+// ── E4 close-out — the thwart affordance is player-house-only ──────────────
+//
+// applyThwartTheftPure gates on the targeted instance's ownerHouseId: a
+// non-player theft (in-flight for one tick by the strict-< sweep predicate)
+// must reject rather than burn player wealth + a courier — and on a failed
+// roll, delete the OTHER house's artifact. The player-side success/failure
+// paths are pinned here too (the E4 "player still thwarts their own" half).
+describe("E4 — applyThwartTheftPure owner-house gate + player thwart paths", () => {
+  const PLAYER_HEAD = "player-head" as CharacterId;
+  const PLAYER_INST = "art-player" as ArtifactInstanceId;
+  const ATTEMPT_ID = "thief-art-player-0" as ThiefAttemptId;
+
+  function playerThwartState(opts: { seed: string; ownerHouseId: HouseId }) {
+    const inst: ArtifactInstance = {
+      id: PLAYER_INST,
+      definitionId: "tiara" as ArtifactDefinitionId,
+      ownerHouseId: opts.ownerHouseId,
+      ownerCharacterId: PLAYER_HEAD,
+      lastRefreshTick: 0,
+      forgedFlag: false,
+    };
+    const attempt: ThiefAttempt = {
+      id: ATTEMPT_ID,
+      targetedArtifactInstanceId: PLAYER_INST,
+      ownerCharacterId: PLAYER_HEAD,
+      noticedAtTick: 4,
+      thwarted: null,
+      resolvedAtTick: null,
+    };
+    const courier: CourierPayload = {
+      id: "c-0001" as CourierPayloadId,
+      payloadType: "Whisper",
+      whisperId: "w-0001" as WhisperId,
+      originHouseId: OWNER_HOUSE,
+      destinationHouseId: PLAYER_HOUSE_ID,
+      originLocation: "Capital",
+      destinationLocation: "Capital",
+      originTick: 0,
+      arrivalTick: 9,
+      interceptable: true,
+      direction: "Inbound",
+      status: "InFlight",
+      resolvedAtTick: null,
+    };
+    return makeGameState({
+      tick: 5,
+      rng: new Map([[PLAYER_HOUSE_ID, createRngState(opts.seed)]]),
+      houses: new Map([
+        [
+          PLAYER_HOUSE_ID,
+          makeHouse({ id: PLAYER_HOUSE_ID, headOfHouseCharacterId: PLAYER_HEAD, wealth: 100 }),
+        ],
+      ]),
+      characters: new Map([
+        [
+          PLAYER_HEAD,
+          makeCharacter({
+            id: PLAYER_HEAD,
+            houseId: PLAYER_HOUSE_ID,
+            archetype: "Spymaster",
+            equippedArtifactIds: [PLAYER_INST],
+          }),
+        ],
+      ]),
+      artifactInstances: new Map([[inst.id, inst]]),
+      thiefAttempts: new Map([[attempt.id, attempt]]),
+      couriers: new Map([[courier.id, courier]]),
+    });
+  }
+
+  it("rejects NotPlayerOwnedTarget when the targeted instance belongs to another house", () => {
+    const state = playerThwartState({ seed: "any-seed", ownerHouseId: OWNER_HOUSE });
+    const result = applyThwartTheftPure(state, ATTEMPT_ID);
+    expect(result).toEqual({ ok: false, reason: { kind: "NotPlayerOwnedTarget" } });
+  });
+
+  it("Thwarted path: artifact survives; wealth + courier burned; attempt resolved", () => {
+    const seed = findSeed((s) => {
+      const d = drawNext(createRngState(s));
+      return Math.floor(d.next * 10000) < THWART_SUCCESS_PROBABILITY_BASIS_POINTS;
+    });
+    const state = playerThwartState({ seed, ownerHouseId: PLAYER_HOUSE_ID });
+    const result = applyThwartTheftPure(state, ATTEMPT_ID);
+    if (!result.ok) throw new Error(`expected ok, got ${result.reason.kind}`);
+    expect(result.outcome).toBe("Thwarted");
+    const after = result.state;
+    expect(after.thiefAttempts.get(ATTEMPT_ID)?.thwarted).toBe(true);
+    expect(after.thiefAttempts.get(ATTEMPT_ID)?.resolvedAtTick).toBe(5);
+    expect(after.artifactInstances.has(PLAYER_INST)).toBe(true);
+    expect(after.characters.get(PLAYER_HEAD)?.equippedArtifactIds).toContain(PLAYER_INST);
+    expect(after.houses.get(PLAYER_HOUSE_ID)?.wealth).toBe(100 - THWART_WEALTH_COST);
+    expect(after.couriers.get("c-0001" as CourierPayloadId)?.status).toBe("Intercepted");
+  });
+
+  it("Stolen path: artifact deleted + unequipped; wealth + courier still burned", () => {
+    const seed = findSeed((s) => {
+      const d = drawNext(createRngState(s));
+      return Math.floor(d.next * 10000) >= THWART_SUCCESS_PROBABILITY_BASIS_POINTS;
+    });
+    const state = playerThwartState({ seed, ownerHouseId: PLAYER_HOUSE_ID });
+    const result = applyThwartTheftPure(state, ATTEMPT_ID);
+    if (!result.ok) throw new Error(`expected ok, got ${result.reason.kind}`);
+    expect(result.outcome).toBe("Stolen");
+    const after = result.state;
+    expect(after.thiefAttempts.get(ATTEMPT_ID)?.thwarted).toBe(false);
+    expect(after.artifactInstances.has(PLAYER_INST)).toBe(false);
+    expect(after.characters.get(PLAYER_HEAD)?.equippedArtifactIds).not.toContain(PLAYER_INST);
+    expect(after.houses.get(PLAYER_HOUSE_ID)?.wealth).toBe(100 - THWART_WEALTH_COST);
+    expect(after.couriers.get("c-0001" as CourierPayloadId)?.status).toBe("Intercepted");
   });
 });

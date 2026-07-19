@@ -1077,3 +1077,60 @@ First v1.1-track phase. UI-only: wired already-built store actions to UI afforda
 - src/runtime/events/family.ts — BetrothalArranged/Honored/Broken + publishBetrothalTransitions (13/13/11 set); ArchetypeReclassified.trigger widened + RoleFlip detection
 - src/ui/society/SocietyView.tsx — Propose affordance + betrothal panel (sanctioned mutations on the Ton roster)
 - src/ui/ballroom/BallroomView.tsx — roster → isSocietyHouse; src/ui/ledger/houseName.ts — "House <Surname>" for society sub-dynasties
+
+## P24a — Covert Ops Depth: Schemes, Seduction & Elopement — closed 2026-07-17
+
+**Decisions made:**
+- Elopement went singleton → `state.elopements: Map<ElopementId, ElopementSprintState>` (quint-sync field replacement). Terminal sprints PERSIST (`resolved` flag, never nulled); the modal gate narrowed to `hasActivePlayerElopement` — only unresolved PLAYER sprints suspend time; rival/society sprints auto-resolve in the new tick phase (PHASES 15→16).
+- Seduction discovery = multi-tick suspicion ramp (§10 Q6 v1.5 flip): `accumulatedAffection` went live as the per-tick accrual; `SEDUCTION_DISCOVERY_PROBABILITY`/`SEDUCTION_AFFECTION_DELTA_ON_SUCCESS` retired. Chaperone pass widened to cancel mid-flight (unconditional Active scan).
+- Abandonment shipped (§10 Q25 follow-on): `abandonMarriage` free action + per-sprint `abandonOnWin`; reuses `MarriageDissolved` with `deceasedSpouseId: null` (no new event kind).
+- Rival action pool 4→5 (`Seduction`); C8 (synthetic starting schemes) DEFERRED — high downstream-RNG ripple.
+
+**Open questions hit:** §10 Q6 / Q25 / Q26 (#26) rows updated with v1.5-update supersessions in MASTER §10.
+
+**Close-out (this session):** the two flagged loose ends landed — (1) `publishElopementTransitions` now rides `runYearPass` (a year-pass aging death CAN resolve a non-player sprint via death-cascade Branch 5; the wrapper was the only site not updated — the diff-helper header and aging.ts comments already claimed the ride). Publisher set recounted **13/13/12** (supersedes P23's 13/13/11); the stale store.ts Q4 "Branch-5 unreachable" comment truthed-up; `p13-integration.test.ts` publisher-pin updated. (2) Dedicated ≥30-run auto-resolve determinism test (forced rival sprint through `advanceTickPure`) + a runYearPass-ride integration test. Audit-driven coverage added for C1 mid-flight accrual + later-ending-Chaperone cancel, C4 non-player-not-blocked, C5 pursuit traits, C6 mood-lock, C7 flag-clear, and the staff-wrapper elopement gates. Accepted gaps (UI-coverage-only per convention): suspicion bar + aggressor picker render/wiring.
+
+**Deferred / next-up:** C8 starting schemes; rival personas/conversation → P25/P26.
+
+**Files of note:**
+- src/game/rules/elopement.ts — Map rework + `hasActivePlayerElopement` + `applyElopementAutoResolvePhase` + abandon-on-win
+- src/game/rules/schemes.ts — `processSeductionTick` (3-pass resolution); src/game/rules/abandonMarriage.ts
+- src/game/store.ts:runYearPass — elopement publisher ride (close-out)
+- src/game/fixtures/elopementIdFactory.ts — state-walking `makeElopementId`
+
+## P24b — Material Assets Depth: Artifacts, Wardrobe & Forgery — closed 2026-07-17
+
+**Decisions made:**
+- Procedural artifact DEFINITIONS in state (`proceduralArtifactDefinitions`, quint-synced, persisted-never-regenerated); ALL lookups via `resolveArtifactDefinition` (bare `ARTIFACT_REGISTRY.get` banned by `artifacts.guard.test.ts`); new `ArtifactDefinitionId` brand.
+- Per-family wardrobe decay (§10 Q10 v1.5 flip); Observant private forgery detection (§10 Q11 v1.5 flip — no `surfaced` flip, no Vain cascade, no bus event); thefts + surfacing cascade generalized to ALL houses; rival/society houses own equipped procedural instances (E6, §11.2-D pulled forward).
+
+**Open questions hit:** §10 Q10 / Q11 rows updated with v1.5-update supersessions in MASTER §10.
+
+**Close-out (this session) — DEFECT FOUND + FIXED (E4):** the thwart affordance had no owner-house gate. A non-player theft stays in-flight one tick (strict-< sweep predicate) and `ArtifactsTab` rendered a Thwart button for it; `applyThwartTheftPure` would burn player wealth + a courier and, on a failed roll, DELETE the other house's artifact. Reachable at bootstrap (society effective rep can clear the 70 threshold with E6 rep bonuses). Fix: `NotPlayerOwnedTarget` rejection in `applyThwartTheftPure` + player-owned filter on the banner list; the previously-untested player thwart success/failure paths are now pinned (repo-wide, no successful-thwart test existed). Also added: E2 interval-discriminating decay test. Accepted gaps: E5 forger-picker UI coverage; E6 bootstrap-forged-instance assertion (seed-search cost).
+
+**Files of note:**
+- src/game/rules/artifacts.ts — `applyThwartTheftPure` owner-house gate (close-out fix)
+- src/ui/ledger/tabs/ArtifactsTab.tsx — player-owned thwart-banner filter (close-out fix)
+- src/game/rules/artifacts.nonplayer.test.ts — E3/E4 deterministic seed-search suite + thwart paths
+- src/game/rules/proceduralArtifacts.ts; src/game/fixtures/artifacts.ts — `resolveArtifactDefinition`
+
+## P24c — Downstairs Network Depth: Staff — closed 2026-07-17
+
+**Decisions made:**
+- Staff became a managed network: hire (procedural 4-draw identity) / fire / promote-to-Character as FREE actions; never-delete extends to staff (`dismissedAtTick` / `promotedToCharacterId` flags, inert-skip in `applyStaffOutputsPhase`).
+- Promote draws gender on the player stream (P16 precedent, NOT `hashCharIdToGender`); id = `promoted-<staffId>`; deathAge + role finalize after traits (P23 draw-order).
+- `Character.assignedLocationId` (BribeDriver location specialization, I3) — set explicitly by all 7 builders; fresh-state hash re-baselined (no new draws).
+- Whispers dynasty perk espionage-resistance half wired (threshold shift only — draw count undisturbed).
+
+**Open questions hit:** none new (Q19 unchanged; the P6 staff pins superseded in CLAUDE.md).
+
+**Close-out (this session):** audit-driven coverage added — I3 BribeDriver fallback branch (no NPC at player location → lex-smallest), I2 archetype-via-`classifyArchetype` assertion (Female + Cunning/Observant → Spymaster non-vacuity), hire/fire/promote wrapper elopement gates. Accepted gaps: `StaffPromoted` publish + `npcAssignedLocation` golden pairs untested directly (implicit via hash-parity).
+
+**Files of note:**
+- src/game/rules/staffPromotion.ts; src/game/fixtures/staff.ts — `makeStaffId` / `buildProceduralStaffMember`
+- src/game/rules/staff.ts — inert-skip, location-aware picker, perk-resistance threshold
+- src/game/rules/staff.network.test.ts — hire/fire/bribery-resistance/fallback suite
+
+## P24 close-out audit method note (2026-07-17)
+
+The close-out ran a 17-agent parallel verification audit (one agent per subplan Verification item, each checking implementation + test coverage with file:line evidence). Result: all behavior claims implemented; 1 real defect (E4 thwart gate, fixed above); 14 items with coverage gaps, of which the rule-layer ones were closed this session (+29 net new tests, 977→1006) and the UI-affordance ones accepted per the "coverage on UI is lower priority" convention.

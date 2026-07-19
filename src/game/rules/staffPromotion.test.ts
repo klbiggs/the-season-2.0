@@ -3,13 +3,17 @@
 
 import { describe, expect, it } from "vitest";
 import { makeGameState, makeHouse } from "../__test-utils__/factories";
+import { LIFESPAN_RANGE, PROMOTED_STAFF_AGE_MAX, PROMOTED_STAFF_AGE_MIN } from "../constants";
 import type { StaffMember } from "../entities";
+import { classifyArchetype } from "../fixtures/archetypes";
 import { hashState } from "../hash";
 import {
   type CharacterId,
   PLAYER_HOUSE_ID,
   type StaffId,
+  type TraitId,
   createRngState,
+  drawInt,
   getOrThrow,
 } from "../rng";
 import { promoteStaffToCharacter, promotedStaffCharacterId } from "./staffPromotion";
@@ -100,6 +104,44 @@ describe("promoteStaffToCharacter", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");
     expect(result.reason.kind).toBe("StaffNotFound");
+  });
+
+  it("classifies the promoted character via classifyArchetype (Female + Cunning/Observant → Spymaster)", () => {
+    // Deterministically probe seeds by replicating the implementation's 4-draw
+    // sequence (gender → age → deathAge-base → trait pick over the 4-entry pool
+    // + "no trait" slot 0) until one yields Female + Cunning-or-Observant —
+    // the Spinster-role Spymaster branch of classifyArchetype.
+    const ageSpan = PROMOTED_STAFF_AGE_MAX - PROMOTED_STAFF_AGE_MIN + 1;
+    const lifespanSpan = LIFESPAN_RANGE[1] - LIFESPAN_RANGE[0] + 1;
+    let found: { seed: string; trait: TraitId } | null = null;
+    for (let i = 0; i < 500 && found === null; i++) {
+      const seed = `promote-arch-${i}`;
+      const genderPick = drawInt(createRngState(seed), 2);
+      if (genderPick.next !== 0) continue; // need Female
+      const agePick = drawInt(genderPick.rngState, ageSpan);
+      const deathPick = drawInt(agePick.rngState, lifespanSpan);
+      const traitPick = drawInt(deathPick.rngState, 5);
+      // Pool order in staffPromotion.ts: index next-1 into
+      // [Loyal, Cunning, Reserved, Observant] → next 2 = Cunning, 4 = Observant.
+      if (traitPick.next === 2) found = { seed, trait: "Cunning" as TraitId };
+      else if (traitPick.next === 4) found = { seed, trait: "Observant" as TraitId };
+    }
+    if (found === null)
+      throw new Error("no seed yielding Female + Cunning/Observant in 500 probes");
+
+    const result = promoteStaffToCharacter(stateWithStaff(makeStaff(), found.seed), STAFF_ID);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    const char = result.state.characters.get(promotedStaffCharacterId(STAFF_ID));
+    expect(char).toBeDefined();
+    if (char === undefined) throw new Error("unreachable");
+
+    expect(char.gender).toBe("Female");
+    expect(char.role).toBe("Spinster");
+    expect(char.traits).toEqual([found.trait]);
+    expect(char.archetype).toBe(classifyArchetype(char));
+    expect(char.archetype).toBe("Spymaster");
+    expect(char.archetype).not.toBe("None");
   });
 
   it("is deterministic across 30 runs of the same seed + state", () => {

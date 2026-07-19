@@ -124,7 +124,7 @@ describe("Publisher set 11/11/9 (matrix #19)", () => {
     }
   });
 
-  it("runYearPass invokes 9 diff publishers (NOT publishGlobalEventTransitions, NOT publishSchemeTransitions, NOT publishElopementTransitions, NOT publishArtifactTransitions)", async () => {
+  it("runYearPass skips global/scheme/artifact publishers but rides publishElopementTransitions (P24a)", async () => {
     const globalModule = await import("../runtime/events/globalEvent");
     const schemeModule = await import("../runtime/events/scheme");
     const elopementModule = await import("../runtime/events/elopement");
@@ -139,11 +139,14 @@ describe("Publisher set 11/11/9 (matrix #19)", () => {
     store.getState().runYearPass();
 
     // Year-pass STEPS does not include global-event phase, scheme resolution,
-    // elopement-mounting, or artifact phases — so these 4 are NOT invoked.
+    // or artifact phases — so these 3 are NOT invoked.
     expect(globalSpy).not.toHaveBeenCalled();
     expect(schemeSpy).not.toHaveBeenCalled();
-    expect(elopementSpy).not.toHaveBeenCalled();
     expect(artifactSpy).not.toHaveBeenCalled();
+    // P24a: the aging-step death cascade (Branch 5) can resolve a non-player
+    // sprint during year-pass, so the elopement diff helper DOES ride here
+    // (13/13/12 publisher set).
+    expect(elopementSpy).toHaveBeenCalledTimes(1);
 
     globalSpy.mockRestore();
     schemeSpy.mockRestore();

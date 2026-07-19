@@ -163,8 +163,15 @@ export function ArtifactsTab({ store }: Props) {
     else setToast(r.outcome === "Thwarted" ? "Theft thwarted." : "The artifact was stolen.");
   };
 
+  // P24b (E4): thwart affordance is player-house-only — non-player thefts
+  // auto-resolve in the sweep and must not surface a banner (the rule layer
+  // rejects NotPlayerOwnedTarget as defense-in-depth).
   const inFlightThefts = [...thiefAttempts.values()]
-    .filter((t) => t.thwarted === null)
+    .filter(
+      (t) =>
+        t.thwarted === null &&
+        artifactInstances.get(t.targetedArtifactInstanceId)?.ownerHouseId === PLAYER_HOUSE_ID,
+    )
     .sort((a, b) => a.id.localeCompare(b.id));
   const resolvedThefts = [...thiefAttempts.values()]
     .filter((t) => t.thwarted !== null)

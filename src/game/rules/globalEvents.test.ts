@@ -626,6 +626,61 @@ describe("MonarchsMood per-house mutual exclusion (matrix #8)", () => {
 
 // ── Verification matrix #11/#12: maybeFireNewEvent draw budgets ──────────
 
+// ── P24a C7: era-flip clears blockadeBypassEarned ───────────────────────
+
+describe("maybeFlipEra clears blockadeBypassEarned (P24a C7)", () => {
+  const otherHouseId = "other" as HouseId;
+
+  function twoHousesWithBypass(tick: number): GameState {
+    return withPlayerRng({
+      tick,
+      houses: new Map([
+        [
+          PLAYER_HOUSE_ID,
+          makeHouse({ headOfHouseCharacterId: PLAYER_HEAD_ID, blockadeBypassEarned: true }),
+        ],
+        [otherHouseId, makeHouse({ id: otherHouseId, blockadeBypassEarned: true })],
+      ]),
+    });
+  }
+
+  it("clears the flag on EVERY house when the era flips", () => {
+    const state = twoHousesWithBypass(ERA_TRANSITION_TICK);
+    expect(state.era).toBe("Earlier");
+    const after = applyGlobalEventPhase(state);
+    expect(after.era).toBe("Later");
+    expect(
+      expectDefined(after.houses.get(PLAYER_HOUSE_ID), "player house").blockadeBypassEarned,
+    ).toBe(false);
+    expect(expectDefined(after.houses.get(otherHouseId), "other house").blockadeBypassEarned).toBe(
+      false,
+    );
+  });
+
+  it("does not mutate the input state's houses (structural sharing)", () => {
+    const state = twoHousesWithBypass(ERA_TRANSITION_TICK);
+    applyGlobalEventPhase(state);
+    expect(
+      expectDefined(state.houses.get(PLAYER_HOUSE_ID), "player house").blockadeBypassEarned,
+    ).toBe(true);
+    expect(expectDefined(state.houses.get(otherHouseId), "other house").blockadeBypassEarned).toBe(
+      true,
+    );
+  });
+
+  it("control: flag SURVIVES a pre-transition tick (no flip, no clear)", () => {
+    const state = twoHousesWithBypass(ERA_TRANSITION_TICK - 1);
+    const after = applyGlobalEventPhase(state);
+    expect(after.era).toBe("Earlier");
+    expect(
+      expectDefined(after.houses.get(PLAYER_HOUSE_ID), "player house").blockadeBypassEarned,
+    ).toBe(true);
+    expect(expectDefined(after.houses.get(otherHouseId), "other house").blockadeBypassEarned).toBe(
+      true,
+    );
+  });
+});
+
 describe("maybeFireNewEvent draw budgets (matrix #11/#12)", () => {
   // Probe the per-tick draw cost on a fixed seed. The exact outcome depends
   // on the seeded sequence, but the BOUND is always: 1 (no-event) ≤ draws ≤

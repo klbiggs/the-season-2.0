@@ -1,6 +1,7 @@
 # P24b — Material Assets Depth: Artifacts, Wardrobe & Forgery (v1.5)
 
-> **Status: ✅ implemented (all gates green; 967 tests incl. 30-run replay determinism).** Track: v1.5. Source: [MASTER.md §11.2-E](../MASTER.md#112-v15--deferred-backlog-aggregated-deduped) (+ the §11.2-D "rival-owned artifact loops" item, deliberately pulled forward — see E6). Split from the converged combined P24 (Stage E of three: P24a schemes/elopement · P24b artifacts · P24c staff).
+> **Status: ✅ done (closed 2026-07-17; all gates green incl. 30-run replay determinism).** Track: v1.5.
+> **Close-out (2026-07-17):** the audit caught + fixed one E4 defect — the thwart affordance had NO owner-house gate (a non-player theft, in-flight for one tick by the strict-< sweep predicate, surfaced a Thwart button that would burn player wealth/courier and could delete the other house's artifact). Fixed: `applyThwartTheftPure` rejects `NotPlayerOwnedTarget` + `ArtifactsTab` filters banners to player-owned targets; player thwart success/failure paths now tested. An E2 interval-discriminating test also landed. Accepted gaps: forger-picker UI coverage (E5) and a bootstrap-forged-instance assertion (E6) — UI/seed-search coverage only. Source: [MASTER.md §11.2-E](../MASTER.md#112-v15--deferred-backlog-aggregated-deduped) (+ the §11.2-D "rival-owned artifact loops" item, deliberately pulled forward — see E6). Split from the converged combined P24 (Stage E of three: P24a schemes/elopement · P24b artifacts · P24c staff).
 > Makes artifacts procedural and world-wide: generated definitions, per-family wardrobe decay, Observant-detected forgeries, thefts that target anyone, an explicit forger picker, and rival/society-owned artifact loops.
 
 ## Depends on
