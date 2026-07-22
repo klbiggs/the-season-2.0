@@ -282,6 +282,10 @@ export type BallroomMessageInput = {
   pinnedTactic: Tactic | null;
   stance: Stance;
   freeformMessage: string;
+  // P26 (G1): when supplied, the send routes through the two-phase STREAMED
+  // path and invokes this per token chunk (UI-ephemeral — partial tokens are
+  // never persisted). Omit for the single-shot path.
+  onDelta?: (text: string) => void;
 };
 
 export type StoreActions = {
@@ -508,6 +512,8 @@ export type PromenadeMessageInput = {
   // P26 (H1): the promenade stance. Only "Mingle" enables the mount bonus. The
   // Visit UI (no stance toggle) always passes "Mingle".
   stance: Stance;
+  // P26 (G1): opt into the two-phase streamed path (see BallroomMessageInput).
+  onDelta?: (text: string) => void;
 };
 
 // P26: rejection union for acceptCallingCard / declineCallingCard. Includes
@@ -1307,7 +1313,14 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           stance: input.stance,
         });
 
-        const result = await conversationOrchestrator.send(request, input.pinnedTactic);
+        const result =
+          input.onDelta !== undefined
+            ? await conversationOrchestrator.sendStreamed(
+                request,
+                input.pinnedTactic,
+                input.onDelta,
+              )
+            : await conversationOrchestrator.send(request, input.pinnedTactic);
         if (result.kind === "Failed") {
           conversationBus.publish({
             kind: "ConversationFailed",
@@ -2607,7 +2620,14 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         };
 
         // Pin-priority resolver. UI always pins a promenade tactic.
-        const outcome = await conversationOrchestrator.send(request, input.pinnedTactic);
+        const outcome =
+          input.onDelta !== undefined
+            ? await conversationOrchestrator.sendStreamed(
+                request,
+                input.pinnedTactic,
+                input.onDelta,
+              )
+            : await conversationOrchestrator.send(request, input.pinnedTactic);
         if (outcome.kind === "Failed") {
           return { ok: false, reason: outcome.failure };
         }
@@ -2845,7 +2865,14 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           semanticContext,
           keyMoment: computeKeyMoment(stateBefore, target.id),
         };
-        const outcome = await conversationOrchestrator.send(request, input.pinnedTactic);
+        const outcome =
+          input.onDelta !== undefined
+            ? await conversationOrchestrator.sendStreamed(
+                request,
+                input.pinnedTactic,
+                input.onDelta,
+              )
+            : await conversationOrchestrator.send(request, input.pinnedTactic);
         if (outcome.kind === "Failed") {
           return { ok: false, reason: outcome.failure };
         }

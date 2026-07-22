@@ -234,6 +234,40 @@ export const ConversationResponseSchema = z.object({
   moodHint: z.string().optional(),
   toolCalls: z.array(ToolCallSchema).default([]),
 });
+
+// ── P26 (G1) two-phase streaming: the classify leg ────────────────────────
+// Call #1 streams the dialogue prose (no tools). Call #2 — this one — is a
+// non-streaming forced-function-call that classifies the exchange. Always
+// routed to MODEL_DEFAULT (Flash): classification is cheap and the Pro budget
+// belongs to the streamed prose. `targetPersonaLine` is a compact client-built
+// persona summary so the toolCalls surface (whisper/grievance), which two-phase
+// moves OFF the persona-cached call, keeps minimal character context.
+export const ClassifyRequestSchema = z.object({
+  freeformMessage: z.string(),
+  dialogue: z.string(),
+  targetCharacterId: CharacterIdSchema,
+  targetPersonaLine: z.string(),
+  sceneCharacters: z.array(z.object({ id: z.string(), name: z.string() })).default([]),
+  mode: z.enum(["Ballroom", "Promenade", "Visit"]).default("Ballroom"),
+});
+export type ClassifyRequest = z.infer<typeof ClassifyRequestSchema>;
+
+// ConversationResponseSchema minus `dialogue` (the streamed leg supplies it).
+export const ClassifyResponseSchema = z.object({
+  classifiedTactic: z.string(),
+  qualityMultiplier: z.number(),
+  moodHint: z.string().optional(),
+  toolCalls: z.array(ToolCallSchema).default([]),
+});
+export type ClassifyResponseRaw = z.infer<typeof ClassifyResponseSchema>;
+
+// SSE event frames emitted by the streaming endpoints (conversation + flavor).
+export const StreamEventSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("delta"), text: z.string() }),
+  z.object({ kind: z.literal("done"), text: z.string() }),
+  z.object({ kind: z.literal("error"), reason: z.enum(["timeout", "network", "internal"]) }),
+]);
+
 export type ConversationResponseRaw = z.infer<typeof ConversationResponseSchema>;
 
 // Narrowed form — what the orchestrator returns after resolver application.

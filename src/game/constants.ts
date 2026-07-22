@@ -1113,6 +1113,19 @@ export const CALLING_CARD_PROBABILITY_BASIS_POINTS = 300;
 export const CALLING_CARD_EXPIRY_TICKS = 5;
 // Flat affection penalty applied to the (player, caller) pair on decline.
 export const CALLING_CARD_DECLINE_AFFECTION_PENALTY = 5;
+// P26 (G1): two-phase streaming — stream-leg sub-budget inside the 15s
+// composite, reserving >=4s for the classify leg so a Pro-routed stream can
+// not starve it.
+export const STREAM_LEG_TIMEOUT_MS = 11_000;
+// P26 (G1): output cap for a THINKING-mode streamed leg. `gemini-3.1-pro-preview`
+// cannot disable thinking, and thinking tokens are deducted from
+// maxOutputTokens (the P18 flavor lesson) — so the 600-token conversation
+// budget is consumed by reasoning and the visible prose truncates mid-sentence.
+// Verified in-browser: at 600 the Pro reply cut off ("It is truly marvelous");
+// this larger ceiling lets thinking AND a short reply both fit. Flash (thinking
+// disabled) keeps LLM_OUTPUT_TOKEN_BUDGET.
+export const STREAM_THINKING_OUTPUT_TOKEN_BUDGET = 2_500;
+
 // Ballroom-approach per-entry roll: 25% (flavorful, not constant). Fires ONLY
 // on a NEW session (gated on currentSessionId() === null before beginSession).
 export const BALLROOM_APPROACH_PROBABILITY_BASIS_POINTS = 2500;

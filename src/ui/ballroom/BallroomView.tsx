@@ -82,6 +82,8 @@ export function BallroomView({ store, onExit, approachingCharacterId = null }: P
   const [draftMessage, setDraftMessage] = useState("");
   const [inFlight, setInFlight] = useState(false);
   const [failure, setFailure] = useState<ConversationFailure | null>(null);
+  // P26 (G1): partial streamed tokens for progressive render (never persisted).
+  const [streamingText, setStreamingText] = useState("");
   // P20: proposal outcome (rendered via the shared banner), per-turn combat
   // result, and faux-pas blunder notice. All session-local.
   const [proposalOutcome, setProposalOutcome] = useState<ProposalOutcome | null>(null);
@@ -169,16 +171,22 @@ export function BallroomView({ store, onExit, approachingCharacterId = null }: P
     setFailure(null);
     setTurnResult(null);
     setFauxPas(null);
+    // P26 (G1): stream the reply. `streamingText` is UI-ephemeral — the
+    // committed exchange comes from the store after both legs resolve, so a
+    // failed turn leaves no trace.
+    setStreamingText("");
     try {
       await store.getState().sendBallroomMessage({
         targetCharacterId: selectedTargetId,
         pinnedTactic,
         stance,
         freeformMessage: draftMessage,
+        onDelta: (chunk) => setStreamingText((prev) => prev + chunk),
       });
       setDraftMessage("");
     } finally {
       setInFlight(false);
+      setStreamingText("");
     }
   };
 
@@ -319,7 +327,19 @@ export function BallroomView({ store, onExit, approachingCharacterId = null }: P
           </div>
           {inFlight ? (
             <>
-              <ThinkingIndicator />
+              {/* P26 (G1): progressive render — partial tokens until the first
+                  delta arrives, then the streamed prose in place. */}
+              {streamingText === "" ? (
+                <ThinkingIndicator />
+              ) : (
+                <p
+                  className="rounded border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800"
+                  aria-live="polite"
+                  data-testid="ballroom-streaming-text"
+                >
+                  {streamingText}
+                </p>
+              )}
               <button
                 type="button"
                 onClick={onAbort}

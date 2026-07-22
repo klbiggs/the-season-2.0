@@ -18,7 +18,7 @@
 // AbortSignal.any, and passes the composed signal to client.send. The
 // `timedOut` flag distinguishes timeout-vs-cancel for the catch-and-map.
 
-import { LLM_TIMEOUT_MS } from "../game/constants";
+import { LLM_TIMEOUT_MS, STREAM_LEG_TIMEOUT_MS } from "../game/constants";
 import type { ConversationFailure } from "../game/conversation/types";
 import {
   type BallSessionId,
@@ -237,6 +237,94 @@ class ConversationOrchestrator {
         return { kind: "Failed", failure: { reason: "network" } };
       }
       // Defensive — any unanticipated error type.
+      return { kind: "Failed", failure: { reason: "network" } };
+    }
+  }
+
+  // P26 (G1, Q15): two-phase streamed send. Call #1 streams the dialogue prose
+  // (onDelta per chunk); call #2 classifies the exchange. Both legs share ONE
+  // 15s outer budget, with the stream leg additionally capped at
+  // STREAM_LEG_TIMEOUT_MS so a Pro-routed stream can't starve classify.
+  //
+  // Failure policy: a NetworkError/SchemaError from EITHER leg falls back ONCE
+  // to the single-shot send() (the prose is regenerated — the streamed text is
+  // discarded, so no half-committed exchange). Timeout and user-cancel do NOT
+  // retry (the 15s budget is already spent).
+  async sendStreamed(
+    request: ProxyConversationRequest,
+    pinnedIntent: Tactic | null,
+    onDelta: (text: string) => void,
+  ): Promise<ConversationOutcome> {
+    const requestId = ++this.currentRequestId;
+
+    const userAbortController = new AbortController();
+    const timeoutController = new AbortController();
+    this.currentUserAbort = userAbortController;
+
+    let timedOut = false;
+    const timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      timeoutController.abort();
+    }, LLM_TIMEOUT_MS);
+    const outerSignal = AbortSignal.any([userAbortController.signal, timeoutController.signal]);
+
+    try {
+      // Stream leg — its own inner cap composed with the outer budget.
+      const streamLegController = new AbortController();
+      const streamLegTimer = setTimeout(() => streamLegController.abort(), STREAM_LEG_TIMEOUT_MS);
+      let dialogue: string;
+      try {
+        dialogue = await this.client.sendStream(
+          request,
+          AbortSignal.any([outerSignal, streamLegController.signal]),
+          onDelta,
+        );
+      } finally {
+        clearTimeout(streamLegTimer);
+      }
+
+      // Classify leg — compact persona line keeps the toolCalls surface grounded.
+      const target = request.characterStateSnapshot.target;
+      const classified = await this.client.classify(
+        {
+          freeformMessage: request.freeformMessage,
+          dialogue,
+          targetCharacterId: request.targetCharacterId,
+          targetPersonaLine: `${target.name}, mood ${target.mood}, traits ${target.traits.slice(0, 3).join("/") || "none"}`,
+          sceneCharacters: request.otherCharactersInScene.map((c) => ({
+            id: c.id,
+            name: c.name,
+          })),
+          mode: request.mode,
+        },
+        outerSignal,
+      );
+
+      clearTimeout(timeoutHandle);
+      this.currentUserAbort = null;
+      if (requestId !== this.currentRequestId) {
+        return { kind: "Failed", failure: { reason: "cancelled" } };
+      }
+      return {
+        kind: "Resolved",
+        response: narrowResponse({ dialogue, ...classified }, pinnedIntent),
+      };
+    } catch (err) {
+      clearTimeout(timeoutHandle);
+      this.currentUserAbort = null;
+
+      if (requestId !== this.currentRequestId) {
+        return { kind: "Failed", failure: { reason: "cancelled" } };
+      }
+      // Timeout / user-cancel → no retry (budget spent).
+      if (err instanceof CancelledError) {
+        return { kind: "Failed", failure: { reason: timedOut ? "timeout" : "cancelled" } };
+      }
+      // Network/schema fault on either leg → ONE fallback to the single-shot
+      // path. Its own fresh budget; the discarded stream text never committed.
+      if (err instanceof NetworkError || err instanceof SchemaError) {
+        return this.send(request, pinnedIntent);
+      }
       return { kind: "Failed", failure: { reason: "network" } };
     }
   }
