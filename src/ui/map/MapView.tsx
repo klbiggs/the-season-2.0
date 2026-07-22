@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { LOCATIONS, LOCATION_PIN_COORDS, type LocationId } from "../../game/fixtures/locations";
 import { RIVAL_HOUSE_IDS_SET } from "../../game/fixtures/rivals";
 import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
+import type { GlobalEventKind } from "../../game/rules/globalEvents";
 import { canTravel } from "../../game/rules/travel";
 import type { SeasonStore } from "../../game/store";
 import { duelBus } from "../../runtime/events/duels";
@@ -12,6 +13,17 @@ import { LocationDetailsPanel } from "./LocationDetailsPanel";
 import { LocationPin } from "./LocationPin";
 import { MapBackdrop } from "./MapBackdrop";
 import { formatYearPassSummary, summarizeYearPass } from "./yearPassSummary";
+
+// P25 R11: UI-local chip colors per global-event kind (P14 pin — rendering
+// values live with their component, not in game/constants).
+const EVENT_CHIP_COLOR: Record<GlobalEventKind, string> = {
+  WarEffort: "bg-rose-700 text-rose-50",
+  MarketCrash: "bg-amber-700 text-amber-50",
+  MonarchsMood: "bg-violet-700 text-violet-50",
+  RoyalFuneral: "bg-slate-700 text-slate-50",
+  DucalWedding: "bg-pink-700 text-pink-50",
+  PeasantRevolt: "bg-orange-800 text-orange-50",
+};
 
 type Props = {
   store: SeasonStore;
@@ -192,12 +204,9 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
         >
           {activeEvents.map((event) => {
             const ticksRemaining = event.endTick - state.tick + 1;
-            const colorClass =
-              event.kind === "WarEffort"
-                ? "bg-rose-700 text-rose-50"
-                : event.kind === "MarketCrash"
-                  ? "bg-amber-700 text-amber-50"
-                  : "bg-violet-700 text-violet-50";
+            // P25 R11: explicit 6-way kind→color map (was a 3-way ternary whose
+            // else-arm rendered every new kind violet).
+            const colorClass = EVENT_CHIP_COLOR[event.kind];
             const label =
               event.kind === "MonarchsMood"
                 ? `${event.kind}: ${event.favoredCulture} favored (${ticksRemaining} ticks left)`

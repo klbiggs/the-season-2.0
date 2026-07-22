@@ -595,6 +595,25 @@ export const GlobalEventSchema = z.discriminatedUnion("kind", [
     endTick: z.number().int().nonnegative(),
     favoredCulture: z.enum(CULTURES),
   }),
+  // P25 R11: three additional location-keyed event kinds (no extra fields).
+  z.object({
+    kind: z.literal("RoyalFuneral"),
+    id: GlobalEventIdSchema,
+    startTick: z.number().int().nonnegative(),
+    endTick: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("DucalWedding"),
+    id: GlobalEventIdSchema,
+    startTick: z.number().int().nonnegative(),
+    endTick: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("PeasantRevolt"),
+    id: GlobalEventIdSchema,
+    startTick: z.number().int().nonnegative(),
+    endTick: z.number().int().nonnegative(),
+  }),
 ]);
 export type GlobalEvent = z.infer<typeof GlobalEventSchema>;
 

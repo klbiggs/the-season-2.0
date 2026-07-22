@@ -11,13 +11,16 @@ import { describe, expect, it } from "vitest";
 import { makeCharacter, makeGameState, makeHouse } from "../__test-utils__/factories";
 import {
   COURIER_RESEARCH_WEALTH_COST,
+  DUCAL_WEDDING_REPUTATION_PER_TICK,
   ERA_TRANSITION_TICK,
   MARKET_CRASH_DURATION_TICKS,
   MARKET_CRASH_WEALTH_PER_TICK,
   MONARCHS_MOOD_DURATION_TICKS,
   MONARCHS_MOOD_FAVORED_FAMILY_REPUTATION_SURGE_PER_TICK,
   MONARCHS_MOOD_SNUB_SCANDAL_PER_TICK,
+  PEASANT_REVOLT_WEALTH_PER_TICK,
   RIVAL_WAR_PROFITEER_WEALTH_PER_TICK,
+  ROYAL_FUNERAL_REPUTATION_PER_TICK,
   WAR_EFFORT_DURATION_TICKS,
   WAR_EFFORT_REPUTATION_PER_TICK,
   WAR_EFFORT_WEALTH_PER_TICK,
@@ -435,6 +438,71 @@ describe("MonarchsMood per-tick effects", () => {
       ]),
     });
     expect(houseHasCultureEquipped(state, PLAYER_HOUSE_ID, "Refinement")).toBe(false);
+  });
+});
+
+// ── P25 R11: additional location-keyed event kinds ──────────────────────
+
+describe("P25 R11 — RoyalFuneral / DucalWedding / PeasantRevolt", () => {
+  const CAPITAL_ID = "cap" as HouseId;
+  const COUNTRY_ID = "cty" as HouseId;
+
+  function stateWith(kind: "RoyalFuneral" | "DucalWedding" | "PeasantRevolt"): GameState {
+    const event = {
+      kind,
+      id: `globalevent-${kind}-0` as GlobalEventId,
+      startTick: 0,
+      endTick: 1000,
+    } as GlobalEvent;
+    return withPlayerRng({
+      tick: 1,
+      globalEvents: new Map([[event.id, event]]),
+      houses: new Map([
+        [
+          CAPITAL_ID,
+          makeHouse({ id: CAPITAL_ID, currentLocation: "Capital", wealth: 100, reputation: 50 }),
+        ],
+        [
+          COUNTRY_ID,
+          makeHouse({ id: COUNTRY_ID, currentLocation: "Country", wealth: 100, reputation: 50 }),
+        ],
+      ]),
+    });
+  }
+
+  it("RoyalFuneral: -1 reputation for Capital houses only", () => {
+    const after = applyGlobalEventPhase(stateWith("RoyalFuneral"));
+    expect(after.houses.get(CAPITAL_ID)?.reputation).toBe(50 + ROYAL_FUNERAL_REPUTATION_PER_TICK);
+    expect(after.houses.get(COUNTRY_ID)?.reputation).toBe(50); // unaffected
+  });
+
+  it("DucalWedding: +1 reputation for Capital houses only", () => {
+    const after = applyGlobalEventPhase(stateWith("DucalWedding"));
+    expect(after.houses.get(CAPITAL_ID)?.reputation).toBe(50 + DUCAL_WEDDING_REPUTATION_PER_TICK);
+    expect(after.houses.get(COUNTRY_ID)?.reputation).toBe(50);
+  });
+
+  it("PeasantRevolt: -2 wealth (unclamped) for Country houses only", () => {
+    const after = applyGlobalEventPhase(stateWith("PeasantRevolt"));
+    expect(after.houses.get(COUNTRY_ID)?.wealth).toBe(100 + PEASANT_REVOLT_WEALTH_PER_TICK);
+    expect(after.houses.get(CAPITAL_ID)?.wealth).toBe(100); // unaffected
+  });
+
+  it("RoyalFuneral reputation clamps at 0", () => {
+    const event = {
+      kind: "RoyalFuneral",
+      id: "globalevent-RoyalFuneral-0" as GlobalEventId,
+      startTick: 0,
+      endTick: 1000,
+    } as GlobalEvent;
+    const state = withPlayerRng({
+      tick: 1,
+      globalEvents: new Map([[event.id, event]]),
+      houses: new Map([
+        [CAPITAL_ID, makeHouse({ id: CAPITAL_ID, currentLocation: "Capital", reputation: 0 })],
+      ]),
+    });
+    expect(applyGlobalEventPhase(state).houses.get(CAPITAL_ID)?.reputation).toBe(0);
   });
 });
 

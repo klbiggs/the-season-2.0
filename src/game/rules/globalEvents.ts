@@ -11,6 +11,8 @@
 
 import {
   COURIER_RESEARCH_WEALTH_COST,
+  DUCAL_WEDDING_DURATION_TICKS,
+  DUCAL_WEDDING_REPUTATION_PER_TICK,
   ERA_TRANSITION_TICK,
   GLOBAL_EVENT_TRIGGER_PROBABILITY_BASIS_POINTS,
   MARKET_CRASH_DURATION_TICKS,
@@ -18,7 +20,11 @@ import {
   MONARCHS_MOOD_DURATION_TICKS,
   MONARCHS_MOOD_FAVORED_FAMILY_REPUTATION_SURGE_PER_TICK,
   MONARCHS_MOOD_SNUB_SCANDAL_PER_TICK,
+  PEASANT_REVOLT_DURATION_TICKS,
+  PEASANT_REVOLT_WEALTH_PER_TICK,
   RIVAL_WAR_PROFITEER_WEALTH_PER_TICK,
+  ROYAL_FUNERAL_DURATION_TICKS,
+  ROYAL_FUNERAL_REPUTATION_PER_TICK,
   WAR_EFFORT_DURATION_TICKS,
   WAR_EFFORT_OFFICER_DEATH_PROBABILITY_BASIS_POINTS,
   WAR_EFFORT_REPUTATION_PER_TICK,
@@ -31,6 +37,7 @@ import {
   type Culture,
   resolveArtifactDefinition,
 } from "../fixtures/artifacts";
+import type { LocationId } from "../fixtures/locations";
 import { RIVAL_HOUSE_IDS_SET } from "../fixtures/rivals";
 import {
   type CharacterId,
@@ -48,12 +55,22 @@ import { hasActivePlayerElopement } from "./elopement";
 
 // ── Identity register ────────────────────────────────────────────────────
 
-export const GLOBAL_EVENT_KINDS = ["WarEffort", "MarketCrash", "MonarchsMood"] as const;
+export const GLOBAL_EVENT_KINDS = [
+  "WarEffort",
+  "MarketCrash",
+  "MonarchsMood",
+  "RoyalFuneral",
+  "DucalWedding",
+  "PeasantRevolt",
+] as const;
 export type GlobalEventKind = (typeof GLOBAL_EVENT_KINDS)[number];
 
-if (GLOBAL_EVENT_KINDS.length !== 3) {
+// P25 R11: registry widened 3→6. Pre-release posture (no save-version bump);
+// the kind-pick draw distribution changes so the 30-run replay re-baselines
+// (self-consistent).
+if (GLOBAL_EVENT_KINDS.length !== 6) {
   throw new Error(
-    `GLOBAL_EVENT_KINDS length changed (${GLOBAL_EVENT_KINDS.length} !== 3) without phase plan + (where needed) save-version bump`,
+    `GLOBAL_EVENT_KINDS length changed (${GLOBAL_EVENT_KINDS.length} !== 6) without phase plan + (where needed) save-version bump`,
   );
 }
 
@@ -147,6 +164,15 @@ function applyActiveEventTickEffects(state: GameState): GameState {
       case "MonarchsMood":
         acc = applyMonarchsMoodTick(acc, event.favoredCulture);
         break;
+      case "RoyalFuneral":
+        acc = applyLocationReputationTick(acc, "Capital", ROYAL_FUNERAL_REPUTATION_PER_TICK);
+        break;
+      case "DucalWedding":
+        acc = applyLocationReputationTick(acc, "Capital", DUCAL_WEDDING_REPUTATION_PER_TICK);
+        break;
+      case "PeasantRevolt":
+        acc = applyLocationWealthTick(acc, "Country", PEASANT_REVOLT_WEALTH_PER_TICK);
+        break;
     }
   }
   return acc;
@@ -228,6 +254,38 @@ function applyMarketCrashTick(state: GameState): GameState {
       ...h,
       wealth: h.wealth + MARKET_CRASH_WEALTH_PER_TICK, // UNCLAMPED
     });
+  }
+  return { ...state, houses: newHouses };
+}
+
+// P25 R11: location-keyed reputation tick — only houses whose currentLocation
+// matches take the delta (clamped [0,100]). Used by RoyalFuneral (Capital, -1)
+// and DucalWedding (Capital, +1). Rivals/society pin Capital at bootstrap and
+// never travel, so they always take Capital-keyed effects (accepted asymmetry).
+function applyLocationReputationTick(
+  state: GameState,
+  location: LocationId,
+  delta: number,
+): GameState {
+  const newHouses = new Map<HouseId, House>();
+  for (const [id, h] of state.houses) {
+    newHouses.set(
+      id,
+      h.currentLocation === location
+        ? { ...h, reputation: clamp(h.reputation + delta, 0, 100) }
+        : h,
+    );
+  }
+  return { ...state, houses: newHouses };
+}
+
+// P25 R11: location-keyed wealth tick (UNCLAMPED — bankruptcy-tier fidelity).
+// Used by PeasantRevolt (Country, -2). Rivals/society never sit at Country, so
+// PeasantRevolt only ever hits the player when resident there.
+function applyLocationWealthTick(state: GameState, location: LocationId, delta: number): GameState {
+  const newHouses = new Map<HouseId, House>();
+  for (const [id, h] of state.houses) {
+    newHouses.set(id, h.currentLocation === location ? { ...h, wealth: h.wealth + delta } : h);
   }
   return { ...state, houses: newHouses };
 }
@@ -369,13 +427,34 @@ function maybeFireNewEvent(state: GameState): GameState {
       startTick: state.tick,
       endTick: state.tick + WAR_EFFORT_DURATION_TICKS,
     };
-  } else {
-    // MarketCrash
+  } else if (candidateKind === "MarketCrash") {
     event = {
       kind: "MarketCrash",
       id: makeGlobalEventId(state, "MarketCrash"),
       startTick: state.tick,
       endTick: state.tick + MARKET_CRASH_DURATION_TICKS,
+    };
+  } else if (candidateKind === "RoyalFuneral") {
+    event = {
+      kind: "RoyalFuneral",
+      id: makeGlobalEventId(state, "RoyalFuneral"),
+      startTick: state.tick,
+      endTick: state.tick + ROYAL_FUNERAL_DURATION_TICKS,
+    };
+  } else if (candidateKind === "DucalWedding") {
+    event = {
+      kind: "DucalWedding",
+      id: makeGlobalEventId(state, "DucalWedding"),
+      startTick: state.tick,
+      endTick: state.tick + DUCAL_WEDDING_DURATION_TICKS,
+    };
+  } else {
+    // PeasantRevolt
+    event = {
+      kind: "PeasantRevolt",
+      id: makeGlobalEventId(state, "PeasantRevolt"),
+      startTick: state.tick,
+      endTick: state.tick + PEASANT_REVOLT_DURATION_TICKS,
     };
   }
 

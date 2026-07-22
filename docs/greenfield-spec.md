@@ -386,7 +386,7 @@ The game lets a single player rise across multiple generations of a noble house 
 ### Global Events
 
 - A 5%-per-tick chance rolls a candidate event from a small fixed registry; duplicate active events of the same type are skipped.
-- Three event types are defined: WarEffort (10 ticks), MarketCrash (5 ticks, `-3 wealth` per tick), MonarchsMood (5 ticks).
+- Six event types are defined: WarEffort (10 ticks), MarketCrash (5 ticks, `-3 wealth` per tick), MonarchsMood (5 ticks), RoyalFuneral (5 ticks, `-1 reputation` per tick to houses at the Capital), DucalWedding (7 ticks, `+1 reputation` per tick to houses at the Capital), and PeasantRevolt (5 ticks, `-2 wealth` per tick to houses at the Country estate). (The last three are location-keyed and were added after the original three.)
 - **WarEffort effect:** per tick `+1 reputation, -2 wealth`. Additionally, any family character carrying a "military officer" trait or role receives a temporary positive multiplier on their Seduction-scheme outcomes against any target, AND has a small per-tick chance of dying at the front (a deterministic seeded roll); the death follows the usual OnCharacterDied cascade.
 - **MonarchsMood effect (cultural-pivot mechanic):** at start, a "favored culture" (one of a small fixed set) is rolled. While active, any house with at least one equipped artifact whose family matches the favored culture gains a fixed per-tick reputation surge. Houses without a matching artifact see `+1 scandal` per tick as the King's snub propagates. The favored-culture roll is the same per-tick deterministic seeded draw used elsewhere.
 - Events terminate at an absolute end-tick recorded at start so save/load preserves their lifecycle.

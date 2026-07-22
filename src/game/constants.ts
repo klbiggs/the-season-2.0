@@ -1152,6 +1152,24 @@ export const MONARCHS_MOOD_SNUB_SCANDAL_PER_TICK = 1;
 // surge branch must NOT fire negatively (no scandal doubling, no penalty
 // stacking).
 
+// P25 R11: three additional global-event kinds (spec L389 amended 3→6). All
+// LOCATION-KEYED — effects land only on houses at the named location
+// (house.currentLocation). Reputation deltas clamp [0,100]; wealth deltas stay
+// UNCLAMPED (bankruptcy-tier fidelity — same as WarEffort/MarketCrash).
+export const ROYAL_FUNERAL_DURATION_TICKS = 5;
+export const ROYAL_FUNERAL_REPUTATION_PER_TICK = -1; // Capital: court mourning
+export const DUCAL_WEDDING_DURATION_TICKS = 7;
+export const DUCAL_WEDDING_REPUTATION_PER_TICK = 1; // Capital: society festivity
+export const PEASANT_REVOLT_DURATION_TICKS = 5;
+export const PEASANT_REVOLT_WEALTH_PER_TICK = -2; // Country: unrest (unclamped)
+if (
+  ROYAL_FUNERAL_DURATION_TICKS <= 0 ||
+  DUCAL_WEDDING_DURATION_TICKS <= 0 ||
+  PEASANT_REVOLT_DURATION_TICKS <= 0
+) {
+  throw new Error("P25 R11 event durations must be positive");
+}
+
 // Later-era courier research (spec line 397-398)
 export const COURIER_RESEARCH_WEALTH_COST = 30;
 // ↑ One-shot wealth cost to unlock fast couriers. Halves NEW courier transit
