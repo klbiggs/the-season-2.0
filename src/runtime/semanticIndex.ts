@@ -17,6 +17,8 @@
 
 import {
   EMBEDDING_DIMENSIONS,
+  EMBEDDING_MODEL,
+  EMBED_REEMBED_BATCH_SIZE,
   EMBED_RETRIEVAL_TIMEOUT_MS,
   SEMANTIC_RETRIEVAL_TOP_K,
   SEMANTIC_SIMILARITY_THRESHOLD,
@@ -33,7 +35,9 @@ import {
   type VectorIndexEntryType,
   appendEntries,
   hasLoreEntries,
+  putRecordForSlot,
   readEntriesForSlot,
+  readRecordForSlot,
 } from "../persist/vectorIndex";
 import { conversationBus } from "./events/conversation";
 import { familyBus } from "./events/family";
@@ -311,5 +315,50 @@ export async function seedLoreCorpus(slot: string): Promise<void> {
     await appendEntries(slot, entries);
   } catch {
     // logged + dropped — lore is best-effort context, never blocking.
+  }
+}
+
+// ── Re-embed on model/dimension change (P26 G5) ──────────────────────────
+
+// When the stored slot record was embedded with a DIFFERENT model/dimensions
+// than the current pins, re-embed every entry's sourceText with the current
+// provider (in batches) and rebuild the record — replacing the P17 silent
+// discard-on-mismatch. On success the accumulated memory survives a model swap.
+// Any failure leaves the record untouched (the read-side discard keeps
+// retrieval recency-only until the next boot retries). Chained AHEAD of
+// seedLoreCorpus at every init site so lore isn't double-seeded after a
+// successful re-embed.
+export async function reembedSlotIfStale(slot: string): Promise<void> {
+  if (!semanticMemoryEnabled) return;
+  if (typeof fetch !== "function" || typeof indexedDB === "undefined") return;
+  try {
+    const record = await readRecordForSlot(slot);
+    if (record === undefined) return; // nothing to re-embed
+    if (record.modelId === EMBEDDING_MODEL && record.dimensions === EMBEDDING_DIMENSIONS) return;
+    const rebuilt: VectorIndexEntry[] = [];
+    for (let i = 0; i < record.entries.length; i += EMBED_REEMBED_BATCH_SIZE) {
+      const batch = record.entries.slice(i, i + EMBED_REEMBED_BATCH_SIZE);
+      const vectors = await embedTexts(
+        batch.map((e) => e.sourceText),
+        "RETRIEVAL_DOCUMENT",
+        AbortSignal.timeout(EMBED_RETRIEVAL_TIMEOUT_MS),
+      );
+      for (let j = 0; j < batch.length; j += 1) {
+        const entry = batch[j];
+        const vector = vectors[j];
+        if (entry === undefined || vector === undefined) continue;
+        if (vector.length !== EMBEDDING_DIMENSIONS) continue;
+        rebuilt.push({ ...entry, vector });
+      }
+    }
+    await putRecordForSlot({
+      slot,
+      modelId: EMBEDDING_MODEL,
+      dimensions: EMBEDDING_DIMENSIONS,
+      entries: rebuilt,
+    });
+  } catch {
+    // Leave the stale record untouched; read-side discard degrades to
+    // recency-only until the next boot retries the re-embed.
   }
 }

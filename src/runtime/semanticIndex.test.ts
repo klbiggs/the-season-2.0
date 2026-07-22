@@ -1,16 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import "fake-indexeddb/auto";
+import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL } from "../game/constants";
 import { makePairKey } from "../game/conversation/types";
 import { LORE_CORPUS } from "../game/fixtures/lore";
 import type { CharacterId, HouseId } from "../game/rng";
 import type { GameState } from "../game/store";
 import { embedTexts } from "../llm/embeddings";
 import { _resetForTests } from "../persist/dexie";
-import { appendEntries, readEntriesForSlot } from "../persist/vectorIndex";
+import {
+  appendEntries,
+  putRecordForSlot,
+  readEntriesForSlot,
+  readRecordForSlot,
+} from "../persist/vectorIndex";
 import { conversationBus } from "./events/conversation";
 import {
   __setSemanticMemoryEnabledForTests,
   bindStore,
+  reembedSlotIfStale,
   retrieve,
   seedLoreCorpus,
   setActiveSlot,
@@ -258,5 +265,60 @@ describe("publish-boundary safety", () => {
         moodHint: null,
       }),
     ).not.toThrow();
+  });
+});
+
+// ── P26 (G5): re-embed on model/dimension change ──────────────────────────
+describe("reembedSlotIfStale", () => {
+  beforeEach(() => {
+    __setSemanticMemoryEnabledForTests(true);
+  });
+  afterEach(() => {
+    __setSemanticMemoryEnabledForTests(false);
+  });
+
+  it("re-embeds entries + updates the record metadata on a model mismatch (no wipe)", async () => {
+    // Seed a record stamped with a DIFFERENT (stale) model id, so it's stale
+    // relative to the current pins. readEntriesForSlot would DISCARD it; the
+    // re-embed path must instead preserve the sourceTexts.
+    await putRecordForSlot({
+      slot: SLOT,
+      modelId: "old-model-xyz",
+      dimensions: EMBEDDING_DIMENSIONS,
+      entries: [
+        {
+          id: "e-1",
+          vector: new Float32Array([0, 0, 0]),
+          sourceText: "a memory of a duel",
+          entryType: "Exchange",
+          houseId: "player",
+          npcId: NPC1,
+          tick: 3,
+        },
+      ],
+    });
+    // Pre-condition: the stale record is discarded by the read path.
+    expect(await readEntriesForSlot(SLOT)).toHaveLength(0);
+
+    await reembedSlotIfStale(SLOT);
+
+    // Post: record re-stamped with the current model, entry preserved + now
+    // retrievable (freshly embedded, dimension matches the current pins).
+    const record = await readRecordForSlot(SLOT);
+    expect(record?.modelId).toBe(EMBEDDING_MODEL);
+    expect(record?.entries).toHaveLength(1);
+    expect(record?.entries[0]?.sourceText).toBe("a memory of a duel");
+    expect(await readEntriesForSlot(SLOT)).toHaveLength(1); // no longer discarded
+  });
+
+  it("no-ops when the record is already at the current model", async () => {
+    await putRecordForSlot({
+      slot: SLOT,
+      modelId: EMBEDDING_MODEL,
+      dimensions: EMBEDDING_DIMENSIONS,
+      entries: [],
+    });
+    await reembedSlotIfStale(SLOT); // should not throw / rebuild
+    expect((await readRecordForSlot(SLOT))?.modelId).toBe(EMBEDDING_MODEL);
   });
 });

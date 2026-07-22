@@ -69,6 +69,20 @@ function withSlotLock<T>(slot: string, fn: () => Promise<T>): Promise<T> {
   return result;
 }
 
+// P26 (G5): raw record read — NO discard-on-mismatch. The re-embed path
+// (reembedSlotIfStale) needs the stale record's metadata + sourceTexts to
+// rebuild with the current provider instead of silently wiping the index.
+export async function readRecordForSlot(slot: string): Promise<VectorIndexRecord | undefined> {
+  return vectorIndexTable().get(slot);
+}
+
+// P26 (G5): overwrite a slot's record wholesale (used by the re-embed rebuild).
+export async function putRecordForSlot(record: VectorIndexRecord): Promise<void> {
+  await withSlotLock(record.slot, async () => {
+    await vectorIndexTable().put(record);
+  });
+}
+
 // Read entries for retrieval. Returns [] when the slot has no index OR the
 // stored model id / dimensions don't match the pinned current values
 // (discard-on-mismatch — the next append rebuilds with fresh metadata).

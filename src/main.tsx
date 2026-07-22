@@ -5,7 +5,12 @@ import { DEFAULT_SEED } from "./game/rng.seeds";
 import { createStore } from "./game/store";
 import { DEV_SLOT, _putRawForTests } from "./persist/dexie";
 import { enableFlavorContent } from "./runtime/flavorOrchestrator";
-import { enableSemanticMemory, seedLoreCorpus, setActiveSlot } from "./runtime/semanticIndex";
+import {
+  enableSemanticMemory,
+  reembedSlotIfStale,
+  seedLoreCorpus,
+  setActiveSlot,
+} from "./runtime/semanticIndex";
 import "./index.css";
 
 // Bootstrap order (pinned per plan): store is constructed synchronously at
@@ -21,7 +26,7 @@ const store = createStore({ seed: DEFAULT_SEED });
 // replaceState callers (SettingsMenu / CorruptSaveBanner) would miss it.
 enableSemanticMemory();
 setActiveSlot(DEV_SLOT);
-void seedLoreCorpus(DEV_SLOT);
+void reembedSlotIfStale(DEV_SLOT).then(() => seedLoreCorpus(DEV_SLOT));
 
 // P18: activate flavor-content generation (the ONLY production caller that
 // flips the flag — tests/replay never call it, so the flavor subscribers +

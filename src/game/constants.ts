@@ -311,6 +311,9 @@ export const EMBEDDING_DIMENSIONS = 768;
 // retrievable cross-house bulk evict useful player-perspective memory in a
 // mature campaign (25+ society NPCs). ~5.5 MB/slot, under the bounded-save NFR.
 export const VECTOR_INDEX_MAX_ENTRIES = 1500;
+// P26 (G5): re-embed batch size when the embedding model/dimensions change —
+// the sourceTexts are re-embedded in chunks (replacing the P17 silent discard).
+export const EMBED_REEMBED_BATCH_SIZE = 32;
 // Retrieval: top-K hits above the cosine threshold added to the prompt.
 export const SEMANTIC_RETRIEVAL_TOP_K = 4;
 export const SEMANTIC_SIMILARITY_THRESHOLD = 0.55;
