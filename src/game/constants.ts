@@ -305,7 +305,12 @@ export const EMBEDDING_DIMENSIONS = 768;
 // Sidecar entry-count cap with FIFO eviction by tick (spec §8 line 687). The
 // fixed-dim vector makes this cap the byte bound: ~3.6 KB/entry × 500 ≈ 1.8 MB
 // per slot — large but bounded. Raise only with that product re-checked.
-export const VECTOR_INDEX_MAX_ENTRIES = 500;
+// P26 (G4): raised 500 → 1500. Cross-house retrieval now indexes ALL houses'
+// whispers/schemes/grievances/successions, but the player-anchored retrieve
+// filter surfaces only a subset — a flat 500-entry FIFO would let non-
+// retrievable cross-house bulk evict useful player-perspective memory in a
+// mature campaign (25+ society NPCs). ~5.5 MB/slot, under the bounded-save NFR.
+export const VECTOR_INDEX_MAX_ENTRIES = 1500;
 // Retrieval: top-K hits above the cosine threshold added to the prompt.
 export const SEMANTIC_RETRIEVAL_TOP_K = 4;
 export const SEMANTIC_SIMILARITY_THRESHOLD = 0.55;

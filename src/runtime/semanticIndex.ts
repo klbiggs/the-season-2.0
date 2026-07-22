@@ -24,7 +24,7 @@ import {
 import { parsePairKey } from "../game/conversation/types";
 import { LORE_CORPUS } from "../game/fixtures/lore";
 import { PLAYER_HOUSE_ID } from "../game/rng";
-import type { CharacterId } from "../game/rng";
+import type { CharacterId, HouseId } from "../game/rng";
 import type { GameState } from "../game/store";
 import { cosineSimilarity, embedTexts } from "../llm/embeddings";
 import { DEV_SLOT } from "../persist/dexie";
@@ -76,6 +76,10 @@ export function bindStore(getState: () => GameState): void {
 type IndexJob = {
   entryType: VectorIndexEntryType;
   sourceText: string;
+  // P26 (G4): the house the entry belongs to. Was hardcoded PLAYER_HOUSE_ID at
+  // P17 (player-perspective index); cross-house retrieval stamps the real house
+  // so an NPC's knowledge about themselves is retrievable from any house.
+  houseId: HouseId | null;
   npcId: CharacterId | null;
   tick: number;
 };
@@ -111,9 +115,8 @@ async function embedAndAppend(job: IndexJob): Promise<void> {
       vector,
       sourceText: job.sourceText,
       entryType: job.entryType,
-      // Player-perspective index: indexed events are always written under the
-      // player house so retrieval's `entry.houseId === queryHouseId` matches.
-      houseId: PLAYER_HOUSE_ID,
+      // P26 (G4): stamp the entry's real house (was hardcoded PLAYER at P17).
+      houseId: job.houseId,
       npcId: job.npcId,
       tick: job.tick,
     };
@@ -131,6 +134,7 @@ conversationBus.subscribe("ConversationResolved", (event) => {
     const state = readState?.();
     if (state === undefined) return null;
     const { houseId, characterId } = parsePairKey(event.pairKey);
+    // Conversation pairs are player-anchored by construction (G4: unchanged).
     if (houseId !== PLAYER_HOUSE_ID) return null;
     const history = state.conversationHistory.get(event.pairKey) ?? [];
     if (history.length === 0) return null;
@@ -141,24 +145,26 @@ conversationBus.subscribe("ConversationResolved", (event) => {
     return {
       entryType: "Exchange",
       sourceText: `At tick ${event.tick}, a conversation with ${npcName} — ${lines.join(" / ")}`,
+      houseId: PLAYER_HOUSE_ID,
       npcId: characterId,
       tick: event.tick,
     };
   });
 });
 
-// Whisper publication → index the whisper text (player-destined only).
+// Whisper publication → index the whisper text (G4: ALL houses, stamped by
+// destination house).
 whisperBus.subscribe("WhisperCreated", (event) => {
   if (!semanticMemoryEnabled) return;
   index(() => {
     const state = readState?.();
     if (state === undefined) return null;
-    if (event.destinationHouseId !== PLAYER_HOUSE_ID) return null;
     const text = state.whispers.get(event.whisperId)?.text;
     if (text === undefined) return null;
     return {
       entryType: "Whisper",
       sourceText: `A whisper (tick ${event.tick}): ${text}`,
+      houseId: event.destinationHouseId,
       npcId: event.subjectCharacterId,
       tick: event.tick,
     };
@@ -172,11 +178,12 @@ schemeBus.subscribe("SchemeCompleted", (event) => {
   index(() => {
     const state = readState?.();
     if (state === undefined) return null;
-    if (event.ownerHouseId !== PLAYER_HOUSE_ID) return null;
+    // G4: index ALL houses' completions, stamped by the owning house.
     if (event.targetCharacterId === null) {
       return {
         entryType: "Scheme",
         sourceText: `A ${event.schemeKind} scheme completed at tick ${event.tick}`,
+        houseId: event.ownerHouseId,
         npcId: null,
         tick: event.tick,
       };
@@ -186,34 +193,39 @@ schemeBus.subscribe("SchemeCompleted", (event) => {
     return {
       entryType: "Scheme",
       sourceText: `A ${event.schemeKind} scheme against ${targetName} completed at tick ${event.tick}`,
+      houseId: event.ownerHouseId,
       npcId: event.targetCharacterId,
       tick: event.tick,
     };
   });
 });
 
-// Casus belli recording → grievances involving the player house.
+// Casus belli recording → grievances (G4: ALL houses). Stamps PLAYER when the
+// player is perpetrator OR victim (so a rival-perpetrated-against-player
+// grievance stays in the player corpus), else the perpetrator's house.
 schemeBus.subscribe("GrievanceRecorded", (event) => {
   if (!semanticMemoryEnabled) return;
   index(() => {
     const state = readState?.();
     if (state === undefined) return null;
-    if (event.perpetratorHouseId !== PLAYER_HOUSE_ID && event.victimHouseId !== PLAYER_HOUSE_ID) {
-      return null;
-    }
+    if (state.houses.get(event.perpetratorHouseId) === undefined) return null;
+    const playerInvolved =
+      event.perpetratorHouseId === PLAYER_HOUSE_ID || event.victimHouseId === PLAYER_HOUSE_ID;
+    const stampHouse = playerInvolved ? PLAYER_HOUSE_ID : event.perpetratorHouseId;
     const otherHouseId =
       event.perpetratorHouseId === PLAYER_HOUSE_ID ? event.victimHouseId : event.perpetratorHouseId;
-    if (state.houses.get(otherHouseId) === undefined) return null;
     return {
       entryType: "Grievance",
       sourceText: `A ${event.source} grievance involving the house "${otherHouseId}" was recorded at tick ${event.tick}`,
+      houseId: stampHouse,
       npcId: null,
       tick: event.tick,
     };
   });
 });
 
-// Succession → player-house head reclassifications at succession.
+// Succession → head reclassifications at succession (G4: ALL houses, stamped
+// by the character's house).
 familyBus.subscribe("ArchetypeReclassified", (event) => {
   if (!semanticMemoryEnabled) return;
   index(() => {
@@ -221,10 +233,11 @@ familyBus.subscribe("ArchetypeReclassified", (event) => {
     if (state === undefined) return null;
     if (event.trigger !== "Succession") return null;
     const character = state.characters.get(event.characterId);
-    if (character === undefined || character.houseId !== PLAYER_HOUSE_ID) return null;
+    if (character === undefined) return null;
     return {
       entryType: "Succession",
       sourceText: `At tick ${event.tick}, ${character.name} succeeded as head (reclassified ${event.from} → ${event.to})`,
+      houseId: character.houseId,
       npcId: event.characterId,
       tick: event.tick,
     };
@@ -247,14 +260,12 @@ export async function retrieve(npcId: CharacterId, queryText: string): Promise<s
     );
     if (queryVector === undefined) return [];
     const entries = await readEntriesForSlot(activeSlot);
-    // v1: queryHouseId is always the player house (everything is player-bound).
-    const queryHouseId: string = PLAYER_HOUSE_ID;
+    // P26 (G4): cross-house retrieval. An NPC's reply may surface lore (null
+    // house), the player-perspective corpus (player house), OR events about
+    // THIS npc from any house (e.npcId === npcId). The three-clause OR widens
+    // the NPC's knowledge to gossip about themselves — in-fiction for a reply.
     return entries
-      .filter(
-        (e) =>
-          (e.houseId === null || e.houseId === queryHouseId) &&
-          (e.npcId === null || e.npcId === npcId),
-      )
+      .filter((e) => e.houseId === null || e.houseId === PLAYER_HOUSE_ID || e.npcId === npcId)
       .map((e) => ({ e, score: cosineSimilarity(queryVector, e.vector) }))
       .filter((s) => s.score >= SEMANTIC_SIMILARITY_THRESHOLD)
       .sort((a, b) => b.score - a.score || b.e.tick - a.e.tick || a.e.id.localeCompare(b.e.id))

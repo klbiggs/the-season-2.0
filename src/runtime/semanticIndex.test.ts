@@ -86,7 +86,7 @@ describe("retrieve (enabled)", () => {
     __setSemanticMemoryEnabledForTests(true);
   });
 
-  it("returns the source text of a semantically-matching entry, filtered by npc", async () => {
+  it("P26 (G4): cross-house filter — includes player-house + about-this-npc, excludes other-house-about-other-npc", async () => {
     const text = "the duel at dawn over a slighted honor";
     const [vector] = await embedTexts([text], "RETRIEVAL_DOCUMENT", AbortSignal.timeout(5000));
     if (vector === undefined) throw new Error("embed stub returned no vector");
@@ -100,21 +100,44 @@ describe("retrieve (enabled)", () => {
         npcId: NPC1,
         tick: 5,
       },
-      // Different npc → filtered out even though identical vector.
+      // G4: a player-house memory about a DIFFERENT npc is now retrievable
+      // (the player's own corpus is broadly available — no npc-filter on it).
       {
-        id: "other-npc",
+        id: "player-other-npc",
         vector,
-        sourceText: "other npc memory",
+        sourceText: "a player memory about npc-2",
         entryType: "Exchange",
         houseId: "player",
         npcId: "npc-2",
         tick: 6,
       },
+      // G4: a rival-house memory ABOUT this npc is retrievable (about-self).
+      {
+        id: "rival-about-npc1",
+        vector,
+        sourceText: "gossip about npc-1 from a rival house",
+        entryType: "Whisper",
+        houseId: "rival-x",
+        npcId: NPC1,
+        tick: 7,
+      },
+      // G4: a rival-house memory about a DIFFERENT npc → filtered out.
+      {
+        id: "rival-about-npc2",
+        vector,
+        sourceText: "rival memory about npc-2",
+        entryType: "Whisper",
+        houseId: "rival-x",
+        npcId: "npc-2",
+        tick: 8,
+      },
     ]);
 
     const hits = await retrieve(NPC1, text);
     expect(hits).toContain(text);
-    expect(hits).not.toContain("other npc memory");
+    expect(hits).toContain("a player memory about npc-2"); // player corpus
+    expect(hits).toContain("gossip about npc-1 from a rival house"); // about-self
+    expect(hits).not.toContain("rival memory about npc-2"); // other-house-other-npc
   });
 
   it("includes null-npc (lore-style) entries and excludes below-threshold ones", async () => {
