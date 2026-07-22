@@ -1324,6 +1324,11 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           targetMood: target.mood,
           targetTraits: target.traits,
           isAgainstPinnedTarget: input.pinnedTactic !== null,
+          // P26 (H4): gate the ComplimentMount tactic on the target's mount.
+          targetHasMountFamilyEquipped: characterEquipsMountFamily(
+            stateBefore,
+            target.equippedArtifactIds,
+          ),
         });
 
         // Build the two Exchange records.

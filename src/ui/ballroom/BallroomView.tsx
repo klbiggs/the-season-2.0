@@ -18,7 +18,7 @@ import type { Character } from "../../game/entities";
 import { flavorStubFor } from "../../game/fixtures/flavorStubs";
 import type { Mood } from "../../game/fixtures/moods";
 import { type CharacterId, type FlavorContentId, PLAYER_HOUSE_ID } from "../../game/rng.seeds";
-import { ballroomRoster } from "../../game/rules/promenade";
+import { ballroomRoster, characterEquipsMountFamily } from "../../game/rules/promenade";
 import type { ProposalOutcome } from "../../game/rules/proposal";
 import type { SeasonStore } from "../../game/store";
 import { conversationBus } from "../../runtime/events/conversation";
@@ -130,6 +130,11 @@ export function BallroomView({ store, onExit, approachingCharacterId = null }: P
   }, [maxComposure]);
 
   const selectedTarget = selectedTargetId !== null ? characters.get(selectedTargetId) : undefined;
+  // P26 (H4): does the selected target own a mount-family artifact? Gates the
+  // ComplimentMount tactic's tooltip (a mountless target ZeroYields).
+  const targetEquipsMount =
+    selectedTarget !== undefined &&
+    characterEquipsMountFamily(store.getState(), selectedTarget.equippedArtifactIds);
   const pairKey = selectedTargetId !== null ? makePairKey(PLAYER_HOUSE_ID, selectedTargetId) : null;
   const exchanges = pairKey !== null ? (conversationHistory.get(pairKey) ?? []) : [];
 
@@ -268,6 +273,7 @@ export function BallroomView({ store, onExit, approachingCharacterId = null }: P
           <TacticButtons
             pinned={pinnedTactic}
             disabled={inFlight}
+            targetEquipsMount={targetEquipsMount}
             onPin={(t, prefill) => {
               setPinnedTactic(t);
               setDraftMessage(prefill);

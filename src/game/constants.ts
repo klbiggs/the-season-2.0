@@ -165,6 +165,9 @@ export const TACTIC_BONUS_MOOD: ReadonlyMap<Tactic, Mood> = new Map<Tactic, Mood
   ["WittyBanter", "Receptive"],
   ["SlyGossip", "Jealous"],
   ["DeepEmpathy", "Grieving"],
+  // P26 (H4): ComplimentMount is now a ballroom tactic (was promenade-only at
+  // P12). A Receptive target warms to a compliment on their horse/carriage.
+  ["ComplimentMount", "Receptive"],
 ]);
 
 // Tactic ↔ trait bonus/penalty maps. Designer baseline; playtest may shift
@@ -182,9 +185,12 @@ export const CONVERSATION_TRAIT_BONUSES: ReadonlyMap<TraitId, ReadonlyArray<Tact
   ["Intellectual" as TraitId, ["WittyBanter"]],
   ["Sophisticated" as TraitId, ["Flattery", "WittyBanter"]],
   ["Polyglot" as TraitId, ["WittyBanter"]],
-  ["Rustic" as TraitId, ["DeepEmpathy"]],
-  ["Vain" as TraitId, ["Flattery"]],
-  ["Frivolous" as TraitId, ["WittyBanter"]],
+  // P26 (H4): Rustic warms to horse/mount talk.
+  ["Rustic" as TraitId, ["DeepEmpathy", "ComplimentMount"]],
+  // P26 (H4): the Vain love their finery flattered.
+  ["Vain" as TraitId, ["Flattery", "ComplimentMount"]],
+  // P26 (H4): the Frivolous enjoy light mount chatter.
+  ["Frivolous" as TraitId, ["WittyBanter", "ComplimentMount"]],
   ["Romantic" as TraitId, ["Flattery", "DeepEmpathy"]],
   ["Jaded" as TraitId, ["SlyGossip"]],
   ["Melancholic" as TraitId, ["DeepEmpathy"]],
@@ -200,7 +206,8 @@ export const CONVERSATION_TRAIT_BONUSES: ReadonlyMap<TraitId, ReadonlyArray<Tact
   // Suspicious has no bonus tactic
   ["Loyal" as TraitId, ["DeepEmpathy"]],
   ["Treacherous" as TraitId, ["SlyGossip"]],
-  ["Bold" as TraitId, ["WittyBanter"]],
+  // P26 (H4): the Bold admire a fine mount handled well.
+  ["Bold" as TraitId, ["WittyBanter", "ComplimentMount"]],
   // Cautious has no bonus tactic
   ["Eloquent" as TraitId, ["Flattery", "WittyBanter"]],
   // Reclusive has no bonus tactic
@@ -231,7 +238,8 @@ export const CONVERSATION_TRAIT_PENALTIES: ReadonlyMap<TraitId, ReadonlyArray<Ta
   ["Devout" as TraitId, ["SlyGossip"]],
   ["Pious" as TraitId, ["Flattery"]],
   ["Brash" as TraitId, ["DeepEmpathy"]],
-  ["Reserved" as TraitId, ["Flattery"]],
+  // P26 (H4): the Reserved recoil from showy mount-praise.
+  ["Reserved" as TraitId, ["Flattery", "ComplimentMount"]],
   ["Ambitious" as TraitId, ["DeepEmpathy"]],
   // ImpoverishedNobility has no penalty tactic
   ["Generous" as TraitId, ["SlyGossip"]],
@@ -243,7 +251,8 @@ export const CONVERSATION_TRAIT_PENALTIES: ReadonlyMap<TraitId, ReadonlyArray<Ta
   // Eloquent has no penalty tactic
   ["Reclusive" as TraitId, ["Flattery", "WittyBanter"]],
   ["Hedonistic" as TraitId, ["DeepEmpathy"]],
-  ["Ascetic" as TraitId, ["Flattery"]],
+  // P26 (H4): the Ascetic disdain conspicuous horseflesh.
+  ["Ascetic" as TraitId, ["Flattery", "ComplimentMount"]],
 ]);
 
 // Conversation history bounded per pair to 3 most-recent exchanges. Spec
