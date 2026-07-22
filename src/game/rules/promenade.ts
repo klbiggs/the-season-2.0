@@ -15,6 +15,7 @@
 //   narrowToPromenadeTactic     — narrowing helper for store-side cast safety
 
 import {
+  BALLROOM_APPROACH_PROBABILITY_BASIS_POINTS,
   PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT,
   PROMENADE_BASE_AFFECTION_DEEP_EMPATHY,
   PROMENADE_BASE_AFFECTION_WITTY_BANTER,
@@ -29,12 +30,13 @@ import type { GameState } from "../entities";
 // bootstrapNpcMountFamily helper (which imports MOUNT_FAMILY from here).
 import { type ArtifactFamily, resolveArtifactDefinition } from "../fixtures/artifacts";
 import type { LocationId } from "../fixtures/locations";
-import { RIVAL_CHARACTER_IDS_SET } from "../fixtures/rivals";
+import { RIVAL_CHARACTER_IDS_SET, isSocietyHouse } from "../fixtures/rivals";
 import {
   type ArtifactInstanceId,
   type CharacterId,
   PLAYER_HOUSE_ID,
   drawInt,
+  drawNext,
   getOrThrow,
 } from "../rng";
 import { clamp } from "../util/clamp";
@@ -72,6 +74,23 @@ export function eligiblePromenadePartners(state: GameState): ReadonlyArray<Chara
     .sort((a, b) => a.localeCompare(b));
 }
 
+// P26: the ballroom roster as a PURE, lex-sorted CharacterId projection — the
+// valid draw pool for the NPC ballroom-approach roll (Q14). Alive society-house
+// NPCs (INDEPENDENT + minted soc-house-<n>), excluded by house class (mirrors
+// BallroomView's visible ring). Deliberately DIFFERS from the calling-card
+// caller pool (eligiblePromenadePartners — character-id rival exclusion, adults
+// only): the ballroom approach draws from who is physically at the ball; the
+// calling card is a social call. The UI ring (BallroomView) consumes THIS
+// projection so the visible ring and the draw pool are the same set by
+// construction. NOTE the ballroom itself has no location filter here — entry is
+// already gated to Capital by enterBallroom.
+export function ballroomRoster(state: GameState): ReadonlyArray<CharacterId> {
+  return [...state.characters.values()]
+    .filter((c) => c.alive && isSocietyHouse(c.houseId))
+    .map((c) => c.id)
+    .sort((a, b) => a.localeCompare(b));
+}
+
 // Single-draw partner pick. ALWAYS advances state.rng[PLAYER_HOUSE_ID] by
 // exactly 1 callCount on non-empty pools; ZERO advance on empty pool.
 // Caller (store action) commits the new rng map to GameState.
@@ -91,6 +110,31 @@ export function pickPromenadePartner(state: GameState): {
   newRng.set(PLAYER_HOUSE_ID, nextRng);
   const partnerId = pool[idx] ?? null; // unreachable per drawInt range; required by noUncheckedIndexedAccess
   return { partnerId, nextState: { ...state, rng: newRng } };
+}
+
+// P26 (Q14 ballroom-approach shape): on a NEW ballroom entry, roll whether an
+// NPC approaches the player first + which one. Consumes ONE player-rng trigger
+// draw ALWAYS (committed), plus one approacher-pick draw ONLY on a hit with a
+// non-empty roster. Pure — the caller (enterBallroom) commits nextState.rng.
+export function rollBallroomApproach(state: GameState): {
+  nextState: GameState;
+  approachingCharacterId: CharacterId | null;
+} {
+  const playerRng = getOrThrow(state.rng, PLAYER_HOUSE_ID);
+  const { next: triggerRoll, rngState: r1 } = drawNext(playerRng);
+  const commit = (rng: typeof r1): GameState => ({
+    ...state,
+    rng: new Map(state.rng).set(PLAYER_HOUSE_ID, rng),
+  });
+  if (Math.floor(triggerRoll * 10000) >= BALLROOM_APPROACH_PROBABILITY_BASIS_POINTS) {
+    return { nextState: commit(r1), approachingCharacterId: null };
+  }
+  const roster = ballroomRoster(state);
+  if (roster.length === 0) {
+    return { nextState: commit(r1), approachingCharacterId: null };
+  }
+  const { next: idx, rngState: r2 } = drawInt(r1, roster.length);
+  return { nextState: commit(r2), approachingCharacterId: roster[idx] ?? null };
 }
 
 // ── Entry gate (validation only — caller advances rng + opens session) ──

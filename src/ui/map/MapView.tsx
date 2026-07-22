@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { LOCATIONS, LOCATION_PIN_COORDS, type LocationId } from "../../game/fixtures/locations";
-import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
+import { type CharacterId, PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import { canTravel } from "../../game/rules/travel";
 import type { SeasonStore } from "../../game/store";
 import { locationBus } from "../../runtime/events/location";
@@ -13,7 +13,8 @@ import { formatYearPassSummary, summarizeYearPass } from "./yearPassSummary";
 
 type Props = {
   store: SeasonStore;
-  onEnterBallroom?: (() => void) | undefined;
+  // P26: threads the approaching-NPC id up from enterBallroom's return.
+  onEnterBallroom?: ((approachingCharacterId: CharacterId | null) => void) | undefined;
   // P12: promenade entry hook. MapView threads this down to
   // LocationDetailsPanel's "Take a Promenade in Hyde Park" button.
   onEnterPromenade?: (() => void) | undefined;

@@ -27,6 +27,7 @@ import {
 } from "../rng";
 import {
   appendPromenadeExchange,
+  ballroomRoster,
   canEnterPromenade,
   characterEquipsMountFamily,
   eligiblePromenadePartners,
@@ -34,6 +35,7 @@ import {
   pickPromenadePartner,
   playerHeadEquipsMountFamily,
   resolvePromenadeCombat,
+  rollBallroomApproach,
 } from "./promenade";
 
 // Helpers ────────────────────────────────────────────────────────────────
@@ -395,5 +397,70 @@ describe("appendPromenadeExchange", () => {
       1,
     );
     expect(after.affectionMap.get(pairKey)).toBe(100);
+  });
+});
+
+// ── ballroomRoster + rollBallroomApproach (P26 Q14 ballroom-approach) ──────
+
+describe("ballroomRoster", () => {
+  it("returns alive society-house NPCs in lex-sorted CharacterId order", () => {
+    const state = buildStateWithNpcs({
+      npcIds: ["npc-c", "npc-a", "npc-b"] as CharacterId[],
+    });
+    expect(ballroomRoster(state)).toEqual(["npc-a", "npc-b", "npc-c"]);
+  });
+
+  it("excludes the player house + dead NPCs", () => {
+    let state = buildStateWithNpcs({ npcIds: ["npc-a", "npc-b"] as CharacterId[] });
+    const dead = state.characters.get("npc-b" as CharacterId);
+    if (dead !== undefined) {
+      const chars = new Map(state.characters);
+      chars.set(dead.id, { ...dead, alive: false });
+      state = { ...state, characters: chars };
+    }
+    const roster = ballroomRoster(state);
+    expect(roster).toEqual(["npc-a"]);
+    expect(roster).not.toContain("player-head");
+  });
+});
+
+describe("rollBallroomApproach", () => {
+  it("is deterministic — same seed produces the same approacher + rng", () => {
+    const state = buildStateWithNpcs();
+    const a = rollBallroomApproach(state);
+    const b = rollBallroomApproach(state);
+    expect(a.approachingCharacterId).toBe(b.approachingCharacterId);
+    expect(a.nextState.rng.get(PLAYER_HOUSE_ID)?.callCount).toBe(
+      b.nextState.rng.get(PLAYER_HOUSE_ID)?.callCount,
+    );
+  });
+
+  it("ALWAYS burns at least the trigger draw (rng callCount advances)", () => {
+    const state = buildStateWithNpcs();
+    const before = state.rng.get(PLAYER_HOUSE_ID)?.callCount ?? 0;
+    const { nextState } = rollBallroomApproach(state);
+    const after = nextState.rng.get(PLAYER_HOUSE_ID)?.callCount ?? 0;
+    expect(after).toBeGreaterThanOrEqual(before + 1);
+  });
+
+  it("burns the trigger draw but returns null on an empty roster", () => {
+    const state = buildStateWithNpcs({ npcIds: [] });
+    const before = state.rng.get(PLAYER_HOUSE_ID)?.callCount ?? 0;
+    const { nextState, approachingCharacterId } = rollBallroomApproach(state);
+    expect(approachingCharacterId).toBeNull();
+    expect(nextState.rng.get(PLAYER_HOUSE_ID)?.callCount).toBe(before + 1);
+  });
+
+  it("an approacher (when picked) is always a roster member", () => {
+    // Sweep many seeds; every non-null approacher must be on the lex-sorted roster.
+    const roster = ballroomRoster(buildStateWithNpcs());
+    for (const seed of ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"]) {
+      const state = buildStateWithNpcs();
+      const seeded = { ...state, rng: new Map([[PLAYER_HOUSE_ID, createRngState(seed)]]) };
+      const { approachingCharacterId } = rollBallroomApproach(seeded);
+      if (approachingCharacterId !== null) {
+        expect(roster).toContain(approachingCharacterId);
+      }
+    }
   });
 });

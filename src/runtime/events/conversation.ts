@@ -78,6 +78,9 @@ export type ConversationEvent =
       tick: number;
       houseId: HouseId;
       sessionId: BallSessionId;
+      // P26 (Q14): the NPC who approached the player first this entry, or null
+      // (no approach rolled). UI pre-selects the approacher.
+      approachingCharacterId: CharacterId | null;
     }
   | {
       kind: "BallroomExited";

@@ -17,8 +17,8 @@ import { type ConversationFailure, makePairKey } from "../../game/conversation/t
 import type { Character } from "../../game/entities";
 import { flavorStubFor } from "../../game/fixtures/flavorStubs";
 import type { Mood } from "../../game/fixtures/moods";
-import { isSocietyHouse } from "../../game/fixtures/rivals";
 import { type CharacterId, type FlavorContentId, PLAYER_HOUSE_ID } from "../../game/rng.seeds";
+import { ballroomRoster } from "../../game/rules/promenade";
 import type { ProposalOutcome } from "../../game/rules/proposal";
 import type { SeasonStore } from "../../game/store";
 import { conversationBus } from "../../runtime/events/conversation";
@@ -36,9 +36,13 @@ import { ThinkingIndicator } from "./ThinkingIndicator";
 type Props = {
   store: SeasonStore;
   onExit: () => void;
+  // P26 (Q14): the NPC who approached the player first this entry (from
+  // enterBallroom's return), pre-selected as the initial target. null = no
+  // approach; the ring defaults to its first member.
+  approachingCharacterId?: CharacterId | null;
 };
 
-export function BallroomView({ store, onExit }: Props) {
+export function BallroomView({ store, onExit, approachingCharacterId = null }: Props) {
   // Game state via store hooks
   const characters = store((s) => s.characters);
   const conversationHistory = store((s) => s.conversationHistory);
@@ -56,14 +60,23 @@ export function BallroomView({ store, onExit }: Props) {
   };
   const revealNpcBio = store((s) => s.revealNpcBio);
 
-  // P23: the ballroom roster is every alive SOCIETY-house NPC (INDEPENDENT +
+  // P23/P26: the ballroom roster is every alive SOCIETY-house NPC (INDEPENDENT +
   // minted soc-house-<n> dynasties) so society members who married into a
   // sub-house stay conversable. Rivals stay off the roster (non-conversable
-  // until P25); the player's own house is excluded.
-  const npcs = [...characters.values()].filter((c) => isSocietyHouse(c.houseId) && c.alive);
+  // until P25); the player's own house is excluded. Consumes the pure
+  // lex-sorted `ballroomRoster` projection so the visible ring is the SAME set
+  // (and order) as the ballroom-approach draw pool by construction.
+  const npcs = ballroomRoster(store.getState())
+    .map((id) => characters.get(id))
+    .filter((c): c is Character => c !== undefined);
 
-  // Session-local React state
-  const [selectedTargetId, setSelectedTargetId] = useState(npcs[0]?.id ?? null);
+  // Session-local React state. P26: pre-select the approaching NPC when the
+  // entry rolled one (and it's on the roster), else the first ring member.
+  const [selectedTargetId, setSelectedTargetId] = useState<CharacterId | null>(
+    approachingCharacterId !== null && npcs.some((c) => c.id === approachingCharacterId)
+      ? approachingCharacterId
+      : (npcs[0]?.id ?? null),
+  );
   const [pinnedTactic, setPinnedTactic] = useState<Tactic | null>(null);
   const [stance, setStance] = useState<Stance>("Mingle");
   const [draftMessage, setDraftMessage] = useState("");

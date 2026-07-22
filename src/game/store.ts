@@ -300,7 +300,7 @@ export type StoreActions = {
   // at /api/llm/conversation (the proxy holds the Gemini key server-side).
   // All four return typed discriminated unions for UI prose rendering.
   enterBallroom: () =>
-    | { ok: true; sessionId: BallSessionId }
+    | { ok: true; sessionId: BallSessionId; approachingCharacterId: CharacterId | null }
     | { ok: false; reason: BallEntryRejection };
   exitBallroom: (playerComposureAtExit: number) => void;
   sendBallroomMessage: (
@@ -603,6 +603,7 @@ import {
   pickPromenadePartner,
   playerHeadEquipsMountFamily,
   resolvePromenadeCombat,
+  rollBallroomApproach,
 } from "./rules/promenade";
 import { applyReconciliationAttempt } from "./rules/siblingRivals";
 
@@ -1088,13 +1089,28 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             } as const,
           };
         }
+        // P26: the ballroom-approach roll fires only on a NEW session (not a
+        // same-tick idempotent re-entry). Capture BEFORE beginSession, which
+        // returns an id in both cases — keying the draw on its return would
+        // double-draw on re-entry and desync the hash.
+        const wasNoSession = conversationOrchestrator.currentSessionId() === null;
         // P10: apply pre-ball composure penalty for out-of-season equipped
         // artifacts BEFORE beginSession. Snapshot semantics: deduction
         // persists; mid-ball equip/unequip does NOT re-trigger.
         const stateAfterPenalty = applyPreBallComposurePenaltyPure(stateBefore);
-        if (stateAfterPenalty !== stateBefore) {
+        // P26: on a new session, roll whether an NPC approaches first (Q14).
+        // The advanced player-rng MUST commit unconditionally (enterBallroom
+        // otherwise commits only conditionally) so the draw isn't replayed.
+        let committedState = stateAfterPenalty;
+        let approachingCharacterId: CharacterId | null = null;
+        if (wasNoSession) {
+          const approach = rollBallroomApproach(stateAfterPenalty);
+          committedState = approach.nextState;
+          approachingCharacterId = approach.approachingCharacterId;
+        }
+        if (committedState !== stateBefore) {
           set((draft) => {
-            overwriteFromGameState(draft, stateAfterPenalty);
+            overwriteFromGameState(draft, committedState);
           });
         }
         const sessionId = conversationOrchestrator.beginSession(get().tick);
@@ -1103,8 +1119,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           tick: stateBefore.tick,
           houseId: PLAYER_HOUSE_ID,
           sessionId,
+          approachingCharacterId,
         });
-        return { ok: true, sessionId };
+        return { ok: true, sessionId, approachingCharacterId };
       },
       exitBallroom: (playerComposureAtExit: number) => {
         // P12: cross-mode union — currentSessionId() returns BallSessionId |

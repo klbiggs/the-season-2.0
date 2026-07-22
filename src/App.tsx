@@ -82,6 +82,9 @@ export function App({ store, seed }: Props) {
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [loadError, setLoadError] = useState<SaveLoadError | null>(null);
   const [inBallroom, setInBallroom] = useState(false);
+  // P26: the NPC who approached first this ballroom entry (Q14), threaded to
+  // BallroomView for pre-selection. Reset on exit.
+  const [ballroomApproacher, setBallroomApproacher] = useState<CharacterId | null>(null);
   const [inPromenade, setInPromenade] = useState(false);
   const [inVisit, setInVisit] = useState(false);
   const [inLedger, setInLedger] = useState(false);
@@ -214,7 +217,11 @@ export function App({ store, seed }: Props) {
       ) : inVisit ? (
         <VisitView store={store} onExit={() => setInVisit(false)} />
       ) : inBallroom ? (
-        <BallroomView store={store} onExit={() => setInBallroom(false)} />
+        <BallroomView
+          store={store}
+          onExit={() => setInBallroom(false)}
+          approachingCharacterId={ballroomApproacher}
+        />
       ) : inPromenade ? (
         <PromenadeView store={store} onExit={() => setInPromenade(false)} />
       ) : inLedger ? (
@@ -222,7 +229,10 @@ export function App({ store, seed }: Props) {
       ) : (
         <MapView
           store={store}
-          onEnterBallroom={() => setInBallroom(true)}
+          onEnterBallroom={(approacher) => {
+            setBallroomApproacher(approacher);
+            setInBallroom(true);
+          }}
           onEnterPromenade={() => setInPromenade(true)}
         />
       )}
