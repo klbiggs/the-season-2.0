@@ -1093,6 +1093,11 @@ export const CALLING_CARD_DECLINE_AFFECTION_PENALTY = 5;
 // Ballroom-approach per-entry roll: 25% (flavorful, not constant). Fires ONLY
 // on a NEW session (gated on currentSessionId() === null before beginSession).
 export const BALLROOM_APPROACH_PROBABILITY_BASIS_POINTS = 2500;
+// Opener round-trip (NPC speaks first). Client fire-and-forget timeout + server
+// composite budget + a small output cap (the opener is one short line).
+export const OPENER_TIMEOUT_MS = 10_000;
+export const OPENER_SERVER_TIMEOUT_MS = 8_000;
+export const OPENER_OUTPUT_TOKEN_BUDGET = 200;
 
 // ── Global Events & Era (P13) ─────────────────────────────────────────────
 // Spec §3 "Global Events" (lines 386-392) + "Era Progression" (lines 394-398)

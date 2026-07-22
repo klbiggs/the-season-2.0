@@ -8,6 +8,7 @@ import {
   CONVERSATION_HISTORY_LIMIT_PER_PAIR,
   DUEL_DEMAND_SATISFACTION_REPUTATION_COST,
   FAUX_PAS_LOCK_DURATION_IN_TICKS,
+  OPENER_TIMEOUT_MS,
   type StaffAssignment,
   type Stance,
   type Tactic,
@@ -471,6 +472,16 @@ export type StoreActions = {
     { ok: true; outcome: ConversationResponse } | { ok: false; reason: ConversationFailure }
   >;
   abortVisitRequest: () => void;
+  // P26: append an NPC-authored opener line (Q14, NPC speaks first) to the
+  // (player, target) conversation history. Free action: no tick, no publishers
+  // (interactive-only LLM append, same class as a normal exchange). Staleness-
+  // guarded: no-ops when the requesting session is no longer current (CLAUDE.md
+  // rule #7). Called ONLY from the fire-and-forget opener round-trip.
+  recordNpcOpener: (
+    sessionId: BallSessionId | VisitSessionId,
+    targetCharacterId: CharacterId,
+    text: string,
+  ) => void;
   // P18: persist one generated flavor entry. Called ONLY from the
   // flavorOrchestrator success path (never a UI affordance). Free action:
   // no tick advance, no publisher fan-out, no modal-state gate (a conscious
@@ -548,7 +559,8 @@ import {
   applyAssignTutorPure,
   applyChooseTutorBonusTraitPure,
 } from "../game/rules/tutor";
-import type { ConversationResponse } from "../llm/types";
+import { fetchOpener } from "../llm/opener";
+import type { ConversationResponse, OpenerRequest } from "../llm/types";
 import { conversationOrchestrator } from "../runtime/conversationOrchestrator";
 import {
   conversationBus,
@@ -606,6 +618,60 @@ import {
   rollBallroomApproach,
 } from "./rules/promenade";
 import { applyReconciliationAttempt } from "./rules/siblingRivals";
+
+// P26 (Q14): fire-and-forget NPC opener round-trip. Builds the persona snapshot
+// from current state, requests a short opening line from the proxy, and appends
+// it via recordNpcOpener (which staleness-guards the session). Any failure
+// degrades silently (the conversation opens with no opener line). The
+// `typeof fetch` guard keeps it inert in non-browser envs without a fetch stub.
+async function fireNpcOpener(
+  readState: () => StoreState,
+  targetCharacterId: CharacterId,
+  sessionId: BallSessionId | VisitSessionId,
+  approachContext: "Ballroom" | "Visit",
+): Promise<void> {
+  if (typeof fetch !== "function") return;
+  const state = readState();
+  const target = state.characters.get(targetCharacterId);
+  if (target === undefined) return;
+  let targetMarriage: MarriageRecord | null = null;
+  let spouse: Character | null = null;
+  if (target.marriageId !== null) {
+    const m = state.marriages.get(target.marriageId);
+    if (m !== undefined) {
+      targetMarriage = m;
+      if (!m.dissolved) {
+        const spouseId = m.spouseAId === target.id ? m.spouseBId : m.spouseAId;
+        spouse = state.characters.get(spouseId) ?? null;
+      }
+    }
+  }
+  const pairKey = makePairKey(PLAYER_HOUSE_ID, targetCharacterId);
+  const history = (state.conversationHistory.get(pairKey) ?? []).map((ex) => ({
+    speaker: ex.speaker,
+    text: ex.text,
+  }));
+  const request: OpenerRequest = {
+    characterStateSnapshot: {
+      target: {
+        ...target,
+        traits: getEffectiveTraits(state, targetCharacterId),
+        equippedArtifactIds: [...target.equippedArtifactIds],
+      },
+      otherCharactersInScene: [],
+      targetMarriage,
+      spouse,
+    },
+    history,
+    approachContext,
+  };
+  try {
+    const text = await fetchOpener(request, AbortSignal.timeout(OPENER_TIMEOUT_MS));
+    readState().recordNpcOpener(sessionId, targetCharacterId, text);
+  } catch {
+    // Silent degrade — no opener line (spec §5 failure behavior).
+  }
+}
 
 // Apply a full GameState swap to the immer draft. Used by every store
 // action that produces a new GameState via pure rules + orchestrator.
@@ -1121,6 +1187,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           sessionId,
           approachingCharacterId,
         });
+        // P26: if an NPC approached first, fire the opener round-trip.
+        if (approachingCharacterId !== null) {
+          void fireNpcOpener(get, approachingCharacterId, sessionId, "Ballroom");
+        }
         return { ok: true, sessionId, approachingCharacterId };
       },
       exitBallroom: (playerComposureAtExit: number) => {
@@ -2556,6 +2626,8 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           sessionId,
           callerCharacterId: card.callerCharacterId,
         });
+        // P26: NPC speaks first — fire-and-forget opener round-trip.
+        void fireNpcOpener(get, card.callerCharacterId, sessionId, "Visit");
         return { ok: true, sessionId };
       },
       declineCallingCard: (cardId: CallingCardId) => {
@@ -2736,6 +2808,28 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
       abortVisitRequest: () => {
         if (conversationOrchestrator.currentMode() !== "Visit") return;
         conversationOrchestrator.abortCurrent();
+      },
+      recordNpcOpener: (sessionId, targetCharacterId, text) => {
+        // Staleness guard (CLAUDE.md rule #7): if the player exited the ballroom/
+        // Visit (or opened a different session) while the opener was in flight,
+        // drop it — do NOT append a stale orphan exchange.
+        if (conversationOrchestrator.currentSessionId() !== sessionId) return;
+        const trimmed = text.trim();
+        if (trimmed === "") return;
+        const pairKey = makePairKey(PLAYER_HOUSE_ID, targetCharacterId);
+        set((state) => {
+          const hist = state.conversationHistory.get(pairKey) ?? [];
+          const opener: Exchange = {
+            speaker: "other",
+            text: trimmed,
+            classifiedTactic: null,
+            tick: state.tick,
+          };
+          state.conversationHistory.set(
+            pairKey,
+            [...hist, opener].slice(-CONVERSATION_HISTORY_LIMIT_PER_PAIR),
+          );
+        });
       },
     })),
   );

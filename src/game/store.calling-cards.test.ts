@@ -112,3 +112,24 @@ describe("declineCallingCard", () => {
     expect(result).toEqual({ ok: false, reason: { kind: "CardNotPending" } });
   });
 });
+
+describe("recordNpcOpener (staleness guard)", () => {
+  it("appends an NPC opener exchange when the session is current", () => {
+    const store = setupWithCard();
+    const sessionId = conversationOrchestrator.beginVisitSession(store.getState().tick, CALLER_ID);
+    store.getState().recordNpcOpener(sessionId, CALLER_ID, "A word with you.");
+    const pairKey = makePairKey(PLAYER_HOUSE_ID, CALLER_ID);
+    const hist = store.getState().conversationHistory.get(pairKey) ?? [];
+    expect(hist.at(-1)).toMatchObject({ speaker: "other", text: "A word with you." });
+  });
+
+  it("no-ops when the requesting session is no longer current", () => {
+    const store = setupWithCard();
+    const sessionId = conversationOrchestrator.beginVisitSession(store.getState().tick, CALLER_ID);
+    conversationOrchestrator.endSession(); // player left; the opener is now stale
+    store.getState().recordNpcOpener(sessionId, CALLER_ID, "stale line");
+    const pairKey = makePairKey(PLAYER_HOUSE_ID, CALLER_ID);
+    const hist = store.getState().conversationHistory.get(pairKey) ?? [];
+    expect(hist.some((e) => e.text === "stale line")).toBe(false);
+  });
+});

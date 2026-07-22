@@ -173,6 +173,27 @@ export const FlavorResponseSchema = z.object({
   text: z.string().min(1),
 });
 
+// P26: NPC-initiated opener (Q14). The NPC authors a short opening line; the
+// server grounds it in the character persona (systemInstruction) + a
+// contents-borne "you approach first" framing. Plain prose, no function calls
+// (mirrors the flavor endpoint). approachContext distinguishes the ballroom
+// approach from the drawing-room Visit for the framing.
+export const OpenerRequestSchema = z.object({
+  characterStateSnapshot: CharacterStateSnapshotSchema,
+  history: z.array(
+    z.object({
+      speaker: z.enum(["house-head", "other"]),
+      text: z.string(),
+    }),
+  ),
+  approachContext: z.enum(["Ballroom", "Visit"]),
+});
+export type OpenerRequest = z.infer<typeof OpenerRequestSchema>;
+
+export const OpenerResponseSchema = z.object({
+  text: z.string().min(1),
+});
+
 // Widen-and-validate: enum fields parsed as z.string() so unknown values
 // don't trigger SchemaError. Post-parse resolvers (resolveTactic /
 // resolveMoodHint) apply the enum check + fallback per spec §7 line 664

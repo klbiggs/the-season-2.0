@@ -10,6 +10,7 @@ import { handleEmbed } from "./embeddings";
 import { validateEnv } from "./env";
 import { handleFlavor } from "./flavor";
 import { handleInvalidate } from "./invalidate";
+import { handleOpener } from "./opener";
 
 const PORT = 8787;
 const HOST = "127.0.0.1";
@@ -53,6 +54,15 @@ const server = createServer(async (req, res) => {
       await handleInvalidate(req, res);
     } catch (err) {
       console.error("[server] invalidate handler error:", err);
+      if (!res.headersSent) res.writeHead(500).end();
+    }
+    return;
+  }
+  if (req.url === "/api/llm/opener" && req.method === "POST") {
+    try {
+      await handleOpener(req, res);
+    } catch (err) {
+      console.error("[server] opener handler error:", err);
       if (!res.headersSent) res.writeHead(500).end();
     }
     return;
