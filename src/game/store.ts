@@ -440,8 +440,8 @@ export type StoreActions = {
   // state on the orchestrator (in-memory). sendPromenadeMessage POSTs
   // through the same proxy at /api/llm/conversation with mode="Promenade".
   // exitPromenade ADVANCES THE TICK (commit-on-leave) and fires the full
-  // 10-publisher set per CLAUDE.md "10/10/9 publisher set across store
-  // wrappers". The other three are session-management; they do NOT tick.
+  // 14-publisher set per CLAUDE.md's "14/14/12 publisher set across store
+  // wrappers" pin. The other three are session-management; they do NOT tick.
   enterPromenade: () =>
     | {
         ok: true;
@@ -852,7 +852,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishGlobalEventTransitions(before, after);
         publishCallingCardTransitions(before, after);
         // P15: dynasty-perk awards (DynastyPerkAwarded) — rides every tick-
-        // advancing wrapper including runYearPass (12/12/10 set).
+        // advancing wrapper including runYearPass (14/14/12 set).
         publishDynastyPerkAwards(before, after);
       },
       runYearPass: () => {
@@ -909,7 +909,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // and never run inside year-pass (player sprints gate year-pass above).
         publishElopementTransitions(before, after);
         // P15: dynasty-perk awards ride runYearPass too (the Patronage perk
-        // awards at the year-pass terminal STEPS slot 6) — 12/12/10 set.
+        // awards at the year-pass terminal STEPS slot 6) — 14/14/12 set.
         publishDynastyPerkAwards(before, after);
       },
       replaceState: (next: GameState) => {
@@ -974,12 +974,12 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
         publishArtifactTransitions(stateBefore, afterTick);
-        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        // P11: 3 new publishers ride on this wrapper (14-publisher set).
         publishSiblingRivalTransitions(stateBefore, afterTick);
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
-        // P13: global-event transitions ride here too (every tick-advancing
-        // wrapper except runYearPass per the 11/11/9 publisher set).
+        // P13 global events + P26 calling cards ride here too — every tick-
+        // advancing wrapper EXCEPT runYearPass (14/14/12 publisher set).
         publishGlobalEventTransitions(stateBefore, afterTick);
         publishCallingCardTransitions(stateBefore, afterTick);
         publishDynastyPerkAwards(stateBefore, afterTick);
@@ -1046,7 +1046,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishTemptationLatchTransitions(stateBefore, afterTick);
         publishElopementTransitions(stateBefore, afterTick);
         publishArtifactTransitions(stateBefore, afterTick);
-        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        // P11: 3 new publishers ride on this wrapper (14-publisher set).
         publishSiblingRivalTransitions(stateBefore, afterTick);
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
@@ -1098,12 +1098,12 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
         publishArtifactTransitions(stateBefore, afterTick);
-        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        // P11: 3 new publishers ride on this wrapper (14-publisher set).
         publishSiblingRivalTransitions(stateBefore, afterTick);
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
-        // P13: global-event transitions ride here too (every tick-advancing
-        // wrapper except runYearPass per the 11/11/9 publisher set).
+        // P13 global events + P26 calling cards ride here too — every tick-
+        // advancing wrapper EXCEPT runYearPass (14/14/12 publisher set).
         publishGlobalEventTransitions(stateBefore, afterTick);
         publishCallingCardTransitions(stateBefore, afterTick);
         publishDynastyPerkAwards(stateBefore, afterTick);
@@ -1152,12 +1152,12 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
         publishArtifactTransitions(stateBefore, afterTick);
-        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        // P11: 3 new publishers ride on this wrapper (14-publisher set).
         publishSiblingRivalTransitions(stateBefore, afterTick);
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
-        // P13: global-event transitions ride here too (every tick-advancing
-        // wrapper except runYearPass per the 11/11/9 publisher set).
+        // P13 global events + P26 calling cards ride here too — every tick-
+        // advancing wrapper EXCEPT runYearPass (14/14/12 publisher set).
         publishGlobalEventTransitions(stateBefore, afterTick);
         publishCallingCardTransitions(stateBefore, afterTick);
         publishDynastyPerkAwards(stateBefore, afterTick);
@@ -1956,7 +1956,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishWhisperTransitions(stateBefore, tickAdvanced);
         publishElopementTransitions(stateBefore, tickAdvanced);
         publishArtifactTransitions(stateBefore, tickAdvanced);
-        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        // P11: 3 new publishers ride on this wrapper (14-publisher set).
         publishSiblingRivalTransitions(stateBefore, tickAdvanced);
         publishInheritedSecretTransitions(stateBefore, tickAdvanced);
         publishBloodFeudTransitions(stateBefore, tickAdvanced);
@@ -2468,7 +2468,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         set((state) => {
           overwriteFromGameState(state, after);
         });
-        // 10-publisher set ride.
+        // 14-publisher set ride.
         publishCharacterDeaths(before, after);
         publishSchemeTransitions(before, after);
         publishWhisperTransitions(before, after);

@@ -14,10 +14,11 @@
 //   Marriage status: <unmarried | married to NAME | widowed>.
 //   Happiness: <content | subdued | discontent | discontent — has felt the temptation>.
 //   Reply in character. Keep your replies brief and period-appropriate.
-//   [P6: when otherCharactersInScene non-empty]
-//   Other characters in this scene:
-//   - <id>: <name> (<role>)
-//   - ...
+//
+// P26 (G7): the P6-era "Other characters in this scene" section is GONE from
+// this prompt — scene composition rides per-turn `contents` instead (see the
+// in-body note at the scene-section site). The persona is now scene-independent,
+// so one cached persona serves every scene composition.
 //
 // P7.5: moved from src/llm/prompts/persona.ts. Signature refactored from
 // `buildPersonaPrompt(target, others, state)` → `buildPersonaPrompt(snapshot)` —
