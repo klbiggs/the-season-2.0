@@ -19,7 +19,6 @@ const baseRequest = (): ProxyConversationRequest => {
     otherCharactersInScene: [],
     characterStateSnapshot: {
       target,
-      otherCharactersInScene: [],
       targetMarriage: null,
       spouse: null,
     },

@@ -59,6 +59,12 @@ export function buildPersonaPrompt(snapshot: CharacterStateSnapshot): string {
   const target = snapshot.target;
   const traitLabels = target.traits.map((id) => TRAIT_LABEL_BY_ID.get(id) ?? id).join(", ");
   const roleLabel = ROLE_LABELS[target.role];
+  // P26 (G7): the scene composition ("Other characters in this scene") MOVED
+  // out of the cached persona (systemInstruction) into per-turn `contents`
+  // (buildContents' [Also present:] line). Scene is fast-changing state — a
+  // 60-min cached persona would go stale for up to an hour; per-turn contents
+  // stays fresh. Cache key stays (target.id | model | version); the persona is
+  // now composition-independent.
   const baseLines = [
     `You are ${target.name}, ${roleLabel} of London Society.`,
     `Traits: ${traitLabels}.`,
@@ -68,11 +74,5 @@ export function buildPersonaPrompt(snapshot: CharacterStateSnapshot): string {
     formatHappinessLine(snapshot),
     "Reply in character. Keep your replies brief and period-appropriate.",
   ];
-  const others = snapshot.otherCharactersInScene;
-  if (others.length === 0) return baseLines.join("\n");
-  const sceneLines = [
-    "Other characters in this scene:",
-    ...others.map((c) => `- ${c.id}: ${c.name} (${ROLE_LABELS[c.role]})`),
-  ];
-  return [...baseLines, ...sceneLines].join("\n");
+  return baseLines.join("\n");
 }

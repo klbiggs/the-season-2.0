@@ -35,7 +35,6 @@ const REQUEST: OpenerRequest = {
       equippedArtifactIds: [],
       assignedLocationId: "Capital",
     },
-    otherCharactersInScene: [],
     targetMarriage: null,
     spouse: null,
   },

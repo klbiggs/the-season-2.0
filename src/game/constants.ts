@@ -606,7 +606,7 @@ if (PROMOTED_STAFF_AGE_MIN < 18 || PROMOTED_STAFF_AGE_MIN > PROMOTED_STAFF_AGE_M
 // + Happiness state paragraphs.
 // v4 at P10 — characterStateSnapshot.target.traits now ships the effective-traits
 // union (persistent + equipped-artifact grants via getEffectiveTraits).
-export const PERSONA_CACHE_VERSION = "v4" as const;
+export const PERSONA_CACHE_VERSION = "v5" as const;
 
 // ── P7: Family, Marriage & Succession ────────────────────────────────────
 

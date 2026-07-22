@@ -119,6 +119,9 @@ export function buildContents(req: {
   freeformMessage: string;
   mode: "Ballroom" | "Promenade" | "Visit";
   semanticContext: ReadonlyArray<string>;
+  // P26 (G7): scene composition, moved out of the cached persona. Optional +
+  // default [] so the 1-on-1 opener path (no scene) omits the section entirely.
+  otherCharactersInScene?: ReadonlyArray<{ name: string; traits?: ReadonlyArray<string> }>;
 }): string {
   const modeFramingPrefix =
     req.mode === "Promenade"
@@ -126,11 +129,16 @@ export function buildContents(req: {
       : req.mode === "Visit"
         ? VISIT_MODE_FRAMING_PREFIX
         : "";
+  // P26 (G7): scene section on per-turn contents (fast-changing state; a cached
+  // persona would go stale). Empty/absent → omitted (opener path).
+  const scene = req.otherCharactersInScene ?? [];
+  const sceneSection =
+    scene.length > 0 ? `[Also present: ${scene.map((c) => c.name).join(", ")}]\n\n` : "";
   // P17: semantic-memory hits as a separate section. Rides on per-turn
   // `contents`, NOT systemInstruction (cachedContent + systemInstruction are
   // mutually exclusive — see PROMENADE_MODE_FRAMING_PREFIX note above). Ordering:
-  // [Setting:] mode-frame → [Relevant past events:] → transcript → message.
-  // Empty array → section omitted.
+  // [Setting:] mode-frame → [Also present:] → [Relevant past events:] →
+  // transcript → message. Empty sections omitted.
   const semanticSection =
     req.semanticContext.length > 0
       ? `[Relevant past events:]\n${req.semanticContext.map((s) => `- ${s}`).join("\n")}\n\n`
@@ -139,7 +147,7 @@ export function buildContents(req: {
     .map((ex) => (ex.speaker === "house-head" ? `Player: ${ex.text}` : `NPC: ${ex.text}`))
     .join("\n");
   const body = transcript === "" ? req.freeformMessage : `${transcript}\n${req.freeformMessage}`;
-  return modeFramingPrefix + semanticSection + body;
+  return modeFramingPrefix + sceneSection + semanticSection + body;
 }
 
 function mapSdkErrorToHttpStatus(err: unknown): number {

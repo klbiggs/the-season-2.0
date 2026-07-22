@@ -627,9 +627,9 @@ describe("P10 artifact rules", () => {
 
   // ─── Verification matrix item 9: Persona cache version bumped + cache-key shape ──
   describe("PERSONA_CACHE_VERSION discipline", () => {
-    it("is bumped to v4 at P10 (signals snapshot shape change for stale-entry invalidation)", async () => {
+    it("is bumped to v5 at P26 (scene moved out of the cached persona into per-turn contents)", async () => {
       const { PERSONA_CACHE_VERSION } = await import("../constants");
-      expect(PERSONA_CACHE_VERSION).toBe("v4");
+      expect(PERSONA_CACHE_VERSION).toBe("v5");
     });
   });
 

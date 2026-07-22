@@ -77,7 +77,10 @@ export type Model = typeof MODEL_DEFAULT | typeof MODEL_FIRST_MEETING;
 //     → "married to NAME"
 export const CharacterStateSnapshotSchema = z.object({
   target: CharacterSchema,
-  otherCharactersInScene: z.array(CharacterSchema),
+  // P26 (G7): the duplicated scene composition is DROPPED from the persona
+  // snapshot — scene now rides per-turn `contents` (buildContents' [Also
+  // present:] line), not the cached persona systemInstruction. The top-level
+  // ProxyConversationRequest.otherCharactersInScene is the single source.
   targetMarriage: MarriageRecordSchema.nullable(),
   spouse: CharacterSchema.nullable(),
 });
