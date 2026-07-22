@@ -41,6 +41,20 @@ export function GrievancesTab({ store }: Props) {
   const outstanding = grievances.filter((g) => g.resolved === false);
   const resolved = grievances.filter((g) => g.resolved === true);
 
+  // P25 R5: "Held Against You" — unresolved grievances on ANY house's array whose
+  // defendant is a player-house member (the danger feed for a rival demanding
+  // satisfaction of you). Read-only; lex-sorted by grievance id.
+  const heldAgainstYou = [...houses.values()]
+    .flatMap((h) =>
+      h.grievances
+        .filter((g) => {
+          if (g.resolved || g.defendantCharacterId === null) return false;
+          return characters.get(g.defendantCharacterId)?.houseId === PLAYER_HOUSE_ID;
+        })
+        .map((g) => ({ holderHouseId: h.id, grievance: g })),
+    )
+    .sort((a, b) => a.grievance.id.localeCompare(b.grievance.id));
+
   // Duels involving a player-house character (challenger OR defender), lex-sorted
   // by id. v1 only ever mints player-involved duels (demandSatisfaction is the
   // sole source); the filter is defensive but cheap.
@@ -142,6 +156,37 @@ export function GrievancesTab({ store }: Props) {
                 </li>
               );
             })}
+          </ul>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wide">
+          Held Against You
+        </h3>
+        {heldAgainstYou.length === 0 ? (
+          <p className="text-sm text-stone-500">No one currently holds a grievance against you.</p>
+        ) : (
+          <ul data-testid="held-against-you-list" className="space-y-1">
+            {heldAgainstYou.map(({ holderHouseId, grievance: g }) => (
+              <li
+                key={g.id}
+                data-testid={`held-against-you-${g.id}`}
+                className="flex items-center gap-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm"
+              >
+                <span className="w-40 font-medium text-stone-800">
+                  {houseDisplayName(holderHouseId)}
+                </span>
+                <span className="w-24 text-stone-500">{g.source}</span>
+                <span className="w-16 text-stone-500">t{g.recordedAtTick}</span>
+                <span className="flex-1 text-stone-600">
+                  vs{" "}
+                  {(g.defendantCharacterId !== null
+                    ? characters.get(g.defendantCharacterId)?.name
+                    : null) ?? "your kin"}
+                </span>
+              </li>
+            ))}
           </ul>
         )}
       </div>

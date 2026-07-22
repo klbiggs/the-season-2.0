@@ -23,15 +23,9 @@ import {
   DUEL_WOUNDED_COMPOSURE_RESTORATION,
 } from "../constants";
 import type { Duel, DuelCasualty, DuelOutcome, GameState } from "../entities";
-import {
-  type CharacterId,
-  type DuelId,
-  type GrievanceId,
-  type HouseId,
-  type RngState,
-  drawNext,
-} from "../rng";
+import { type CharacterId, type DuelId, type RngState, drawNext } from "../rng";
 import { clamp } from "../util/clamp";
+import { findGrievanceAcrossHouses } from "../util/lookups";
 import { pruneOrphanedConversationKeys } from "./aging";
 import { recordPlayerHeadViolentDeath } from "./dynastyLegacies";
 import { resolveBloodFeudByGrievance } from "./inheritedSecrets";
@@ -46,18 +40,6 @@ export type ResolveDuelResult = {
   finalDuel: Duel;
   rngState: RngState;
 };
-
-// Locate the house that holds a grievance by walking all houses. v1 has <=5
-// houses so the O(houses × grievances) cost is bounded. Returns null on
-// missing — caller skips the grievance-flip step if the grievance vanished
-// mid-cascade (e.g., a future phase that extends pruneOrphanedConversationKeys
-// to drop grievances tied to a now-dead aggressor).
-function findGrievanceHolderHouseId(state: GameState, grievanceId: GrievanceId): HouseId | null {
-  for (const [hid, h] of state.houses) {
-    if (h.grievances.some((g) => g.id === grievanceId)) return hid;
-  }
-  return null;
-}
 
 export function resolveDuel(
   state: GameState,
@@ -180,15 +162,15 @@ export function resolveDuel(
   // Flip the grievance's resolved field on decisive outcomes only (spec §3
   // line 369: Stalemate keeps the grievance unresolved).
   if (outcome !== "Stalemate") {
-    const holderHouseId = findGrievanceHolderHouseId(workingState, duel.grievanceId);
-    if (holderHouseId !== null) {
-      const holderHouse = workingState.houses.get(holderHouseId);
+    const found = findGrievanceAcrossHouses(workingState, duel.grievanceId);
+    if (found !== null) {
+      const holderHouse = workingState.houses.get(found.holderHouseId);
       if (holderHouse !== undefined) {
         const newGrievances = holderHouse.grievances.map((g) =>
           g.id === duel.grievanceId ? { ...g, resolved: true } : g,
         );
         const newHouses = new Map(workingState.houses);
-        newHouses.set(holderHouseId, { ...holderHouse, grievances: newGrievances });
+        newHouses.set(found.holderHouseId, { ...holderHouse, grievances: newGrievances });
         workingState = { ...workingState, houses: newHouses };
       }
     }
