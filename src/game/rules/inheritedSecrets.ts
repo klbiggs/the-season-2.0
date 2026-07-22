@@ -252,7 +252,7 @@ export function applyInheritedSecretSurfacingPhase(state: GameState): GameState 
 export function resolveBloodFeudByGrievance(
   state: GameState,
   grievanceId: GrievanceId,
-  resolutionKind: "DuelWin" | "DuelLoss",
+  resolutionKind: "DuelWin" | "DuelLoss" | "Withdrawn",
 ): GameState {
   const playerHouse = state.houses.get(PLAYER_HOUSE_ID);
   if (playerHouse === undefined) return state;

@@ -128,7 +128,7 @@ export const BloodFeudSchema = z.object({
   incurredAtTick: z.number().int().nonnegative(),
   resolved: z.boolean(),
   resolvedAtTick: z.number().int().nonnegative().nullable(),
-  resolutionKind: z.enum(["DuelWin", "DuelLoss", "GenerationalDecay"]).nullable(),
+  resolutionKind: z.enum(["DuelWin", "DuelLoss", "GenerationalDecay", "Withdrawn"]).nullable(),
 });
 export type BloodFeud = z.infer<typeof BloodFeudSchema>;
 

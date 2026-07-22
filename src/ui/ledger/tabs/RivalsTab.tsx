@@ -6,9 +6,11 @@ import { useShallow } from "zustand/react/shallow";
 import {
   BLOOD_FEUD_DECAY_TICKS_MAX,
   MAX_INHERITED_SECRETS,
+  OLIVE_BRANCH_WEALTH_COST,
   RIVAL_ACTION_COOLDOWN_TICKS,
 } from "../../../game/constants";
-import { PLAYER_HOUSE_ID } from "../../../game/rng.seeds";
+import { type HouseId, PLAYER_HOUSE_ID } from "../../../game/rng.seeds";
+import { hasActivePlayerElopement } from "../../../game/rules/elopement";
 import type { SeasonStore } from "../../../game/store";
 import { houseDisplayName } from "../houseName";
 
@@ -21,8 +23,21 @@ export function RivalsTab({ store }: Props) {
     useShallow((s) => ({ rivalActors: s.rivalActors, houses: s.houses, tick: s.tick })),
   );
 
+  const extendOliveBranch = store((s) => s.extendOliveBranch);
+  const declareWar = store((s) => s.declareWar);
+
   const rivals = [...rivalActors.values()].sort((a, b) => a.houseId.localeCompare(b.houseId));
   const playerHouse = houses.get(PLAYER_HOUSE_ID);
+  const modalBlocked = playerHouse?.exiled === true || hasActivePlayerElopement(store.getState());
+  const canOliveBranch = !modalBlocked && (playerHouse?.wealth ?? 0) >= OLIVE_BRANCH_WEALTH_COST;
+  const onOliveBranch = (rivalHouseId: HouseId) => {
+    const r = extendOliveBranch(rivalHouseId);
+    if (!r.ok) console.warn(`extendOliveBranch rejected: ${r.reason.kind}`);
+  };
+  const onDeclareWar = (rivalHouseId: HouseId) => {
+    const r = declareWar(rivalHouseId);
+    if (!r.ok) console.warn(`declareWar rejected: ${r.reason.kind}`);
+  };
   const secrets = playerHouse?.inheritedSecrets ?? [];
   const feuds = playerHouse?.bloodFeuds ?? [];
   const visibleSecrets = secrets.slice(0, MAX_INHERITED_SECRETS);
@@ -53,8 +68,31 @@ export function RivalsTab({ store }: Props) {
               <span className="w-28 text-stone-500">
                 {cooldown === null || cooldown === 0 ? "Ready" : `${cooldown}t cooldown`}
               </span>
-              <span className="flex-1 text-right text-stone-500">
+              <span className="w-24 text-stone-500">
                 {r.associatedCharacterIds.length} associates
+              </span>
+              {/* P25 R4: inline diplomacy actions (olive branch / declare war). */}
+              <span className="flex flex-1 justify-end gap-2">
+                <button
+                  type="button"
+                  data-testid={`rival-olive-branch-${r.houseId}`}
+                  disabled={!canOliveBranch}
+                  onClick={() => onOliveBranch(r.houseId)}
+                  className="rounded border border-emerald-300 px-2 py-0.5 text-xs text-emerald-800 hover:bg-emerald-50 disabled:opacity-40"
+                  title={`Olive Branch (−${OLIVE_BRANCH_WEALTH_COST} wealth, cools hostility)`}
+                >
+                  Olive Branch
+                </button>
+                <button
+                  type="button"
+                  data-testid={`rival-declare-war-${r.houseId}`}
+                  disabled={modalBlocked}
+                  onClick={() => onDeclareWar(r.houseId)}
+                  className="rounded border border-rose-300 px-2 py-0.5 text-xs text-rose-800 hover:bg-rose-50 disabled:opacity-40"
+                  title="Declare War (raises hostility + your scandal)"
+                >
+                  Declare War
+                </button>
               </span>
             </li>
           );

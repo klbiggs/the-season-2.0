@@ -716,6 +716,16 @@ if (RIVAL_BASELINE_INCOME_PER_TICK <= 0 || RIVAL_WAR_PROFITEER_WEALTH_PER_TICK <
   throw new Error("Rival income constants must be positive");
 }
 
+// P25 R4: player diplomacy free actions (withdraw grievance / olive branch /
+// declare war). Hostility drops are negative deltas; the declare-war bumps are
+// positive. Tension bump is display-only (crown pairs don't feed rival AI).
+export const WITHDRAW_GRIEVANCE_HOSTILITY_DROP = -10;
+export const OLIVE_BRANCH_WEALTH_COST = 15;
+export const OLIVE_BRANCH_HOSTILITY_DROP = -15;
+export const DECLARE_WAR_SCANDAL_COST = 5;
+export const DECLARE_WAR_HOSTILITY_BUMP = 20;
+export const DECLARE_WAR_TENSION_BUMP = 10;
+
 // Spec §3 line 405 — base weights for the 5 rival actions (P24a added Seduction).
 // Integer-scaled (×100) in computeEffectiveWeights to avoid IEEE-754 cross-engine
 // variance.

@@ -32,6 +32,7 @@ export function GrievancesTab({ store }: Props) {
     })),
   );
   const demandSatisfaction = store((s) => s.demandSatisfaction);
+  const withdrawGrievance = store((s) => s.withdrawGrievance);
   const [result, setResult] = useState<string | null>(null);
 
   const playerHouse = houses.get(PLAYER_HOUSE_ID);
@@ -67,6 +68,16 @@ export function GrievancesTab({ store }: Props) {
       return;
     }
     setResult(OUTCOME_PROSE[outcome.outcome]);
+  };
+
+  // P25 R4: withdraw a grievance (non-duel resolution) — cools the perpetrator.
+  const onWithdraw = (perpetratorHouseId: HouseId, grievanceId: GrievanceId) => {
+    const r = withdrawGrievance(perpetratorHouseId, grievanceId);
+    if (!r.ok) {
+      setResult(`Cannot withdraw: ${r.reason.kind}.`);
+      return;
+    }
+    setResult("Grievance withdrawn — the rival's hostility cools.");
   };
 
   return (
@@ -117,6 +128,16 @@ export function GrievancesTab({ store }: Props) {
                     className="rounded bg-stone-800 px-2 py-1 text-xs font-medium text-white hover:bg-stone-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Demand Satisfaction
+                  </button>
+                  <button
+                    type="button"
+                    data-testid={`grievance-withdraw-${g.id}`}
+                    disabled={playerExiled || elopementActive}
+                    title="Withdraw this grievance — cools the rival's hostility (no duel)."
+                    onClick={() => onWithdraw(g.perpetratorHouseId, g.id)}
+                    className="rounded border border-stone-300 px-2 py-1 text-xs font-medium text-stone-700 hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Withdraw
                   </button>
                 </li>
               );

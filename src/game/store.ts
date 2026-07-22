@@ -96,6 +96,14 @@ import {
   applyExtendGlobalEvent,
   applyResearchFastCouriers,
 } from "./rules/globalEvents";
+import {
+  type DeclareWarRejection,
+  type OliveBranchRejection,
+  type WithdrawGrievanceRejection,
+  applyDeclareWar,
+  applyExtendOliveBranch,
+  applyWithdrawGrievance,
+} from "./rules/grievances";
 import { type AudienceOutcome, applyAudience } from "./rules/monarchsAudience";
 import {
   type CancelSchemeRejection,
@@ -426,6 +434,15 @@ export type StoreActions = {
   endGlobalEventEarly: (
     eventId: GlobalEventId,
   ) => { ok: true } | { ok: false; reason: GlobalEventMutationRejection };
+  // P25 R4: player diplomacy. Free actions.
+  withdrawGrievance: (
+    perpetratorHouseId: HouseId,
+    grievanceId: GrievanceId,
+  ) => { ok: true } | { ok: false; reason: WithdrawGrievanceRejection };
+  extendOliveBranch: (
+    rivalHouseId: HouseId,
+  ) => { ok: true } | { ok: false; reason: OliveBranchRejection };
+  declareWar: (rivalHouseId: HouseId) => { ok: true } | { ok: false; reason: DeclareWarRejection };
   // P11: reconcile a sibling-rival. Pre-tick action (advances the tick on
   // ok:true paths — Success + Failure). Costs `SIBLING_RIVAL_RECONCILIATION_WEALTH_COST`
   // wealth + `_REPUTATION_COST` reputation regardless of outcome. Roll for
@@ -540,6 +557,7 @@ import {
   publishTemptationLatchTransitions,
 } from "../runtime/events/family";
 import { globalEventBus, publishGlobalEventTransitions } from "../runtime/events/globalEvent";
+import { grievancesBus } from "../runtime/events/grievances";
 import {
   publishBloodFeudTransitions,
   publishInheritedSecretTransitions,
@@ -2238,6 +2256,47 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           overwriteFromGameState(state, result.nextState);
         });
         globalEventBus.publish({ kind: "GlobalEventEndedEarly", tick: before.tick, eventId });
+        return { ok: true };
+      },
+      // P25 R4: player diplomacy. All FREE actions (no tick advance, not in the
+      // publisher set); direct-publish on grievancesBus.
+      withdrawGrievance: (perpetratorHouseId, grievanceId) => {
+        void perpetratorHouseId; // UI segments by perpetrator; the grievance is looked up by id
+        const before = get();
+        const result = applyWithdrawGrievance(before, grievanceId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        const grievance = before.houses
+          .get(PLAYER_HOUSE_ID)
+          ?.grievances.find((g) => g.id === grievanceId);
+        set((state) => {
+          overwriteFromGameState(state, result.nextState);
+        });
+        grievancesBus.publish({
+          kind: "GrievanceWithdrawn",
+          tick: before.tick,
+          grievanceId,
+          perpetratorHouseId: grievance?.perpetratorHouseId ?? perpetratorHouseId,
+        });
+        return { ok: true };
+      },
+      extendOliveBranch: (rivalHouseId) => {
+        const before = get();
+        const result = applyExtendOliveBranch(before, rivalHouseId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((state) => {
+          overwriteFromGameState(state, result.nextState);
+        });
+        grievancesBus.publish({ kind: "OliveBranchExtended", tick: before.tick, rivalHouseId });
+        return { ok: true };
+      },
+      declareWar: (rivalHouseId) => {
+        const before = get();
+        const result = applyDeclareWar(before, rivalHouseId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((state) => {
+          overwriteFromGameState(state, result.nextState);
+        });
+        grievancesBus.publish({ kind: "WarDeclared", tick: before.tick, rivalHouseId });
         return { ok: true };
       },
       reconcileSibling: (siblingCharacterId: CharacterId) => {
