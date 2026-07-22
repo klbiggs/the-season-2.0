@@ -725,12 +725,16 @@ export const RIVAL_ACTION_KINDS = [
   "OpenSabotage",
   "RaiseFactionTension",
   "Seduction",
+  "DemandSatisfaction",
 ] as const;
 export type RivalActionKind = (typeof RIVAL_ACTION_KINDS)[number];
 
-if (RIVAL_ACTION_KINDS.length !== 5) {
+// P25 R3: pool widened 5→6 (DemandSatisfaction — NPC-initiated duels, spec §3
+// L122 "either side"). The rival action kind is NOT persisted, so pre-release
+// posture applies: no save-version bump. The guard is a wiring trip-wire.
+if (RIVAL_ACTION_KINDS.length !== 6) {
   throw new Error(
-    "RIVAL_ACTION_KINDS length pinned to 5 — bump save version and update tests if changing",
+    `RIVAL_ACTION_KINDS length changed (${RIVAL_ACTION_KINDS.length} !== 6) — update RIVAL_ACTION_WEIGHTS + computeEffectiveWeights + the dispatch switch`,
   );
 }
 
@@ -740,6 +744,7 @@ export const RIVAL_ACTION_WEIGHTS: Readonly<Record<RivalActionKind, number>> = {
   OpenSabotage: 2,
   RaiseFactionTension: 1,
   Seduction: 1,
+  DemandSatisfaction: 2,
 };
 
 // Module-load assertion: every kind has a positive base weight.

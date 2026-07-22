@@ -21,6 +21,7 @@
 // always run last" — CLAUDE.md non-negotiable).
 
 import {
+  DUEL_DEMAND_SATISFACTION_REPUTATION_COST,
   FACTION_TENSION_CAP,
   FACTION_TENSION_DELTA_PER_RAISE_ACTION,
   PETTY_SABOTAGE_REPUTATION_DELTA,
@@ -34,16 +35,36 @@ import {
   type RivalActionKind,
   SCHEME_TUNING,
 } from "../constants";
-import type { GameState, House, RivalActorState } from "../entities";
+import type { Duel, GameState, Grievance, House, RivalActorState } from "../entities";
+import { makeDuelId } from "../fixtures/duelIdFactory";
 import {
   FACTION_IDS,
   PLAYER_FACTION_ID,
   lexPickOpposingFaction,
   makeFactionPairKey,
 } from "../fixtures/factions";
-import { type CharacterId, PLAYER_HOUSE_ID, type WhisperId, drawNext } from "../rng";
+import { type CharacterId, type HouseId, PLAYER_HOUSE_ID, type WhisperId, drawNext } from "../rng";
 import { clamp } from "../util/clamp";
+import { resolveDuel } from "./duel";
 import { tryStartScheme } from "./schemes";
+
+// P25 R3: an eligible grievance for a rival-initiated duel — held on the rival
+// house's array (player sabotage of a rival mints it there, schemes.ts), with a
+// non-null defendant who is alive and in a non-exiled house. Lex-first by id so
+// the challenger/defender pair is a deterministic function of state.
+function findEligibleGrievanceForRival(state: GameState, rivalHouseId: HouseId): Grievance | null {
+  const rivalHouse = state.houses.get(rivalHouseId);
+  if (rivalHouse === undefined) return null;
+  const eligible = rivalHouse.grievances
+    .filter((g) => {
+      if (g.resolved || g.defendantCharacterId === null) return false;
+      const defender = state.characters.get(g.defendantCharacterId);
+      if (defender === undefined || !defender.alive) return false;
+      return state.houses.get(defender.houseId)?.exiled !== true;
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return eligible[0] ?? null;
+}
 
 type DispatchResult =
   | { kind: "Fired"; action: RivalActionKind }
@@ -77,6 +98,11 @@ function computeEffectiveWeights(state: GameState, rival: RivalActorState): read
     }
     if (kind === "Seduction") {
       return wealth < SCHEME_TUNING.Seduction.wealthCost ? 0 : baseScaled;
+    }
+    if (kind === "DemandSatisfaction") {
+      // Eligible only if the rival holds an actionable grievance (else weight 0,
+      // like the capped RaiseFactionTension pre-filter).
+      return findEligibleGrievanceForRival(state, rival.houseId) === null ? 0 : baseScaled;
     }
     if (kind !== "OpenSabotage") return baseScaled;
     // OpenSabotage dispatches a Sabotage scheme — gate on its cost.
@@ -241,6 +267,62 @@ function dispatchRivalAction(
         return { working, result: { kind: "Skipped", reason: "TargetDead" } };
       }
       return { working, result: { kind: "Skipped", reason: "OtherRejection" } };
+    }
+    case "DemandSatisfaction": {
+      // P25 R3 (spec §3 L122 "either side"): the rival head demands satisfaction
+      // of the defendant named in its lex-first actionable grievance. The duel
+      // resolves SYNCHRONOUSLY here on the rival's own RNG stream; resolveDuel
+      // returns a whole GameState (its death cascade mutates far beyond the
+      // duels Map), so we adopt it WHOLESALE.
+      const grievance = findEligibleGrievanceForRival(working, rival.houseId);
+      if (grievance === null || grievance.defendantCharacterId === null) {
+        return { working, result: { kind: "Skipped", reason: "OtherRejection" } };
+      }
+      const challengerId = rivalHouse.headOfHouseCharacterId;
+      const defenderId = grievance.defendantCharacterId;
+      const duelId = makeDuelId(working, challengerId, defenderId);
+      const initialDuel: Duel = {
+        id: duelId,
+        challengerCharacterId: challengerId,
+        defenderCharacterId: defenderId,
+        grievanceId: grievance.id, // load-bearing: resolveDuel flips this grievance
+        initiatedAtTick: tick,
+        status: "Active",
+        resolvedAtTick: null,
+        outcome: null,
+        loserCasualty: "Unharmed",
+        exchangesElapsed: 0,
+      };
+      const withDuel: GameState = {
+        ...working,
+        duels: new Map(working.duels).set(duelId, initialDuel),
+      };
+      const rivalRng = withDuel.rng.get(rival.houseId);
+      if (rivalRng === undefined) {
+        return { working, result: { kind: "Skipped", reason: "OtherRejection" } };
+      }
+      const { state: postResolve, rngState: postRng } = resolveDuel(withDuel, duelId, rivalRng);
+      // Thread the rival's RNG back (variable draw count: 1-12 parries + 0-1 casualty).
+      let finalWorking: GameState = {
+        ...postResolve,
+        rng: new Map(postResolve.rng).set(rival.houseId, postRng),
+      };
+      // Demand cost: -5 reputation on the POST-resolve rival house (never a
+      // pre-resolve snapshot — resolveDuel replaced the whole state).
+      const rivalHouseNow = finalWorking.houses.get(rival.houseId);
+      if (rivalHouseNow !== undefined) {
+        const newHouses = new Map(finalWorking.houses);
+        newHouses.set(rival.houseId, {
+          ...rivalHouseNow,
+          reputation: clamp(
+            rivalHouseNow.reputation + DUEL_DEMAND_SATISFACTION_REPUTATION_COST,
+            0,
+            100,
+          ),
+        });
+        finalWorking = { ...finalWorking, houses: newHouses };
+      }
+      return { working: finalWorking, result: { kind: "Fired", action: "DemandSatisfaction" } };
     }
   }
 }
