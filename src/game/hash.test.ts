@@ -62,6 +62,7 @@ describe("hashableState", () => {
       "affectionMap",
       "artifactInstances",
       "betrothals",
+      "callingCards",
       "campaignName",
       "characters",
       "conversationHistory",
@@ -142,6 +143,7 @@ describe("hashState — Map reorder invariance", () => {
         globalEvents: new Map(),
         flavorText: new Map(),
         betrothals: new Map(),
+        callingCards: new Map(),
       }),
     ).toBe(
       hashState({
@@ -174,6 +176,7 @@ describe("hashState — Map reorder invariance", () => {
         globalEvents: new Map(),
         flavorText: new Map(),
         betrothals: new Map(),
+        callingCards: new Map(),
       }),
     );
   });

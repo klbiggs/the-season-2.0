@@ -35,6 +35,7 @@ function makeState(overrides: Partial<GameState>): GameState {
     globalEvents: new Map(),
     flavorText: new Map(),
     betrothals: new Map(),
+    callingCards: new Map(),
     ...overrides,
   };
 }

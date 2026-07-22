@@ -1080,6 +1080,15 @@ export const PROMENADE_BASE_AFFECTION_DEEP_EMPATHY = 8;
 export const PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT = 12; // gated on target mount-family ownership
 export const PROMENADE_PLAYER_MOUNT_MINGLE_BONUS = 5; // per-action; player head equips a mount-family artifact
 
+// ── Conversation / LLM / Memory depth (P26) ───────────────────────────────
+// NPC-initiated conversations (Q14). Trigger rolls consume the gameplay PRNG;
+// the LLM only authors the opener text (determinism boundary intact).
+// Calling-card per-tick roll: 3%/tick (rarer than the P13 global-event 5%/tick
+// because a card persists CALLING_CARD_EXPIRY_TICKS before expiring).
+export const CALLING_CARD_PROBABILITY_BASIS_POINTS = 300;
+// Absolute-end-tick offset: a Pending card expires this many ticks after issue.
+export const CALLING_CARD_EXPIRY_TICKS = 5;
+
 // ── Global Events & Era (P13) ─────────────────────────────────────────────
 // Spec §3 "Global Events" (lines 386-392) + "Era Progression" (lines 394-398)
 // + §7 line 658 "Cultural-pivot Monarch's Mood against no-artifact house"

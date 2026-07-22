@@ -20,6 +20,7 @@ import {
 } from "./conversation/types";
 import {
   type Betrothal,
+  type CallingCard,
   type Character,
   CharacterSchema,
   type CourierPayload,
@@ -50,6 +51,7 @@ import {
   type ArtifactInstanceId,
   type BallSessionId,
   type BetrothalId,
+  type CallingCardId,
   type CharacterId,
   type CourierPayloadId,
   type DuelId,
@@ -266,6 +268,9 @@ export function createInitialState(
     // P23: empty betrothal registry at fresh state. Entries land via
     // arrangeBetrothal; no seeding helper.
     betrothals: new Map<BetrothalId, Betrothal>(),
+    // P26: empty calling-card registry at fresh state. Cards are minted by the
+    // slot-8 applyCallingCardPhase per-tick roll; no seeding helper.
+    callingCards: new Map<CallingCardId, CallingCard>(),
   };
 }
 
@@ -639,6 +644,11 @@ function overwriteFromGameState(draft: GameState, next: GameState): void {
   // action silently CLEARS state.betrothals (so an arranged betrothal would
   // vanish on the next tick, and the auto-honor step would never fire).
   draft.betrothals = next.betrothals;
+  // P26 addition — calling-card registry. Without this line, every tick-
+  // advancing action silently CLEARS state.callingCards (so a minted card would
+  // vanish on the next tick and the accept/decline affordances would never see
+  // it). Slot-8 applyCallingCardPhase mutates this Map every tick.
+  draft.callingCards = next.callingCards;
 }
 
 export function createStore({ seed }: { seed: string }): SeasonStore {
@@ -2511,5 +2521,7 @@ export function selectGameState(state: StoreState): GameState {
     flavorText: state.flavorText,
     // P23 addition — betrothal registry. Quad-sync 3rd surface (selector).
     betrothals: state.betrothals,
+    // P26 addition — calling-card registry. Quint-sync 3rd surface (selector).
+    callingCards: state.callingCards,
   };
 }

@@ -36,6 +36,7 @@ import {
   ArtifactInstanceIdSchema,
   BetrothalIdSchema,
   BloodFeudIdSchema,
+  CallingCardIdSchema,
   CharacterIdSchema,
   CourierPayloadIdSchema,
   DuelIdSchema,
@@ -345,6 +346,19 @@ export const BetrothalSchema = z.object({
   honoredMarriageId: MarriageIdSchema.nullable(), // set when Honored
 });
 export type Betrothal = z.infer<typeof BetrothalSchema>;
+
+// P26: NPC-initiated calling card. Minted by applyCallingCardPhase (deterministic
+// per-tick roll); accepting opens a 1-on-1 Visit session. Never-delete — status
+// flips only (Pending → Accepted | Declined | Expired). `expiresAtTick` is an
+// ABSOLUTE end-tick (spec §2 tick-clock discipline), NOT a relative duration.
+export const CallingCardSchema = z.object({
+  id: CallingCardIdSchema,
+  callerCharacterId: CharacterIdSchema,
+  issuedAtTick: z.number().int().nonnegative(),
+  expiresAtTick: z.number().int().nonnegative(), // absolute end-tick
+  status: z.enum(["Pending", "Accepted", "Declined", "Expired"]),
+});
+export type CallingCard = z.infer<typeof CallingCardSchema>;
 
 // P5: Scheme entity. Spec §4 line 543 + §6 line 567 — references BOTH the
 // aggressor character AND the aggressor's owning house. accumulatedAffection
@@ -712,5 +726,12 @@ export const GameStateSchema = z.object({
   // overwriteFromGameState (store.ts), + createInitialState (store.ts). Per
   // CLAUDE.md non-negotiable.
   betrothals: z.map(BetrothalIdSchema, BetrothalSchema),
+  // P26 addition — NPC-initiated calling cards, keyed by CallingCardId.
+  // Gameplay state (not LLM text); fresh state empty; minted by
+  // applyCallingCardPhase's deterministic per-tick roll. Quint-sync surfaces:
+  // GameStateSchema (here), hashableState (hash.ts), selectGameState
+  // (store.ts), overwriteFromGameState (store.ts), + createInitialState
+  // (store.ts). Per CLAUDE.md non-negotiable.
+  callingCards: z.map(CallingCardIdSchema, CallingCardSchema),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

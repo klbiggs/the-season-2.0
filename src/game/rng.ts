@@ -72,6 +72,11 @@ export type GlobalEventId = string & { readonly __brand: "GlobalEventId" };
 export type FlavorContentId = string & { readonly __brand: "FlavorContentId" };
 // P23: brand for the betrothal registry (state.betrothals Map key).
 export type BetrothalId = string & { readonly __brand: "BetrothalId" };
+// P26: brand for the calling-card registry (state.callingCards Map key).
+// Draw-free state-walk factory at fixtures/callingCardIdFactory.ts (`card-<i>`,
+// index = state.callingCards.size — cards are never deleted so size is
+// monotonic).
+export type CallingCardId = string & { readonly __brand: "CallingCardId" };
 
 // P3 (B1 fix): PLAYER_HOUSE_ID lives here, not in rng.seeds.ts, so that
 // src/game/rules/** can import it. rules → game-other is disallowed per
@@ -149,6 +154,9 @@ export const FlavorContentIdSchema = z.string().transform((s) => s as FlavorCont
 // P23: brand schema for BetrothalId. state.betrothals is z.map(K, V) keyed on
 // this brand. Same `.transform` pattern.
 export const BetrothalIdSchema = z.string().transform((s) => s as BetrothalId);
+// P26: brand schema for CallingCardId. state.callingCards is z.map(K, V) keyed
+// on this brand. Same `.transform` pattern.
+export const CallingCardIdSchema = z.string().transform((s) => s as CallingCardId);
 
 export const RngStateSchema = z.object({
   seed: z.string(),
