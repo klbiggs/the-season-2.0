@@ -19,6 +19,7 @@ import type { LocationId } from "../../game/fixtures/locations";
 import type { Mood } from "../../game/fixtures/moods";
 import {
   type BallSessionId,
+  type CallingCardId,
   type CharacterId,
   type HouseId,
   PLAYER_HOUSE_ID,
@@ -106,6 +107,20 @@ export type ConversationEvent =
       // null only on the orchestrator-cleared edge case where the session was
       // ended before exitPromenade reads the partner id.
       partnerCharacterId: CharacterId | null;
+    }
+  // P26: NPC-initiated calling cards (Q14). CallingCardIssued / CallingCardExpired
+  // are diff-published by publishCallingCardTransitions from every tick-advancing
+  // wrapper EXCEPT runYearPass (year-pass STEPS has no applyCallingCardPhase).
+  | {
+      kind: "CallingCardIssued";
+      tick: number;
+      cardId: CallingCardId;
+      callerCharacterId: CharacterId;
+    }
+  | {
+      kind: "CallingCardExpired";
+      tick: number;
+      cardId: CallingCardId;
     };
 
 export const conversationBus = new EventBus<ConversationEvent>();
@@ -134,6 +149,30 @@ export function publishCharacterDeaths(before: GameState, after: GameState): voi
         tick: after.tick,
         targetCharacterId: id,
       });
+    }
+  }
+}
+
+// ── publishCallingCardTransitions (P26) ───────────────────────────────────
+// Diffs before/after callingCards. Emits CallingCardIssued for each card newly
+// present-and-Pending in `after`, and CallingCardExpired for each card whose
+// status flipped Pending → Expired (applyCallingCardPhase's expiry sweep).
+// Rides every tick-advancing store wrapper EXCEPT runYearPass (year-pass STEPS
+// has no applyCallingCardPhase, so the diff would emit zero events) — the
+// P26 14/14/12 publisher set. Accepted/Declined are direct-published by their
+// own wrappers, not diffed here.
+export function publishCallingCardTransitions(before: GameState, after: GameState): void {
+  for (const [id, card] of after.callingCards) {
+    const prior = before.callingCards.get(id);
+    if (prior === undefined && card.status === "Pending") {
+      conversationBus.publish({
+        kind: "CallingCardIssued",
+        tick: after.tick,
+        cardId: id,
+        callerCharacterId: card.callerCharacterId,
+      });
+    } else if (prior?.status === "Pending" && card.status === "Expired") {
+      conversationBus.publish({ kind: "CallingCardExpired", tick: after.tick, cardId: id });
     }
   }
 }

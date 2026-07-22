@@ -519,7 +519,11 @@ import {
 } from "../game/rules/tutor";
 import type { ConversationResponse } from "../llm/types";
 import { conversationOrchestrator } from "../runtime/conversationOrchestrator";
-import { conversationBus, publishCharacterDeaths } from "../runtime/events/conversation";
+import {
+  conversationBus,
+  publishCallingCardTransitions,
+  publishCharacterDeaths,
+} from "../runtime/events/conversation";
 import type { BallEntryRejection } from "../runtime/events/conversation";
 import { duelBus } from "../runtime/events/duels";
 import { publishDynastyPerkAwards } from "../runtime/events/dynastyLegacy";
@@ -713,6 +717,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // GlobalEventExpired). runYearPass omits this — year-pass STEPS doesn't
         // include applyGlobalEventPhase.
         publishGlobalEventTransitions(before, after);
+        publishCallingCardTransitions(before, after);
         // P15: dynasty-perk awards (DynastyPerkAwarded) — rides every tick-
         // advancing wrapper including runYearPass (12/12/10 set).
         publishDynastyPerkAwards(before, after);
@@ -843,6 +848,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // P13: global-event transitions ride here too (every tick-advancing
         // wrapper except runYearPass per the 11/11/9 publisher set).
         publishGlobalEventTransitions(stateBefore, afterTick);
+        publishCallingCardTransitions(stateBefore, afterTick);
         publishDynastyPerkAwards(stateBefore, afterTick);
         return { ok: true };
       },
@@ -912,6 +918,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
         publishGlobalEventTransitions(stateBefore, afterTick);
+        publishCallingCardTransitions(stateBefore, afterTick);
         publishDynastyPerkAwards(stateBefore, afterTick);
         return { outcome };
       },
@@ -965,6 +972,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // P13: global-event transitions ride here too (every tick-advancing
         // wrapper except runYearPass per the 11/11/9 publisher set).
         publishGlobalEventTransitions(stateBefore, afterTick);
+        publishCallingCardTransitions(stateBefore, afterTick);
         publishDynastyPerkAwards(stateBefore, afterTick);
         return { ok: true };
       },
@@ -1018,6 +1026,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // P13: global-event transitions ride here too (every tick-advancing
         // wrapper except runYearPass per the 11/11/9 publisher set).
         publishGlobalEventTransitions(stateBefore, afterTick);
+        publishCallingCardTransitions(stateBefore, afterTick);
         publishDynastyPerkAwards(stateBefore, afterTick);
         return { ok: true };
       },
@@ -1740,6 +1749,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishInheritedSecretTransitions(stateBefore, tickAdvanced);
         publishBloodFeudTransitions(stateBefore, tickAdvanced);
         publishGlobalEventTransitions(stateBefore, tickAdvanced);
+        publishCallingCardTransitions(stateBefore, tickAdvanced);
         publishDynastyPerkAwards(stateBefore, tickAdvanced);
         return outcome;
       },
@@ -2231,6 +2241,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishInheritedSecretTransitions(before, after);
         publishBloodFeudTransitions(before, after);
         publishGlobalEventTransitions(before, after);
+        publishCallingCardTransitions(before, after);
         publishDynastyPerkAwards(before, after);
         if (outcome.kind === "Success") {
           siblingRivalBus.publish({
@@ -2343,6 +2354,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
         publishGlobalEventTransitions(stateBefore, afterTick);
+        publishCallingCardTransitions(stateBefore, afterTick);
         publishDynastyPerkAwards(stateBefore, afterTick);
       },
       sendPromenadeMessage: async (input: PromenadeMessageInput) => {

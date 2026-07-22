@@ -77,9 +77,11 @@ describe("publishGlobalEventTransitions diff (matrix #18)", () => {
 
 // ── Verification matrix #19: publisher-set count invariants ─────────────
 
-describe("Publisher set 11/11/9 (matrix #19)", () => {
+describe("Publisher set 14/14/12 (matrix #19)", () => {
   // Spy on each diff helper module to count invocations per wrapper. The
-  // wrapper-call counts validate the CLAUDE.md "11/11/9" pin.
+  // wrapper-call counts validate the CLAUDE.md "14/14/12" pin (P26 widened the
+  // P24 13/13/12 baseline by adding publishCallingCardTransitions to every
+  // tick-advancing wrapper except runYearPass).
   //
   // The diff helpers are imported by store.ts via ES module bindings; vi.spyOn
   // can intercept calls on the module object. We import the module objects
@@ -89,7 +91,7 @@ describe("Publisher set 11/11/9 (matrix #19)", () => {
   // each helper emits. Some helpers emit zero events when before === after
   // (e.g., on a fresh state where nothing changes). The wrapper invokes the
   // helper regardless — that's what the publisher-set count measures.
-  it("advanceTick invokes all 11 diff publishers (no direct-publishes)", async () => {
+  it("advanceTick invokes all 14 diff publishers (no direct-publishes)", async () => {
     const conversationModule = await import("../runtime/events/conversation");
     const schemeModule = await import("../runtime/events/scheme");
     const whisperModule = await import("../runtime/events/whispers");
@@ -99,6 +101,7 @@ describe("Publisher set 11/11/9 (matrix #19)", () => {
     const siblingModule = await import("../runtime/events/siblingRival");
     const inheritedModule = await import("../runtime/events/inheritedSecret");
     const globalModule = await import("../runtime/events/globalEvent");
+    const dynastyModule = await import("../runtime/events/dynastyLegacy");
 
     const spies = [
       vi.spyOn(conversationModule, "publishCharacterDeaths"),
@@ -106,14 +109,17 @@ describe("Publisher set 11/11/9 (matrix #19)", () => {
       vi.spyOn(whisperModule, "publishWhisperTransitions"),
       vi.spyOn(familyModule, "publishMarriageTransitions"),
       vi.spyOn(familyModule, "publishTemptationLatchTransitions"),
+      vi.spyOn(familyModule, "publishBetrothalTransitions"),
       vi.spyOn(elopementModule, "publishElopementTransitions"),
       vi.spyOn(artifactModule, "publishArtifactTransitions"),
       vi.spyOn(siblingModule, "publishSiblingRivalTransitions"),
       vi.spyOn(inheritedModule, "publishInheritedSecretTransitions"),
       vi.spyOn(inheritedModule, "publishBloodFeudTransitions"),
       vi.spyOn(globalModule, "publishGlobalEventTransitions"),
+      vi.spyOn(dynastyModule, "publishDynastyPerkAwards"),
+      vi.spyOn(conversationModule, "publishCallingCardTransitions"),
     ];
-    expect(spies.length).toBe(11);
+    expect(spies.length).toBe(14);
 
     const store = createStore({ seed: "p13-publisher-count" });
     store.getState().advanceTick();
@@ -130,28 +136,32 @@ describe("Publisher set 11/11/9 (matrix #19)", () => {
     const elopementModule = await import("../runtime/events/elopement");
     const artifactModule = await import("../runtime/events/artifacts");
 
+    const conversationModule = await import("../runtime/events/conversation");
     const globalSpy = vi.spyOn(globalModule, "publishGlobalEventTransitions");
     const schemeSpy = vi.spyOn(schemeModule, "publishSchemeTransitions");
     const elopementSpy = vi.spyOn(elopementModule, "publishElopementTransitions");
     const artifactSpy = vi.spyOn(artifactModule, "publishArtifactTransitions");
+    const callingCardSpy = vi.spyOn(conversationModule, "publishCallingCardTransitions");
 
     const store = createStore({ seed: "p13-yearpass-count" });
     store.getState().runYearPass();
 
     // Year-pass STEPS does not include global-event phase, scheme resolution,
-    // or artifact phases — so these 3 are NOT invoked.
+    // artifact phases, or the P26 calling-card phase — so these 4 are NOT
+    // invoked (14/14/12 publisher set: runYearPass fires 12).
     expect(globalSpy).not.toHaveBeenCalled();
     expect(schemeSpy).not.toHaveBeenCalled();
     expect(artifactSpy).not.toHaveBeenCalled();
+    expect(callingCardSpy).not.toHaveBeenCalled();
     // P24a: the aging-step death cascade (Branch 5) can resolve a non-player
-    // sprint during year-pass, so the elopement diff helper DOES ride here
-    // (13/13/12 publisher set).
+    // sprint during year-pass, so the elopement diff helper DOES ride here.
     expect(elopementSpy).toHaveBeenCalledTimes(1);
 
     globalSpy.mockRestore();
     schemeSpy.mockRestore();
     elopementSpy.mockRestore();
     artifactSpy.mockRestore();
+    callingCardSpy.mockRestore();
   });
 });
 
