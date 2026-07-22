@@ -373,7 +373,13 @@ export type SchemeFailureReasonKind = (typeof SCHEME_FAILURE_REASONS)[number];
 
 // P11 widens GRIEVANCE_SOURCES with "BloodFeud" — the casus belli minted alongside
 // each BloodFeud entity at inherited-secret surfacing (plans/phases/11-sibling-rivals-secrets.md).
-export const GRIEVANCE_SOURCES = ["Sabotage", "FauxPas", "BloodFeud"] as const;
+// P26 (G6): "Conversation" is the generateGrievance-tool source. The minted
+// grievance is player-perpetrated and held by a non-rival society house, so it
+// is DUEL-INERT at v1.5 (demandSatisfaction actions only player-held grievances,
+// and society houses never autonomously demand satisfaction) — same inert state
+// as a player-perpetrated FauxPas grievance. Its live value is the record + the
+// G4 semantic-index entry + a latent casus belli for a future phase.
+export const GRIEVANCE_SOURCES = ["Sabotage", "FauxPas", "BloodFeud", "Conversation"] as const;
 export type GrievanceSource = (typeof GRIEVANCE_SOURCES)[number];
 
 // Spec §3 "Scheme Costs, Durations & Requirements" — pinned per the spec

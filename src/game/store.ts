@@ -1400,6 +1400,35 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           };
         }
 
+        // P26 (G6): generateGrievance toolCall — the player's remark gave real
+        // offence. Mint a Conversation-source grievance against the player, held
+        // by the target's house. Max ONE per exchange; skipped when the target
+        // house is the player's own. Built pre-set (id-walk on stateBefore) like
+        // fauxPasGrievance so the post-set publish has a stable id.
+        let conversationGrievance: Grievance | null = null;
+        if (
+          response.toolCalls.some((tc) => tc.name === "generateGrievance") &&
+          target.houseId !== PLAYER_HOUSE_ID
+        ) {
+          let cgIndex = 0;
+          for (const hid of [...stateBefore.houses.keys()].sort()) {
+            for (const g of stateBefore.houses.get(hid)?.grievances ?? []) {
+              if (g.source === "Conversation" && g.recordedAtTick === stateBefore.tick)
+                cgIndex += 1;
+            }
+          }
+          conversationGrievance = {
+            id: `${PLAYER_HOUSE_ID}:Conversation:${stateBefore.tick}:${cgIndex}` as GrievanceId,
+            perpetratorHouseId: PLAYER_HOUSE_ID,
+            defendantCharacterId:
+              stateBefore.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId ?? null,
+            source: "Conversation",
+            schemeId: null,
+            recordedAtTick: stateBefore.tick,
+            resolved: false,
+          };
+        }
+
         // Apply combat delta atomically in one set body. enableMapSet()
         // precondition already satisfied at this module's top.
         set((state) => {
@@ -1433,6 +1462,11 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             if (targetHouse !== undefined) {
               targetHouse.grievances.push(fauxPasGrievance);
             }
+          }
+          // P26 (G6): append the Conversation-source grievance to the target's
+          // house (draft mutation, matches the fauxPas append above).
+          if (conversationGrievance !== null) {
+            state.houses.get(target.houseId)?.grievances.push(conversationGrievance);
           }
 
           // ─── P6: whisper-creation inline block ─────────────────────────
@@ -1541,6 +1575,18 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
               source: "FauxPas",
             });
           }
+        }
+        // P26 (G6): publish GrievanceRecorded for the Conversation grievance so
+        // the G4 semantic index picks it up. Independent of the faux-pas branch.
+        if (conversationGrievance !== null) {
+          schemeBus.publish({
+            kind: "GrievanceRecorded",
+            tick: stateBefore.tick,
+            grievanceId: conversationGrievance.id,
+            perpetratorHouseId: PLAYER_HOUSE_ID,
+            victimHouseId: target.houseId,
+            source: "Conversation",
+          });
         }
         // P6: publish WhisperCreated for any synergy / wallflower-bonus /
         // LLM-additive whispers emitted inside the set body's whisper-

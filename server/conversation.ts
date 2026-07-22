@@ -17,7 +17,7 @@ import { validateEnv } from "./env";
 import { getOrCreatePersonaCache } from "./personaCache";
 import { buildPersonaPrompt } from "./prompts/persona";
 import { routeModel } from "./routing";
-import { GENERATE_WHISPER_TOOL, RESPOND_TOOL } from "./tools";
+import { GENERATE_GRIEVANCE_TOOL, GENERATE_WHISPER_TOOL, RESPOND_TOOL } from "./tools";
 
 const SERVER_TIMEOUT_MS = 13_000;
 
@@ -56,7 +56,9 @@ export async function handleConversation(req: IncomingMessage, res: ServerRespon
       contents,
       config: {
         ...cachingConfig,
-        tools: [{ functionDeclarations: [RESPOND_TOOL, GENERATE_WHISPER_TOOL] }],
+        tools: [
+          { functionDeclarations: [RESPOND_TOOL, GENERATE_WHISPER_TOOL, GENERATE_GRIEVANCE_TOOL] },
+        ],
         toolConfig: {
           functionCallingConfig: {
             mode: FunctionCallingConfigMode.ANY,

@@ -9,6 +9,7 @@ import type { FunctionDeclaration } from "@google/genai";
 
 export const RESPOND_TOOL_NAME = "respond" as const;
 export const GENERATE_WHISPER_TOOL_NAME = "generateWhisper" as const;
+export const GENERATE_GRIEVANCE_TOOL_NAME = "generateGrievance" as const;
 
 export const RESPOND_TOOL: FunctionDeclaration = {
   name: RESPOND_TOOL_NAME,
@@ -33,17 +34,21 @@ export const RESPOND_TOOL: FunctionDeclaration = {
       },
       toolCalls: {
         type: "array",
+        // P26 (G6): the toolCall union widened to generateWhisper +
+        // generateGrievance. The JSON schema is permissive (widen-and-validate);
+        // the client-side Zod union (types.ts) discriminates on `name` and drops
+        // unknown shapes. args carry the superset of both calls' fields.
         items: {
           type: "object",
           properties: {
-            name: { type: "string", enum: ["generateWhisper"] },
+            name: { type: "string", enum: ["generateWhisper", "generateGrievance"] },
             args: {
               type: "object",
               properties: {
                 subjectCharacterId: { type: "string" },
                 text: { type: "string" },
+                severity: { type: "string" },
               },
-              required: ["subjectCharacterId", "text"],
             },
           },
           required: ["name", "args"],
@@ -67,5 +72,23 @@ export const GENERATE_WHISPER_TOOL: FunctionDeclaration = {
       text: { type: "string", description: "1-2 sentence whisper body, in-character." },
     },
     required: ["subjectCharacterId", "text"],
+  },
+};
+
+// P26 (G6): registered so the model can emit valid generateGrievance payloads
+// inside respond's toolCalls (nested, NOT in allowedFunctionNames). Used when
+// the player's remark gives genuine offence — records a Conversation-source
+// grievance against the player.
+export const GENERATE_GRIEVANCE_TOOL: FunctionDeclaration = {
+  name: GENERATE_GRIEVANCE_TOOL_NAME,
+  description:
+    "Record that the player's message gave real offence to you. Use ONLY when " +
+    "the player has been genuinely insulting or dishonorable — not for ordinary " +
+    "disagreement. Records a grievance the player may have to answer for.",
+  parametersJsonSchema: {
+    type: "object",
+    properties: {
+      severity: { type: "string", description: "A short reason the offence was taken." },
+    },
   },
 };

@@ -212,14 +212,27 @@ const GenerateWhisperToolCallSchema = z.object({
     text: z.string(),
   }),
 });
-export type GenerateWhisperToolCall = z.infer<typeof GenerateWhisperToolCallSchema>;
+
+// P26 (G6): generateGrievance toolCall. Records that the player gave offence —
+// the store mints a Conversation-source grievance against the player. `severity`
+// is an optional free-text reason (unused mechanically at v1.5).
+const GenerateGrievanceToolCallSchema = z.object({
+  name: z.literal("generateGrievance"),
+  args: z.object({
+    severity: z.string().optional(),
+  }),
+});
+
+// The toolCall union — the two tools the server declares (server/tools.ts).
+const ToolCallSchema = z.union([GenerateWhisperToolCallSchema, GenerateGrievanceToolCallSchema]);
+export type ToolCall = z.infer<typeof ToolCallSchema>;
 
 export const ConversationResponseSchema = z.object({
   dialogue: z.string().min(1),
   classifiedTactic: z.string(),
   qualityMultiplier: z.number(),
   moodHint: z.string().optional(),
-  toolCalls: z.array(GenerateWhisperToolCallSchema).default([]),
+  toolCalls: z.array(ToolCallSchema).default([]),
 });
 export type ConversationResponseRaw = z.infer<typeof ConversationResponseSchema>;
 
@@ -229,7 +242,7 @@ export type ConversationResponse = {
   classifiedTactic: Tactic;
   qualityMultiplier: number; // clamped to [0.5, 1.5]
   moodHint: Mood | null;
-  toolCalls: ReadonlyArray<GenerateWhisperToolCall>;
+  toolCalls: ReadonlyArray<ToolCall>;
 };
 
 // P12: widened to 5 in lockstep with TACTICS at src/game/constants.ts:140.
