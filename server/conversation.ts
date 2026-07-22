@@ -102,14 +102,30 @@ const PROMENADE_MODE_FRAMING_PREFIX =
   "Available tactics: WittyBanter, DeepEmpathy, ComplimentMount " +
   "(the last is meaningful only when the partner owns a horse).]\n\n";
 
+// P26: Visit-mode framing (NPC-initiated drawing-room call). Same low-stakes
+// promenade combat envelope (no faux-pas), but the NPC came calling on the
+// player, so the framing signals initiative. Rides per-turn contents, never
+// systemInstruction (same cache mutual-exclusion reason as PROMENADE above).
+const VISIT_MODE_FRAMING_PREFIX =
+  "[Setting: A private drawing-room call. The character has called on the player " +
+  "of their own accord and is disposed to converse. The conversation is low-stakes; " +
+  "faux-pas penalties do NOT apply; structural composure damage is not in play. " +
+  "Available tactics: WittyBanter, DeepEmpathy, ComplimentMount " +
+  "(the last is meaningful only when the character owns a horse).]\n\n";
+
 // Exported for unit testing of the section ordering (semantic + mode-frame).
 export function buildContents(req: {
   history: ReadonlyArray<{ speaker: "house-head" | "other"; text: string }>;
   freeformMessage: string;
-  mode: "Ballroom" | "Promenade";
+  mode: "Ballroom" | "Promenade" | "Visit";
   semanticContext: ReadonlyArray<string>;
 }): string {
-  const modeFramingPrefix = req.mode === "Promenade" ? PROMENADE_MODE_FRAMING_PREFIX : "";
+  const modeFramingPrefix =
+    req.mode === "Promenade"
+      ? PROMENADE_MODE_FRAMING_PREFIX
+      : req.mode === "Visit"
+        ? VISIT_MODE_FRAMING_PREFIX
+        : "";
   // P17: semantic-memory hits as a separate section. Rides on per-turn
   // `contents`, NOT systemInstruction (cachedContent + systemInstruction are
   // mutually exclusive — see PROMENADE_MODE_FRAMING_PREFIX note above). Ordering:

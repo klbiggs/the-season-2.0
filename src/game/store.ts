@@ -4,6 +4,7 @@ import { immer } from "zustand/middleware/immer";
 import { artifactBus, publishArtifactTransitions } from "../runtime/events/artifacts";
 import {
   ACCIDENTAL_SLIP_DRIP_PER_CONVERSATION,
+  CALLING_CARD_DECLINE_AFFECTION_PENALTY,
   CONVERSATION_HISTORY_LIMIT_PER_PAIR,
   DUEL_DEMAND_SATISFACTION_REPUTATION_COST,
   FAUX_PAS_LOCK_DURATION_IN_TICKS,
@@ -450,6 +451,26 @@ export type StoreActions = {
     { ok: true; outcome: ConversationResponse } | { ok: false; reason: ConversationFailure }
   >;
   abortPromenadeRequest: () => void;
+  // P26: NPC-initiated calling-card actions (Q14). Accept opens a Visit
+  // session (drawing-room call); decline marks the card + applies a small
+  // affection penalty. Both are free actions (no tick advance) with the modal
+  // gates. exitVisit is the tick-on-exit (commit-on-leave) close, mirroring
+  // exitPromenade. sendVisitMessage mirrors sendPromenadeMessage.
+  acceptCallingCard: (
+    cardId: CallingCardId,
+  ) =>
+    | { ok: true; sessionId: import("./rng").VisitSessionId }
+    | { ok: false; reason: CallingCardActionRejection };
+  declineCallingCard: (
+    cardId: CallingCardId,
+  ) => { ok: true } | { ok: false; reason: CallingCardActionRejection };
+  exitVisit: () => void;
+  sendVisitMessage: (
+    input: PromenadeMessageInput,
+  ) => Promise<
+    { ok: true; outcome: ConversationResponse } | { ok: false; reason: ConversationFailure }
+  >;
+  abortVisitRequest: () => void;
   // P18: persist one generated flavor entry. Called ONLY from the
   // flavorOrchestrator success path (never a UI affordance). Free action:
   // no tick advance, no publisher fan-out, no modal-state gate (a conscious
@@ -474,6 +495,16 @@ export type PromenadeMessageInput = {
   freeformMessage: string;
   pinnedTactic: "WittyBanter" | "DeepEmpathy" | "ComplimentMount";
 };
+
+// P26: rejection union for acceptCallingCard / declineCallingCard. Includes
+// the standard modal-gate variants (per CLAUDE.md: every new player action's
+// rejection union must carry PlayerExiled + ElopementInProgress).
+export type CallingCardActionRejection =
+  | { kind: "PlayerExiled" }
+  | { kind: "ElopementInProgress" }
+  | { kind: "CardNotPending" }
+  | { kind: "CallerDead" }
+  | { kind: "SessionAlreadyOpen" };
 
 export type DemandSatisfactionRejection =
   | { kind: "GrievanceNotFound" }
@@ -560,7 +591,7 @@ import {
 // have been declared above.
 import { advanceTickPure } from "../runtime/tickOrchestrator";
 import { runYearPassPure } from "../runtime/yearPass";
-import type { PromenadeSessionId } from "./rng";
+import type { PromenadeSessionId, VisitSessionId } from "./rng";
 // P12 promenade imports. bootstrapNpcMountFamily is imported with the rest
 // of bootstrap.ts at the top (line 134); rules-side helpers live here.
 import {
@@ -1039,11 +1070,12 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (hasActivePlayerElopement(stateBefore)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
-        // P12: cross-mode mutual exclusion. Reject if a Promenade session is
-        // already open. The orchestrator throws on misuse as defense-in-depth,
-        // but the store-action layer gates first so the UI sees a typed
-        // rejection rather than an exception.
-        if (conversationOrchestrator.currentMode() === "Promenade") {
+        // P12/P26: cross-mode mutual exclusion. Reject if a Promenade OR Visit
+        // session is already open. The orchestrator throws on misuse as
+        // defense-in-depth, but the store-action layer gates first so the UI
+        // sees a typed rejection rather than an exception.
+        const openMode = conversationOrchestrator.currentMode();
+        if (openMode === "Promenade" || openMode === "Visit") {
           return { ok: false, reason: { kind: "SessionAlreadyOpen" as const } };
         }
         const player = stateBefore.houses.get(PLAYER_HOUSE_ID);
@@ -2463,6 +2495,229 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
       },
       abortPromenadeRequest: () => {
         if (conversationOrchestrator.currentMode() !== "Promenade") return;
+        conversationOrchestrator.abortCurrent();
+      },
+      // ── P26 NPC-initiated calling cards ─────────────────────────────────
+      acceptCallingCard: (cardId: CallingCardId) => {
+        const before = get();
+        if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (hasActivePlayerElopement(before)) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        if (conversationOrchestrator.currentSessionId() !== null) {
+          return { ok: false, reason: { kind: "SessionAlreadyOpen" as const } };
+        }
+        const card = before.callingCards.get(cardId);
+        if (card === undefined || card.status !== "Pending") {
+          return { ok: false, reason: { kind: "CardNotPending" as const } };
+        }
+        const caller = before.characters.get(card.callerCharacterId);
+        if (caller === undefined || !caller.alive) {
+          return { ok: false, reason: { kind: "CallerDead" as const } };
+        }
+        set((draft) => {
+          const c = draft.callingCards.get(cardId);
+          if (c !== undefined) draft.callingCards.set(cardId, { ...c, status: "Accepted" });
+        });
+        const sessionId = conversationOrchestrator.beginVisitSession(
+          get().tick,
+          card.callerCharacterId,
+        );
+        conversationBus.publish({
+          kind: "CallingCardAccepted",
+          tick: before.tick,
+          cardId,
+          callerCharacterId: card.callerCharacterId,
+          sessionId,
+        });
+        conversationBus.publish({
+          kind: "VisitEntered",
+          tick: before.tick,
+          houseId: PLAYER_HOUSE_ID,
+          sessionId,
+          callerCharacterId: card.callerCharacterId,
+        });
+        return { ok: true, sessionId };
+      },
+      declineCallingCard: (cardId: CallingCardId) => {
+        const before = get();
+        if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (hasActivePlayerElopement(before)) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        const card = before.callingCards.get(cardId);
+        if (card === undefined || card.status !== "Pending") {
+          return { ok: false, reason: { kind: "CardNotPending" as const } };
+        }
+        const pairKey = makePairKey(PLAYER_HOUSE_ID, card.callerCharacterId);
+        set((draft) => {
+          const c = draft.callingCards.get(cardId);
+          if (c !== undefined) draft.callingCards.set(cardId, { ...c, status: "Declined" });
+          const prev = draft.affectionMap.get(pairKey) ?? 0;
+          draft.affectionMap.set(
+            pairKey,
+            clamp(prev - CALLING_CARD_DECLINE_AFFECTION_PENALTY, 0, 100),
+          );
+        });
+        conversationBus.publish({
+          kind: "CallingCardDeclined",
+          tick: before.tick,
+          cardId,
+          callerCharacterId: card.callerCharacterId,
+        });
+        return { ok: true };
+      },
+      exitVisit: () => {
+        if (conversationOrchestrator.currentMode() !== "Visit") return;
+        const sessionId = conversationOrchestrator.currentSessionId() as VisitSessionId;
+        const callerCharacterId = conversationOrchestrator.currentVisitCaller();
+        conversationOrchestrator.abortCurrent();
+        const stateBefore = get();
+        // P26 (H5): post-await modal-gate — if exile/elopement mounted during
+        // the session, close it WITHOUT advancing the tick (elopement suspends
+        // time; the commit-on-leave 1-tick cost is not charged to a modal-
+        // aborted session). The Visit history/affection writes already landed
+        // per-turn; skipping the tick + publishers is safe.
+        if (
+          stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true ||
+          hasActivePlayerElopement(stateBefore)
+        ) {
+          conversationOrchestrator.endSession();
+          conversationBus.publish({
+            kind: "VisitExited",
+            tick: stateBefore.tick,
+            houseId: PLAYER_HOUSE_ID,
+            sessionId,
+            callerCharacterId,
+          });
+          return;
+        }
+        const afterTick = advanceTickPure(stateBefore);
+        set((draft) => {
+          overwriteFromGameState(draft, afterTick);
+        });
+        conversationOrchestrator.endSession();
+        conversationBus.publish({
+          kind: "VisitExited",
+          tick: afterTick.tick,
+          houseId: PLAYER_HOUSE_ID,
+          sessionId,
+          callerCharacterId,
+        });
+        // 14-publisher set (commit-on-leave, matches exitPromenade).
+        publishCharacterDeaths(stateBefore, afterTick);
+        publishSchemeTransitions(stateBefore, afterTick);
+        publishWhisperTransitions(stateBefore, afterTick);
+        publishMarriageTransitions(stateBefore, afterTick);
+        publishBetrothalTransitions(stateBefore, afterTick);
+        publishTemptationLatchTransitions(stateBefore, afterTick);
+        publishElopementTransitions(stateBefore, afterTick);
+        publishArtifactTransitions(stateBefore, afterTick);
+        publishSiblingRivalTransitions(stateBefore, afterTick);
+        publishInheritedSecretTransitions(stateBefore, afterTick);
+        publishBloodFeudTransitions(stateBefore, afterTick);
+        publishGlobalEventTransitions(stateBefore, afterTick);
+        publishCallingCardTransitions(stateBefore, afterTick);
+        publishDynastyPerkAwards(stateBefore, afterTick);
+      },
+      sendVisitMessage: async (input: PromenadeMessageInput) => {
+        const stateBefore = get();
+        if (
+          conversationOrchestrator.currentSessionId() === null ||
+          conversationOrchestrator.currentMode() !== "Visit"
+        ) {
+          return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
+        }
+        const callerId = conversationOrchestrator.currentVisitCaller();
+        if (callerId === null) {
+          return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
+        }
+        const target = stateBefore.characters.get(callerId);
+        const playerHead = stateBefore.houses.get(PLAYER_HOUSE_ID);
+        if (target === undefined || !target.alive || playerHead === undefined) {
+          return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
+        }
+        const pairKey = makePairKey(PLAYER_HOUSE_ID, target.id);
+        const history = stateBefore.conversationHistory.get(pairKey) ?? [];
+        const otherCharactersInScene: Character[] = [];
+        let targetMarriage: MarriageRecord | null = null;
+        let spouse: Character | null = null;
+        if (target.marriageId !== null) {
+          const m = stateBefore.marriages.get(target.marriageId);
+          if (m !== undefined) {
+            targetMarriage = m;
+            if (!m.dissolved) {
+              const spouseId = m.spouseAId === target.id ? m.spouseBId : m.spouseAId;
+              spouse = stateBefore.characters.get(spouseId) ?? null;
+            }
+          }
+        }
+        const semanticContext = await retrieveSemanticHits(target.id, input.freeformMessage);
+        const request = {
+          targetCharacterId: target.id,
+          playerHouseId: PLAYER_HOUSE_ID,
+          freeformMessage: input.freeformMessage,
+          history,
+          otherCharactersInScene,
+          characterStateSnapshot: {
+            target: {
+              ...target,
+              traits: getEffectiveTraits(stateBefore, target.id),
+              equippedArtifactIds: [...target.equippedArtifactIds],
+            },
+            otherCharactersInScene,
+            targetMarriage,
+            spouse,
+          },
+          mode: "Visit" as const,
+          semanticContext,
+        };
+        const outcome = await conversationOrchestrator.send(request, input.pinnedTactic);
+        if (outcome.kind === "Failed") {
+          return { ok: false, reason: outcome.failure };
+        }
+        const stateAtResolve = get();
+        // P26 (H5): post-await modal-gate short-circuit — drop the exchange
+        // (no history/affection write) if exile/elopement mounted mid-flight.
+        if (
+          stateAtResolve.houses.get(PLAYER_HOUSE_ID)?.exiled === true ||
+          hasActivePlayerElopement(stateAtResolve)
+        ) {
+          return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
+        }
+        const playerMount = playerHeadEquipsMountFamily(stateAtResolve);
+        const partnerAtResolve = stateAtResolve.characters.get(target.id);
+        const targetMount =
+          partnerAtResolve !== undefined &&
+          characterEquipsMountFamily(stateAtResolve, partnerAtResolve.equippedArtifactIds);
+        const promenadeTactic = narrowToPromenadeTactic(outcome.response.classifiedTactic);
+        const promenadeOutcome = resolvePromenadeCombat({
+          tactic: promenadeTactic,
+          qualityMultiplier: outcome.response.qualityMultiplier,
+          targetHasMountFamilyEquipped: targetMount,
+          playerHasMountFamilyEquipped: playerMount,
+        });
+        set((draft) => {
+          overwriteFromGameState(
+            draft,
+            appendPromenadeExchange(
+              stateAtResolve,
+              target.id,
+              { text: input.freeformMessage, classifiedTactic: promenadeTactic },
+              { text: outcome.response.dialogue },
+              promenadeOutcome.affectionDelta,
+              stateAtResolve.tick,
+            ),
+          );
+        });
+        return { ok: true, outcome: outcome.response };
+      },
+      abortVisitRequest: () => {
+        if (conversationOrchestrator.currentMode() !== "Visit") return;
         conversationOrchestrator.abortCurrent();
       },
     })),

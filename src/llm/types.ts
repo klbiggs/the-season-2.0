@@ -113,7 +113,7 @@ export const ProxyConversationRequestSchema = z.object({
   // "Ballroom"). Mode-framing prefix lives in server/conversation.ts's
   // buildContents (NOT systemInstruction — cachedContent + systemInstruction
   // are mutually exclusive per the Gemini SDK contract).
-  mode: z.enum(["Ballroom", "Promenade"]).default("Ballroom"),
+  mode: z.enum(["Ballroom", "Promenade", "Visit"]).default("Ballroom"),
   // P17: semantic-memory hits retrieved client-side at conversation start and
   // rendered as a separate `[Relevant past events:]` section in buildContents
   // (on per-turn `contents`, NOT systemInstruction — P12 cache mutual-exclusion).

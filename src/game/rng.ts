@@ -77,6 +77,10 @@ export type BetrothalId = string & { readonly __brand: "BetrothalId" };
 // index = state.callingCards.size — cards are never deleted so size is
 // monotonic).
 export type CallingCardId = string & { readonly __brand: "CallingCardId" };
+// P26: branded session ID for NPC-initiated Visit sessions (drawing-room
+// calls). Tick-derived (zero RNG consumption); mirrors BallSessionId /
+// PromenadeSessionId. See plans/phases/26-conversation-llm-depth.md G2.
+export type VisitSessionId = string & { readonly __brand: "VisitSessionId" };
 
 // P3 (B1 fix): PLAYER_HOUSE_ID lives here, not in rng.seeds.ts, so that
 // src/game/rules/** can import it. rules → game-other is disallowed per
@@ -100,6 +104,13 @@ export function makeBallSessionId(tick: number): BallSessionId {
 // prefix keeps them distinct in logs / event payloads regardless.
 export function makePromenadeSessionId(tick: number): PromenadeSessionId {
   return `promenade-${tick}` as PromenadeSessionId;
+}
+
+// P26: tick-derived Visit session ID (NPC-initiated drawing-room call). Same
+// cross-mode mutual exclusion + zero-RNG contract as the ball/promenade ids;
+// the `visit-` prefix keeps it distinct in logs / event payloads.
+export function makeVisitSessionId(tick: number): VisitSessionId {
+  return `visit-${tick}` as VisitSessionId;
 }
 
 // Branded-string Zod schemas use `.transform` (not `.brand`) to match the

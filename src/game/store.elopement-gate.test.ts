@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import { type ElopementEvent, elopementBus } from "../runtime/events/elopement";
 import type { ElopementSprintState } from "./entities";
 import type {
+  CallingCardId,
   CharacterId,
   ElopementId,
   GrievanceId,
@@ -96,6 +97,18 @@ describe("Elopement gate — typed-rejection wrappers", () => {
   it("dismissWhisper returns ElopementInProgress", () => {
     const store = setupWithActiveSprint();
     const result = store.getState().dismissWhisper("any-w" as WhisperId);
+    expect(result).toEqual({ ok: false, reason: { kind: "ElopementInProgress" } });
+  });
+
+  it("acceptCallingCard returns ElopementInProgress", () => {
+    const store = setupWithActiveSprint();
+    const result = store.getState().acceptCallingCard("any-card" as CallingCardId);
+    expect(result).toEqual({ ok: false, reason: { kind: "ElopementInProgress" } });
+  });
+
+  it("declineCallingCard returns ElopementInProgress", () => {
+    const store = setupWithActiveSprint();
+    const result = store.getState().declineCallingCard("any-card" as CallingCardId);
     expect(result).toEqual({ ok: false, reason: { kind: "ElopementInProgress" } });
   });
 

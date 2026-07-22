@@ -24,6 +24,7 @@ import {
   type HouseId,
   PLAYER_HOUSE_ID,
   type PromenadeSessionId,
+  type VisitSessionId,
 } from "../../game/rng";
 import { EventBus } from "./bus";
 
@@ -121,6 +122,37 @@ export type ConversationEvent =
       kind: "CallingCardExpired";
       tick: number;
       cardId: CallingCardId;
+    }
+  // Accepted/Declined are direct-published by the acceptCallingCard /
+  // declineCallingCard free-action wrappers (not diffed).
+  | {
+      kind: "CallingCardAccepted";
+      tick: number;
+      cardId: CallingCardId;
+      callerCharacterId: CharacterId;
+      sessionId: VisitSessionId;
+    }
+  | {
+      kind: "CallingCardDeclined";
+      tick: number;
+      cardId: CallingCardId;
+      callerCharacterId: CharacterId;
+    }
+  // Visit session lifecycle (drawing-room call opened by accepting a card).
+  // Reuses conversationBus, matching the promenade-events precedent.
+  | {
+      kind: "VisitEntered";
+      tick: number;
+      houseId: HouseId;
+      sessionId: VisitSessionId;
+      callerCharacterId: CharacterId;
+    }
+  | {
+      kind: "VisitExited";
+      tick: number;
+      houseId: HouseId;
+      sessionId: VisitSessionId;
+      callerCharacterId: CharacterId | null;
     };
 
 export const conversationBus = new EventBus<ConversationEvent>();

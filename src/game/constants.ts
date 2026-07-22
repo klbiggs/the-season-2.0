@@ -1088,6 +1088,8 @@ export const PROMENADE_PLAYER_MOUNT_MINGLE_BONUS = 5; // per-action; player head
 export const CALLING_CARD_PROBABILITY_BASIS_POINTS = 300;
 // Absolute-end-tick offset: a Pending card expires this many ticks after issue.
 export const CALLING_CARD_EXPIRY_TICKS = 5;
+// Flat affection penalty applied to the (player, caller) pair on decline.
+export const CALLING_CARD_DECLINE_AFFECTION_PENALTY = 5;
 
 // ── Global Events & Era (P13) ─────────────────────────────────────────────
 // Spec §3 "Global Events" (lines 386-392) + "Era Progression" (lines 394-398)

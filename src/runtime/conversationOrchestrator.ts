@@ -24,8 +24,10 @@ import {
   type BallSessionId,
   type CharacterId,
   type PromenadeSessionId,
+  type VisitSessionId,
   makeBallSessionId,
   makePromenadeSessionId,
+  makeVisitSessionId,
 } from "../game/rng";
 import { LlmClient } from "../llm/client";
 import { CancelledError, NetworkError, SchemaError } from "../llm/errors";
@@ -53,6 +55,14 @@ type SessionState =
       sessionId: PromenadeSessionId;
       tickAtEntry: number;
       partnerCharacterId: CharacterId;
+    }
+  // P26: NPC-initiated Visit (drawing-room call). Carries the caller id + the
+  // originating card so exitVisit / the VisitExited event can reference them.
+  | {
+      mode: "Visit";
+      sessionId: VisitSessionId;
+      tickAtEntry: number;
+      callerCharacterId: CharacterId;
     };
 
 class ConversationOrchestrator {
@@ -64,11 +74,13 @@ class ConversationOrchestrator {
   // ── Session methods (called by store actions enterBallroom/exitBallroom) ──
 
   beginSession(tick: number): BallSessionId {
-    // P12: defense-in-depth against cross-mode misuse. Store-action layer
+    // P12/P26: defense-in-depth against cross-mode misuse. Store-action layer
     // gates first via the SessionAlreadyOpen rejection; this throw fires
     // only on test code or future internal refactors that bypass the gate.
-    if (this.currentSession !== null && this.currentSession.mode === "Promenade") {
-      throw new Error("conversationOrchestrator.beginSession: a Promenade session is already open");
+    if (this.currentSession !== null && this.currentSession.mode !== "Ballroom") {
+      throw new Error(
+        `conversationOrchestrator.beginSession: a ${this.currentSession.mode} session is already open`,
+      );
     }
     // P4 disallows concurrent sessions. Re-entering within the same tick
     // returns the existing sessionId (idempotent); a new tick replaces.
@@ -87,9 +99,9 @@ class ConversationOrchestrator {
   // P12: open a Promenade-mode session. Symmetric with beginSession but
   // carries the deterministically-picked partner.
   beginPromenadeSession(tick: number, partnerCharacterId: CharacterId): PromenadeSessionId {
-    if (this.currentSession !== null && this.currentSession.mode === "Ballroom") {
+    if (this.currentSession !== null && this.currentSession.mode !== "Promenade") {
       throw new Error(
-        "conversationOrchestrator.beginPromenadeSession: a Ballroom session is already open",
+        `conversationOrchestrator.beginPromenadeSession: a ${this.currentSession.mode} session is already open`,
       );
     }
     if (
@@ -112,18 +124,39 @@ class ConversationOrchestrator {
     return sessionId;
   }
 
-  endSession(): BallSessionId | PromenadeSessionId | null {
+  // P26: open a Visit-mode session (NPC-initiated drawing-room call). Symmetric
+  // with beginPromenadeSession but carries the caller (from the accepted card).
+  beginVisitSession(tick: number, callerCharacterId: CharacterId): VisitSessionId {
+    if (this.currentSession !== null && this.currentSession.mode !== "Visit") {
+      throw new Error(
+        `conversationOrchestrator.beginVisitSession: a ${this.currentSession.mode} session is already open`,
+      );
+    }
+    if (
+      this.currentSession !== null &&
+      this.currentSession.mode === "Visit" &&
+      this.currentSession.tickAtEntry === tick &&
+      this.currentSession.callerCharacterId === callerCharacterId
+    ) {
+      return this.currentSession.sessionId;
+    }
+    const sessionId = makeVisitSessionId(tick);
+    this.currentSession = { mode: "Visit", sessionId, tickAtEntry: tick, callerCharacterId };
+    return sessionId;
+  }
+
+  endSession(): BallSessionId | PromenadeSessionId | VisitSessionId | null {
     const id = this.currentSession?.sessionId ?? null;
     this.currentSession = null;
     return id;
   }
 
-  currentSessionId(): BallSessionId | PromenadeSessionId | null {
+  currentSessionId(): BallSessionId | PromenadeSessionId | VisitSessionId | null {
     return this.currentSession?.sessionId ?? null;
   }
 
-  // P12: which mode is the current session in (or null if no session).
-  currentMode(): "Ballroom" | "Promenade" | null {
+  // P12/P26: which mode is the current session in (or null if no session).
+  currentMode(): "Ballroom" | "Promenade" | "Visit" | null {
     return this.currentSession?.mode ?? null;
   }
 
@@ -134,6 +167,13 @@ class ConversationOrchestrator {
     return this.currentSession?.mode === "Promenade"
       ? this.currentSession.partnerCharacterId
       : null;
+  }
+
+  // P26: caller id for the current Visit session (or null if not in Visit mode).
+  // Used by sendVisitMessage to read the caller at send time + by exitVisit for
+  // the VisitExited event payload.
+  currentVisitCaller(): CharacterId | null {
+    return this.currentSession?.mode === "Visit" ? this.currentSession.callerCharacterId : null;
   }
 
   // ── Request lifecycle ────────────────────────────────────────────────────
