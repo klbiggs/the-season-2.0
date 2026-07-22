@@ -2440,14 +2440,29 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // Abort any in-flight per-turn request BEFORE the tick advance.
         conversationOrchestrator.abortCurrent();
         const stateBefore = get();
+        // P26 (H5): close the deliberate P12 modal-gate divergence. If exile or
+        // an elopement mounted during the session (via a parallel store action
+        // in the in-flight window), close it WITHOUT advancing the tick or
+        // firing publishers — elopement suspends time; the commit-on-leave
+        // 1-tick cost is not charged to a modal-aborted session. Per-turn
+        // history/affection writes already landed; skipping the tick is safe.
+        if (
+          stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true ||
+          hasActivePlayerElopement(stateBefore)
+        ) {
+          conversationOrchestrator.endSession();
+          conversationBus.publish({
+            kind: "PromenadeExited",
+            tick: stateBefore.tick,
+            houseId: PLAYER_HOUSE_ID,
+            sessionId,
+            partnerCharacterId,
+          });
+          return;
+        }
         // The 1-tick cost per spec line 446 is the contract. History +
         // affection mutations from sendPromenadeMessage already landed
-        // per-turn; the tick advance is the only commit on exit. No
-        // elopement gate needed because the view-routing precedence
-        // (Elopement > Promenade) means a mid-promenade elopement mount
-        // requires a parallel store action — which would have to land
-        // within an in-flight sendPromenadeMessage's window. Out-of-scope
-        // race per the plan's edge-case section.
+        // per-turn; the tick advance is the only commit on exit.
         const afterTick = advanceTickPure(stateBefore);
         set((draft) => {
           overwriteFromGameState(draft, afterTick);
@@ -2460,7 +2475,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           sessionId,
           partnerCharacterId,
         });
-        // 10-publisher set per CLAUDE.md (matches travel/requestAudience/...).
+        // 14-publisher set per CLAUDE.md (matches travel/requestAudience/...).
         publishCharacterDeaths(stateBefore, afterTick);
         publishSchemeTransitions(stateBefore, afterTick);
         publishWhisperTransitions(stateBefore, afterTick);
@@ -2545,6 +2560,14 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // Read mount-equip predicates at resolve time (defense-in-depth
         // against state drift between request build and post-await).
         const stateAtResolve = get();
+        // P26 (H5): close the P12 divergence — drop the exchange (no history/
+        // affection write) if exile/elopement mounted mid-flight.
+        if (
+          stateAtResolve.houses.get(PLAYER_HOUSE_ID)?.exiled === true ||
+          hasActivePlayerElopement(stateAtResolve)
+        ) {
+          return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
+        }
         const playerMount = playerHeadEquipsMountFamily(stateAtResolve);
         const partnerAtResolve = stateAtResolve.characters.get(target.id);
         const targetMount =

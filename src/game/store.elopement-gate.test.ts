@@ -13,6 +13,7 @@
 
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
+import { conversationOrchestrator } from "../runtime/conversationOrchestrator";
 import { type ElopementEvent, elopementBus } from "../runtime/events/elopement";
 import type { ElopementSprintState } from "./entities";
 import type {
@@ -276,6 +277,35 @@ describe("Elopement gate — staff lifecycle wrappers", () => {
     const store = setupWithActiveSprint();
     const result = store.getState().promoteStaff("staff-mrs-hudson" as StaffId);
     expect(result).toEqual({ ok: false, reason: { kind: "ElopementInProgress" } });
+  });
+});
+
+// ── P26 H5: promenade modal-gate closure (P12 divergence) ──────────────────
+describe("Promenade modal-gate closure (H5)", () => {
+  function openPromenade() {
+    const store = createStore({ seed: "h5-promenade" });
+    const partner = [...store.getState().characters.values()].find((c) => c.alive);
+    if (partner === undefined) throw new Error("no partner");
+    conversationOrchestrator.beginPromenadeSession(store.getState().tick, partner.id);
+    return store;
+  }
+
+  it("exitPromenade does NOT advance the tick when a player elopement mounted mid-session", () => {
+    const store = openPromenade();
+    const tickBefore = store.getState().tick;
+    // Mount a player-controlled sprint via a parallel action during the session.
+    store.setState({ elopements: new Map([[SYNTH_SPRINT.id, SYNTH_SPRINT]]) });
+    store.getState().exitPromenade();
+    expect(store.getState().tick).toBe(tickBefore); // commit-on-leave tick skipped
+    conversationOrchestrator.endSession();
+  });
+
+  it("exitPromenade advances the tick normally with no modal state", () => {
+    const store = openPromenade();
+    const tickBefore = store.getState().tick;
+    store.getState().exitPromenade();
+    expect(store.getState().tick).toBe(tickBefore + 1); // normal commit-on-leave
+    conversationOrchestrator.endSession();
   });
 });
 
