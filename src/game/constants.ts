@@ -327,11 +327,11 @@ export const FLAVOR_SERVER_TIMEOUT_MS = 12_000;
 
 // ── P5: Schemes & Multi-Tick Operations ──────────────────────────────────
 
-// Six scheme kinds per spec §3 "Schemes" line 79. Treason Framing (7th) is
-// reserved for P10 — adding it requires a SAVE_VERSION bump (see assertion
-// below). Order matters: SchemeKindSchema = z.enum(SCHEME_KINDS) serializes
-// by string value (not by index), but the enum cardinality is part of the
-// hash projection via Scheme entity.
+// Eight scheme kinds per spec §3 "Schemes" (L79 roster). Treason Framing (7th,
+// P10) + OfficerCommission (8th, P25 R10 — the MilitaryOfficer acquisition
+// path) are user-approved spec amendments (L34/L79/L756). Order matters:
+// SchemeKindSchema = z.enum(SCHEME_KINDS) serializes by string value (not by
+// index), but the enum cardinality is part of the hash projection via Scheme.
 export const SCHEME_KINDS = [
   "Courting",
   "Sabotage",
@@ -340,14 +340,17 @@ export const SCHEME_KINDS = [
   "Smuggling",
   "Assassination",
   "TreasonFraming",
+  "OfficerCommission",
 ] as const;
 export type SchemeKind = (typeof SCHEME_KINDS)[number];
 
-// Module-load assertion: P10 shipped the Treason Framing addition with
-// save-version bump v10→v11. Future 8th kind requires another bump + migration.
-if (SCHEME_KINDS.length !== 7) {
+// Module-load assertion pins the enum cardinality. P25 bumped the literal 7→8
+// for OfficerCommission — PRE-RELEASE posture: no save-version bump, no
+// migration (dev saves reset); the assertion is a wiring trip-wire, not a
+// migration gate.
+if (SCHEME_KINDS.length !== 8) {
   throw new Error(
-    `SCHEME_KINDS length changed (${SCHEME_KINDS.length} !== 7) without save-version bump — bump SAVE_VERSION_CURRENT and add migration`,
+    `SCHEME_KINDS length changed (${SCHEME_KINDS.length} !== 8) — update all Record<SchemeKind> tables + the SchemeButtons ballroom filter`,
   );
 }
 
@@ -375,6 +378,9 @@ export const SCHEME_TUNING: Readonly<
   Smuggling: { wealthCost: 20, durationTicks: 4 },
   Assassination: { wealthCost: 50, durationTicks: 6 },
   TreasonFraming: { wealthCost: 40, durationTicks: 5 },
+  // P25 R10: self-improvement scheme granting the MilitaryOfficer trait to an
+  // own-house adult on completion. Era-agnostic; no archetype prerequisite.
+  OfficerCommission: { wealthCost: 40, durationTicks: 8 },
 };
 
 // Spec §3 schemes table: completion effect deltas (per-scheme constants;
@@ -420,6 +426,8 @@ export const SCHEME_PREREQUISITES: Readonly<Record<SchemeKind, readonly Archetyp
   // Allowing CountryExile to start TreasonFraming without being able to forge would deadlock
   // CountryExile-only player houses.
   TreasonFraming: ["BohemianRake"],
+  // P25 R10: any house can purchase a commission — no archetype gate.
+  OfficerCommission: [],
 };
 
 // Spec §3 line 357: Smuggling requires the Earlier (wartime) era at start.
@@ -432,6 +440,7 @@ export const SCHEME_ERA_REQUIREMENTS: Readonly<Record<SchemeKind, "Earlier" | "L
   Smuggling: "Earlier",
   Assassination: null,
   TreasonFraming: null,
+  OfficerCommission: null,
 };
 
 // Spec §3 "Era Progression": fixed tick threshold. Designer-tunable per-build

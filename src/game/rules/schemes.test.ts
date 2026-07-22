@@ -7,9 +7,9 @@ import { describe, expect, it } from "vitest";
 import { makeCharacter, makeHouse } from "../__test-utils__/factories";
 import {
   ERA_TRANSITION_TICK,
+  SCHEME_KINDS,
   SCHEME_TUNING,
   SEDUCTION_AFFECTION_PER_TICK,
-  type SchemeKind,
   WAR_EFFORT_SEDUCTION_AFFECTION_MULTIPLIER,
 } from "../constants";
 import type { GameState, Scheme } from "../entities";
@@ -19,6 +19,7 @@ import {
   INDEPENDENT_HOUSE_ID,
   PLAYER_HOUSE_ID,
   type SchemeId,
+  type TraitId,
   createRngState,
 } from "../rng";
 import { applySchemeResolutionPhase, cancelScheme, tryStartScheme } from "./schemes";
@@ -641,16 +642,69 @@ describe("two-pass resolver — Chaperone preempts Seduction", () => {
 // ── SchemeKind cardinality assertion smoke test ──────────────────────────
 
 describe("SCHEME_KINDS cardinality", () => {
-  it("is 6 (matches module-load assertion)", () => {
-    const kinds: SchemeKind[] = [
-      "Courting",
-      "Sabotage",
-      "Seduction",
-      "Chaperone",
-      "Smuggling",
-      "Assassination",
-    ];
-    expect(kinds.length).toBe(6);
+  it("is 8 (matches the module-load assertion; P25 added OfficerCommission)", () => {
+    expect(SCHEME_KINDS.length).toBe(8);
+    expect(SCHEME_KINDS).toContain("TreasonFraming");
+    expect(SCHEME_KINDS).toContain("OfficerCommission");
+  });
+});
+
+// P25 R10 — OfficerCommission (8th scheme). Self-improvement: the target is an
+// own-house adult (== aggressor), passed via skipSelfTargetGate +
+// explicitAggressorCharacterId; completion grants MilitaryOfficer + reclassify.
+const PLAYER_HEAD_ID = "player-head" as CharacterId;
+const MILITARY_OFFICER = "MilitaryOfficer" as TraitId;
+
+function startOfficerCommission(state: GameState) {
+  return tryStartScheme(state, PLAYER_HOUSE_ID, {
+    kind: "OfficerCommission",
+    targetCharacterId: PLAYER_HEAD_ID,
+    skipSelfTargetGate: true,
+    explicitAggressorCharacterId: PLAYER_HEAD_ID,
+  });
+}
+
+describe("P25 R10 — OfficerCommission scheme", () => {
+  it("starts on an own-house adult (self-target) → Active, wealth deducted", () => {
+    const start = startOfficerCommission(synthStateWith());
+    if (!start.ok) throw new Error(`unexpected rejection: ${JSON.stringify(start.reason)}`);
+    const scheme = start.state.schemes.get(start.schemeId);
+    expect(scheme?.status).toBe("Active");
+    expect(scheme?.kind).toBe("OfficerCommission");
+    expect(start.state.houses.get(PLAYER_HOUSE_ID)?.wealth).toBe(
+      500 - SCHEME_TUNING.OfficerCommission.wealthCost,
+    );
+  });
+
+  it("completion grants the MilitaryOfficer trait to the target and reclassifies", () => {
+    const start = startOfficerCommission(synthStateWith());
+    if (!start.ok) throw new Error("unreachable");
+    const { state: resolved, scheme } = advanceSchemeToEndTick(start.state, start.schemeId);
+    expect(scheme.status).toBe("Completed");
+    const head = resolved.characters.get(PLAYER_HEAD_ID);
+    expect(head?.traits).toContain(MILITARY_OFFICER);
+  });
+
+  it("is idempotent — completion on a character that already has the trait does not duplicate", () => {
+    const officerHead = makeCharacter({
+      id: PLAYER_HEAD_ID,
+      houseId: PLAYER_HOUSE_ID,
+      name: "Player Head",
+      traits: [MILITARY_OFFICER],
+    });
+    const npcTarget = makeCharacter({ id: TARGET_ID, houseId: INDEPENDENT_HOUSE_ID });
+    const initial = synthStateWith({
+      characters: new Map([
+        [officerHead.id, officerHead],
+        [npcTarget.id, npcTarget],
+      ]),
+    });
+    const start = startOfficerCommission(initial);
+    if (!start.ok) throw new Error("unreachable");
+    const { state: resolved, scheme } = advanceSchemeToEndTick(start.state, start.schemeId);
+    expect(scheme.status).toBe("Completed");
+    const head = resolved.characters.get(PLAYER_HEAD_ID);
+    expect(head?.traits.filter((t) => t === MILITARY_OFFICER)).toHaveLength(1);
   });
 });
 

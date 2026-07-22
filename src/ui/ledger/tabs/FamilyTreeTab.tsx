@@ -12,6 +12,7 @@ import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   ADULTHOOD_AGE_IN_YEARS,
+  SCHEME_TUNING,
   SIBLING_RIVAL_ACTION_COOLDOWN_TICKS,
   SIBLING_RIVAL_RECONCILIATION_REPUTATION_COST,
   SIBLING_RIVAL_RECONCILIATION_WEALTH_COST,
@@ -156,6 +157,7 @@ export function FamilyTreeTab({ store }: Props) {
   const chooseTutorBonusTrait = store((s) => s.chooseTutorBonusTrait);
   const revealNpcBio = store((s) => s.revealNpcBio);
   const abandonMarriage = store((s) => s.abandonMarriage);
+  const startScheme = store((s) => s.startScheme);
 
   const [mode, setMode] = useState<FamilyMode>("family");
 
@@ -219,6 +221,25 @@ export function FamilyTreeTab({ store }: Props) {
   const onChooseTrait = (childId: CharacterId, traitId: TraitId) => {
     const r = chooseTutorBonusTrait(childId, traitId);
     if (!r.ok) console.warn(`chooseTutorBonusTrait rejected: ${r.reason.kind}`);
+  };
+
+  // P25 R10: OfficerCommission — the SOLE entry point for the self-improvement
+  // scheme (the ballroom picker excludes it). Eligible = alive adult player-house
+  // members without the MilitaryOfficer trait.
+  const OFFICER_TRAIT = "MilitaryOfficer" as TraitId;
+  const commissionCost = SCHEME_TUNING.OfficerCommission.wealthCost;
+  const commissionEligible = members.filter(
+    (c) => c.alive && c.age >= ADULTHOOD_AGE_IN_YEARS && !c.traits.includes(OFFICER_TRAIT),
+  );
+  const canCommission = !modalBlocked && (playerHouse?.wealth ?? 0) >= commissionCost;
+  const onPurchaseCommission = (memberId: CharacterId) => {
+    const r = startScheme({
+      kind: "OfficerCommission",
+      targetCharacterId: memberId,
+      skipSelfTargetGate: true,
+      explicitAggressorCharacterId: memberId,
+    });
+    if (!r.ok) console.warn(`OfficerCommission rejected: ${r.reason.kind}`);
   };
 
   // P22: 3-mode segmented control. "family" = text roster; "web" = the player-
@@ -410,6 +431,38 @@ export function FamilyTreeTab({ store }: Props) {
                         </option>
                       ))}
                     </select>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {commissionEligible.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wide">
+                Officer Commissions
+              </h3>
+              <ul data-testid="officer-commission-list" className="space-y-1">
+                {commissionEligible.map((c) => (
+                  <li
+                    key={c.id}
+                    className="flex items-center gap-3 rounded-md border border-stone-200 px-3 py-2 text-sm"
+                  >
+                    <span className="w-40 font-medium text-stone-800">{c.name}</span>
+                    <button
+                      type="button"
+                      data-testid={`purchase-commission-${c.id}`}
+                      disabled={!canCommission}
+                      onClick={() => onPurchaseCommission(c.id)}
+                      className="rounded border border-stone-300 px-2 py-1 text-sm disabled:opacity-40"
+                      title={
+                        canCommission
+                          ? undefined
+                          : `Requires ${commissionCost} wealth (and no active elopement/exile)`
+                      }
+                    >
+                      Purchase a Commission ({commissionCost} wealth)
+                    </button>
                   </li>
                 ))}
               </ul>

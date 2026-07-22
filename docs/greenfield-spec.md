@@ -31,7 +31,7 @@ The game lets a single player rise across multiple generations of a noble house 
 - Real-time (no animations or reflex actions gate progress; all advancement is turn-based).
 - A roguelike (campaigns span multiple in-game generations, ~100+ turns; save state is durable).
 - A historically accurate simulation (Regency setting is thematic flavor, not a research target).
-- A platform that ships user-authored content; all 32 traits, 5 moods, 7 locations, 7 scheme types, and 5 patronesses are fixed by the design.
+- A platform that ships user-authored content; all 32 traits, 5 moods, 7 locations, 8 scheme types, and 5 patronesses are fixed by the design.
 
 ---
 
@@ -76,8 +76,8 @@ The game lets a single player rise across multiple generations of a noble house 
 **What it does:** Schemes are wealth-costed multi-tick operations that resolve into deterministic state effects at completion.
 **Why it matters:** Schemes give the player asymmetric long-game leverage beyond single-tick tactics.
 **Key behaviors:**
-- Six active scheme types: Courting (slow affection accumulation), Sabotage (composure damage), Seduction (high affection with a discovery-roll branch into an elopement chase), Chaperone (defensive cancellation of in-flight Seductions), Smuggling (one-shot blockade bypass), Assassination (target death plus scandal).
-- A seventh scheme type (Treason Framing) is reserved for a later artifact-dependent phase.
+- Eight active scheme types: Courting (slow affection accumulation), Sabotage (composure damage), Seduction (high affection with a discovery-roll branch into an elopement chase), Chaperone (defensive cancellation of in-flight Seductions), Smuggling (one-shot blockade bypass), Assassination (target death plus scandal), Treason Framing (consumes an unsurfaced forgery to crater a rival house's reputation and raise mutual hostility), and Officer Commission (a self-directed purchase granting a family member the military-officer trait).
+- Treason Framing (the artifact-dependent scheme) and Officer Commission (the military-officer acquisition path) were both added after the original six; all eight are now active.
 - Each scheme declares prerequisites via a flag set: family-member archetypes the player must have (a spinster aunt, a bohemian, a country exile), era restrictions, and required casus-belli or forged-items.
 - Schemes are cancellable while active; cancellation refunds nothing.
 
@@ -183,7 +183,7 @@ The game lets a single player rise across multiple generations of a noble house 
 - Thwart resolution requires a living spymaster archetype, costs wealth, and succeeds at a high probability; failure removes the artifact from its owner.
 
 ### Treason Framing (Forged-Artifact Scheme)
-**What it does:** A seventh scheme type that uses an unsurfaced forgery to drop a rival house's reputation severely and raise mutual hostility, consuming the forgery in the process.
+**What it does:** An artifact-dependent scheme type that uses an unsurfaced forgery to drop a rival house's reputation severely and raise mutual hostility, consuming the forgery in the process.
 **Why it matters:** This is the apex outcome of the forgery loop and the only scheme that *requires* an artifact-derived resource.
 **Key behaviors:**
 - Available only when the player's house holds at least one unsurfaced forgery record.
@@ -753,7 +753,7 @@ These requirements are derived from hindsight analysis of the prior implementati
 
 - The game is single-player; no architecture for concurrent players is required.
 - The game runs offline except when the conversation feature is in use; offline play must remain fully functional.
-- All gameplay math (32 traits, 5 moods, 7 locations, 7 schemes, 4 tactics, 3 rival houses, 5 patronesses, 4 factions, 2 eras) is fixed by design and not user-extensible.
+- All gameplay math (32 traits, 5 moods, 7 locations, 8 schemes, 4 tactics, 3 rival houses, 5 patronesses, 4 factions, 2 eras) is fixed by design and not user-extensible.
 - The conversation feature is optional and must gracefully degrade in its absence.
 - The remote-model service credential must never leave the player's machine except to the model service itself.
 

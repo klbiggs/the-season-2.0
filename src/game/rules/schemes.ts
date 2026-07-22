@@ -36,8 +36,8 @@ import {
   WAR_EFFORT_SEDUCTION_AFFECTION_MULTIPLIER,
 } from "../constants";
 import { makePairKey } from "../conversation/types";
-import type { GameState, Grievance, Scheme } from "../entities";
-import type { Archetype } from "../fixtures/archetypes";
+import type { Character, GameState, Grievance, Scheme } from "../entities";
+import { type Archetype, classifyArchetype } from "../fixtures/archetypes";
 import { makeSchemeId } from "../fixtures/schemeIdFactory";
 import {
   type CharacterId,
@@ -417,7 +417,34 @@ function resolveSchemeCompletion(state: GameState, scheme: Scheme): GameState {
       return resolveAssassination(state, scheme);
     case "TreasonFraming":
       return resolveTreasonFraming(state, scheme);
+    case "OfficerCommission":
+      return resolveOfficerCommission(state, scheme);
   }
+}
+
+// P25 R10 — OfficerCommission (8th scheme). Self-improvement: grants the
+// MilitaryOfficer trait to the target (== aggressor, an own-house adult) on
+// completion and reclassifies its archetype (P23 trait-acquisition path).
+// Idempotent if the trait is already present. No bus publish from the tick-
+// phase completion (matches the locationEffects mid-life reclassify precedent).
+function resolveOfficerCommission(state: GameState, scheme: Scheme): GameState {
+  const targetId = scheme.targetCharacterId;
+  if (targetId === null) {
+    throw new Error(`resolveOfficerCommission: scheme ${scheme.id} has no target`);
+  }
+  const target = state.characters.get(targetId);
+  if (target === undefined || !target.alive) {
+    return flipSchemeStatus(state, scheme.id, "Failed", "TargetDied");
+  }
+  let baseState: GameState = state;
+  if (!target.traits.includes(MILITARY_OFFICER)) {
+    const withTrait: Character = { ...target, traits: [...target.traits, MILITARY_OFFICER] };
+    const reclassified: Character = { ...withTrait, archetype: classifyArchetype(withTrait) };
+    const characters = new Map(state.characters);
+    characters.set(targetId, reclassified);
+    baseState = { ...state, characters };
+  }
+  return flipSchemeStatus(baseState, scheme.id, "Completed");
 }
 
 // P10 — Treason Framing. The 7th scheme kind. Consumes an unsurfaced forgery

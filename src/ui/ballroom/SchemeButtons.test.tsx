@@ -12,6 +12,37 @@ afterEach(cleanup);
 const HEAD = "head" as CharacterId;
 const TARGET = "target-npc" as CharacterId;
 
+describe("SchemeButtons — P25 R10 ballroom picker set", () => {
+  it("renders the 7 target-directed schemes and EXCLUDES OfficerCommission", () => {
+    const store = createStore({ seed: "sb-picker" });
+    store.getState().replaceState(
+      makeGameState({
+        houses: new Map([
+          [PLAYER_HOUSE_ID, makeHouse({ id: PLAYER_HOUSE_ID, headOfHouseCharacterId: HEAD })],
+        ]),
+        characters: new Map([
+          [HEAD, makeCharacter({ id: HEAD, role: "HeadOfHouse" })],
+          [TARGET, makeCharacter({ id: TARGET, houseId: INDEPENDENT_HOUSE_ID })],
+        ]),
+      }),
+    );
+    render(<SchemeButtons store={store} selectedTargetId={TARGET} />);
+    // OfficerCommission is a self-improvement scheme — never a ballroom button.
+    expect(screen.queryByRole("button", { name: "OfficerCommission" })).toBeNull();
+    for (const kind of [
+      "Courting",
+      "Sabotage",
+      "Seduction",
+      "Chaperone",
+      "Smuggling",
+      "Assassination",
+      "TreasonFraming",
+    ]) {
+      expect(screen.getByRole("button", { name: kind })).not.toBeNull();
+    }
+  });
+});
+
 describe("SchemeButtons rejection toast (P21 LOW)", () => {
   it("surfaces a toast when startScheme rejects (enabled-but-rejecting race)", () => {
     const store = createStore({ seed: "sb" });

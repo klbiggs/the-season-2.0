@@ -75,9 +75,16 @@ export const ARCHETYPE_MATURATION_TRAIT_POOL: Readonly<
   Record<Archetype, readonly [TraitId, TraitId] | null>
 > = {
   Spymaster: ["Observant" as TraitId, "Cunning" as TraitId],
-  BohemianRake: ["Jaded" as TraitId, "Melancholic" as TraitId],
+  // P25 R10: MilitaryOfficer swapped in (SWAP, not widen — the tuple type +
+  // pool.length===2 guard forbid a 3rd entry). BohemianRake displaces
+  // Melancholic (mirrors the P16 BohemianRake procedural profile's
+  // [Jaded, MilitaryOfficer]; Melancholic stays acquirable via conception
+  // novelty + procedural society). CountryExile displaces Rustic (Rustic stays
+  // acquirable via Country-location trait effects; ImpoverishedNobility is kept
+  // as the defining CountryExile trait).
+  BohemianRake: ["Jaded" as TraitId, "MilitaryOfficer" as TraitId],
   Tutor: ["Intellectual" as TraitId, "Sophisticated" as TraitId],
-  CountryExile: ["ImpoverishedNobility" as TraitId, "Rustic" as TraitId],
+  CountryExile: ["ImpoverishedNobility" as TraitId, "MilitaryOfficer" as TraitId],
   None: null,
 };
 

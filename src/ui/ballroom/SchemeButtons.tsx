@@ -21,6 +21,12 @@ import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import type { SeasonStore } from "../../game/store";
 import { ActionRejectionToast } from "../map/ActionRejectionToast";
 
+// P25 R10: OfficerCommission is a SELF-improvement scheme (target == own-house
+// adult) — it has no place in the "schemes against the selected target"
+// ballroom surface (spec §3 L73). It is filtered OUT here; its only entry
+// point is the FamilyTreeTab "Purchase a Commission" action.
+const BALLROOM_SCHEME_KINDS = SCHEME_KINDS.filter((k) => k !== "OfficerCommission");
+
 type Props = {
   store: SeasonStore;
   selectedTargetId: CharacterId | null;
@@ -67,7 +73,7 @@ export function SchemeButtons({ store, selectedTargetId }: Props) {
         </select>
       </label>
       <div className="scheme-buttons__list">
-        {SCHEME_KINDS.map((kind) => {
+        {BALLROOM_SCHEME_KINDS.map((kind) => {
           const tuning = SCHEME_TUNING[kind];
           const acceptable = SCHEME_PREREQUISITES[kind];
           const targetForKind = kind === "Smuggling" ? null : selectedTargetId;
