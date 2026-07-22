@@ -498,6 +498,7 @@ describe("Seduction WarEffort × MilitaryOfficer multiplier (P13 matrix #14)", (
             id: "globalevent-WarEffort-0" as import("../rng").GlobalEventId,
             startTick: 0,
             endTick: 100,
+            extendedOnce: false,
           },
         ],
       ]),

@@ -13,7 +13,10 @@ import {
   COURIER_RESEARCH_WEALTH_COST,
   DUCAL_WEDDING_DURATION_TICKS,
   DUCAL_WEDDING_REPUTATION_PER_TICK,
+  END_EVENT_EARLY_WEALTH_COST,
   ERA_TRANSITION_TICK,
+  EXTEND_EVENT_TICKS,
+  EXTEND_EVENT_WEALTH_COST,
   GLOBAL_EVENT_TRIGGER_PROBABILITY_BASIS_POINTS,
   MARKET_CRASH_DURATION_TICKS,
   MARKET_CRASH_WEALTH_PER_TICK,
@@ -427,6 +430,7 @@ function maybeFireNewEvent(state: GameState): GameState {
       id: makeGlobalEventId(state, "MonarchsMood"),
       startTick: state.tick,
       endTick: state.tick + MONARCHS_MOOD_DURATION_TICKS,
+      extendedOnce: false,
       favoredCulture,
     };
   } else if (candidateKind === "WarEffort") {
@@ -435,6 +439,7 @@ function maybeFireNewEvent(state: GameState): GameState {
       id: makeGlobalEventId(state, "WarEffort"),
       startTick: state.tick,
       endTick: state.tick + WAR_EFFORT_DURATION_TICKS,
+      extendedOnce: false,
     };
   } else if (candidateKind === "MarketCrash") {
     event = {
@@ -442,6 +447,7 @@ function maybeFireNewEvent(state: GameState): GameState {
       id: makeGlobalEventId(state, "MarketCrash"),
       startTick: state.tick,
       endTick: state.tick + MARKET_CRASH_DURATION_TICKS,
+      extendedOnce: false,
     };
   } else if (candidateKind === "RoyalFuneral") {
     event = {
@@ -449,6 +455,7 @@ function maybeFireNewEvent(state: GameState): GameState {
       id: makeGlobalEventId(state, "RoyalFuneral"),
       startTick: state.tick,
       endTick: state.tick + ROYAL_FUNERAL_DURATION_TICKS,
+      extendedOnce: false,
     };
   } else if (candidateKind === "DucalWedding") {
     event = {
@@ -456,6 +463,7 @@ function maybeFireNewEvent(state: GameState): GameState {
       id: makeGlobalEventId(state, "DucalWedding"),
       startTick: state.tick,
       endTick: state.tick + DUCAL_WEDDING_DURATION_TICKS,
+      extendedOnce: false,
     };
   } else {
     // PeasantRevolt
@@ -464,6 +472,7 @@ function maybeFireNewEvent(state: GameState): GameState {
       id: makeGlobalEventId(state, "PeasantRevolt"),
       startTick: state.tick,
       endTick: state.tick + PEASANT_REVOLT_DURATION_TICKS,
+      extendedOnce: false,
     };
   }
 
@@ -525,4 +534,90 @@ export function applyResearchFastCouriers(
     courierResearchEarned: true,
   });
   return { ok: true, nextState: { ...state, houses: newHouses } };
+}
+
+// ── P25 R14: mid-event extend / end-early free actions ──────────────────
+
+export type GlobalEventMutationRejection =
+  | { kind: "PlayerExiled" }
+  | { kind: "ElopementInProgress" }
+  | { kind: "EventNotFound" }
+  | { kind: "InsufficientWealth"; have: number; need: number }
+  | { kind: "AlreadyExtended" };
+
+// Extend an active event's absolute end-tick by EXTEND_EVENT_TICKS (computed
+// once, at action time — never a relative extension; §2 non-negotiable). Once
+// per event instance (extendedOnce latch). Free action; caller composes the
+// overwriteFromGameState + direct-publish.
+export function applyExtendGlobalEvent(
+  state: GameState,
+  eventId: GlobalEventId,
+): { ok: true; nextState: GameState } | { ok: false; reason: GlobalEventMutationRejection } {
+  const player = state.houses.get(PLAYER_HOUSE_ID);
+  if (player === undefined || player.exiled) {
+    return { ok: false, reason: { kind: "PlayerExiled" } };
+  }
+  if (hasActivePlayerElopement(state)) {
+    return { ok: false, reason: { kind: "ElopementInProgress" } };
+  }
+  const event = state.globalEvents.get(eventId);
+  if (event === undefined) {
+    return { ok: false, reason: { kind: "EventNotFound" } };
+  }
+  if (event.extendedOnce) {
+    return { ok: false, reason: { kind: "AlreadyExtended" } };
+  }
+  if (player.wealth < EXTEND_EVENT_WEALTH_COST) {
+    return {
+      ok: false,
+      reason: { kind: "InsufficientWealth", have: player.wealth, need: EXTEND_EVENT_WEALTH_COST },
+    };
+  }
+  const newHouses = new Map(state.houses).set(PLAYER_HOUSE_ID, {
+    ...player,
+    wealth: player.wealth - EXTEND_EVENT_WEALTH_COST,
+  });
+  const newEvents = new Map(state.globalEvents).set(eventId, {
+    ...event,
+    endTick: event.endTick + EXTEND_EVENT_TICKS,
+    extendedOnce: true,
+  });
+  return { ok: true, nextState: { ...state, houses: newHouses, globalEvents: newEvents } };
+}
+
+// End an active event early by writing endTick = state.tick. KNOWN one-tick lag
+// (deliberate): apply-before-expire ordering means the next advanceTick applies
+// one more tick of effects before the expiry sweep drops the event. This is the
+// only discipline-compliant shape (Map deletion is a forbidden removal path).
+export function applyEndGlobalEventEarly(
+  state: GameState,
+  eventId: GlobalEventId,
+): { ok: true; nextState: GameState } | { ok: false; reason: GlobalEventMutationRejection } {
+  const player = state.houses.get(PLAYER_HOUSE_ID);
+  if (player === undefined || player.exiled) {
+    return { ok: false, reason: { kind: "PlayerExiled" } };
+  }
+  if (hasActivePlayerElopement(state)) {
+    return { ok: false, reason: { kind: "ElopementInProgress" } };
+  }
+  const event = state.globalEvents.get(eventId);
+  if (event === undefined) {
+    return { ok: false, reason: { kind: "EventNotFound" } };
+  }
+  if (player.wealth < END_EVENT_EARLY_WEALTH_COST) {
+    return {
+      ok: false,
+      reason: {
+        kind: "InsufficientWealth",
+        have: player.wealth,
+        need: END_EVENT_EARLY_WEALTH_COST,
+      },
+    };
+  }
+  const newHouses = new Map(state.houses).set(PLAYER_HOUSE_ID, {
+    ...player,
+    wealth: player.wealth - END_EVENT_EARLY_WEALTH_COST,
+  });
+  const newEvents = new Map(state.globalEvents).set(eventId, { ...event, endTick: state.tick });
+  return { ok: true, nextState: { ...state, houses: newHouses, globalEvents: newEvents } };
 }

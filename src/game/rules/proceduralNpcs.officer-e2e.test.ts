@@ -31,6 +31,7 @@ describe("P16 D3 — procedural society officer trips the WarEffort branch", () 
       id: "globalevent-WarEffort-0" as GlobalEventId,
       startTick: 0,
       endTick: 1_000_000,
+      extendedOnce: false,
     };
     state = { ...state, globalEvents: new Map([[event.id, event]]) };
 

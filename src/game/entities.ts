@@ -575,18 +575,24 @@ export type ThiefAttempt = z.infer<typeof ThiefAttemptSchema>;
 // a small fixed set) is rolled"). P25 R9 (Q21): the "small fixed set" is now
 // the 3-value CULTURES enum (was ARTIFACT_FAMILIES) — coarser matching via
 // CULTURAL_AFFINITY_BY_FAMILY.
+// P25 R14: every arm carries `extendedOnce` (in-event field, NOT top-level) —
+// the extend action can fire at most once per event instance. `.default(false)`
+// backfills on parse; the output type still requires it, so all mint literals
+// set it explicitly.
 export const GlobalEventSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("WarEffort"),
     id: GlobalEventIdSchema,
     startTick: z.number().int().nonnegative(),
     endTick: z.number().int().nonnegative(),
+    extendedOnce: z.boolean().default(false),
   }),
   z.object({
     kind: z.literal("MarketCrash"),
     id: GlobalEventIdSchema,
     startTick: z.number().int().nonnegative(),
     endTick: z.number().int().nonnegative(),
+    extendedOnce: z.boolean().default(false),
   }),
   z.object({
     kind: z.literal("MonarchsMood"),
@@ -594,6 +600,7 @@ export const GlobalEventSchema = z.discriminatedUnion("kind", [
     startTick: z.number().int().nonnegative(),
     endTick: z.number().int().nonnegative(),
     favoredCulture: z.enum(CULTURES),
+    extendedOnce: z.boolean().default(false),
   }),
   // P25 R11: three additional location-keyed event kinds (no extra fields).
   z.object({
@@ -601,18 +608,21 @@ export const GlobalEventSchema = z.discriminatedUnion("kind", [
     id: GlobalEventIdSchema,
     startTick: z.number().int().nonnegative(),
     endTick: z.number().int().nonnegative(),
+    extendedOnce: z.boolean().default(false),
   }),
   z.object({
     kind: z.literal("DucalWedding"),
     id: GlobalEventIdSchema,
     startTick: z.number().int().nonnegative(),
     endTick: z.number().int().nonnegative(),
+    extendedOnce: z.boolean().default(false),
   }),
   z.object({
     kind: z.literal("PeasantRevolt"),
     id: GlobalEventIdSchema,
     startTick: z.number().int().nonnegative(),
     endTick: z.number().int().nonnegative(),
+    extendedOnce: z.boolean().default(false),
   }),
 ]);
 export type GlobalEvent = z.infer<typeof GlobalEventSchema>;

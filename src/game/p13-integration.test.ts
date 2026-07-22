@@ -32,6 +32,7 @@ describe("publishGlobalEventTransitions diff (matrix #18)", () => {
       id: "globalevent-WarEffort-0" as GlobalEventId,
       startTick: 0,
       endTick: 10,
+      extendedOnce: false,
     };
     const after = makeGameState({ globalEvents: new Map([[event.id, event]]) });
     const events: string[] = [];
@@ -49,6 +50,7 @@ describe("publishGlobalEventTransitions diff (matrix #18)", () => {
       id: "globalevent-MarketCrash-0" as GlobalEventId,
       startTick: 0,
       endTick: 5,
+      extendedOnce: false,
     };
     const before = makeGameState({ globalEvents: new Map([[event.id, event]]) });
     const after = makeGameState();

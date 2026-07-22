@@ -1,4 +1,9 @@
 import { useMemo, useState } from "react";
+import {
+  END_EVENT_EARLY_WEALTH_COST,
+  EXTEND_EVENT_TICKS,
+  EXTEND_EVENT_WEALTH_COST,
+} from "../../game/constants";
 import { LOCATIONS, LOCATION_PIN_COORDS, type LocationId } from "../../game/fixtures/locations";
 import { RIVAL_HOUSE_IDS_SET } from "../../game/fixtures/rivals";
 import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
@@ -211,13 +216,39 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
               event.kind === "MonarchsMood"
                 ? `${event.kind}: ${event.favoredCulture} favored (${ticksRemaining} ticks left)`
                 : `${event.kind} (${ticksRemaining} ticks left)`;
+            const canAfford = (house?.wealth ?? 0) >= EXTEND_EVENT_WEALTH_COST;
             return (
               <span
                 key={event.id}
-                className={`px-3 py-1 rounded text-sm font-medium ${colorClass}`}
+                className={`inline-flex items-center gap-2 px-3 py-1 rounded text-sm font-medium ${colorClass}`}
                 data-testid={`event-chip-${event.kind}`}
               >
                 {label}
+                {/* P25 R14: extend / end-early free actions. */}
+                <button
+                  type="button"
+                  data-testid={`event-extend-${event.kind}`}
+                  disabled={isExiled || event.extendedOnce || !canAfford}
+                  onClick={() => store.getState().extendGlobalEvent(event.id)}
+                  className="rounded border border-white/40 px-1 text-xs hover:bg-white/10 disabled:opacity-40"
+                  title={
+                    event.extendedOnce
+                      ? "Already extended"
+                      : `Extend (−${EXTEND_EVENT_WEALTH_COST} wealth, +${EXTEND_EVENT_TICKS} ticks)`
+                  }
+                >
+                  Extend
+                </button>
+                <button
+                  type="button"
+                  data-testid={`event-end-${event.kind}`}
+                  disabled={isExiled || (house?.wealth ?? 0) < END_EVENT_EARLY_WEALTH_COST}
+                  onClick={() => store.getState().endGlobalEventEarly(event.id)}
+                  className="rounded border border-white/40 px-1 text-xs hover:bg-white/10 disabled:opacity-40"
+                  title={`End early (−${END_EVENT_EARLY_WEALTH_COST} wealth; concludes after one more turn — in-progress effects still apply)`}
+                >
+                  End
+                </button>
               </span>
             );
           })}

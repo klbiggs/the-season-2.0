@@ -90,7 +90,12 @@ import { applyBankruptcyEscape, canEscapeBankruptcy } from "./rules/bankruptcyEs
 import type { EscapeRejection } from "./rules/bankruptcyEscape";
 import { resolveCombat } from "./rules/combat";
 import { resolveDuel } from "./rules/duel";
-import { applyResearchFastCouriers } from "./rules/globalEvents";
+import {
+  type GlobalEventMutationRejection,
+  applyEndGlobalEventEarly,
+  applyExtendGlobalEvent,
+  applyResearchFastCouriers,
+} from "./rules/globalEvents";
 import { type AudienceOutcome, applyAudience } from "./rules/monarchsAudience";
 import {
   type CancelSchemeRejection,
@@ -414,6 +419,13 @@ export type StoreActions = {
   researchFastCouriers: () =>
     | { ok: true }
     | { ok: false; reason: import("./rules/globalEvents").ResearchFastCouriersRejection };
+  // P25 R14: mid-event extend / end-early. Free actions.
+  extendGlobalEvent: (
+    eventId: GlobalEventId,
+  ) => { ok: true } | { ok: false; reason: GlobalEventMutationRejection };
+  endGlobalEventEarly: (
+    eventId: GlobalEventId,
+  ) => { ok: true } | { ok: false; reason: GlobalEventMutationRejection };
   // P11: reconcile a sibling-rival. Pre-tick action (advances the tick on
   // ok:true paths — Success + Failure). Costs `SIBLING_RIVAL_RECONCILIATION_WEALTH_COST`
   // wealth + `_REPUTATION_COST` reputation regardless of outcome. Roll for
@@ -2198,6 +2210,34 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           tick: stateBefore.tick,
           houseId: PLAYER_HOUSE_ID,
         });
+        return { ok: true };
+      },
+      // P25 R14: mid-event extend / end-early. Free actions (no tick advance,
+      // no publisher-set fan-out); direct-publish their own events.
+      extendGlobalEvent: (eventId) => {
+        const before = get();
+        const result = applyExtendGlobalEvent(before, eventId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((state) => {
+          overwriteFromGameState(state, result.nextState);
+        });
+        const ev = result.nextState.globalEvents.get(eventId);
+        globalEventBus.publish({
+          kind: "GlobalEventExtended",
+          tick: before.tick,
+          eventId,
+          newEndTick: ev?.endTick ?? before.tick,
+        });
+        return { ok: true };
+      },
+      endGlobalEventEarly: (eventId) => {
+        const before = get();
+        const result = applyEndGlobalEventEarly(before, eventId);
+        if (!result.ok) return { ok: false, reason: result.reason };
+        set((state) => {
+          overwriteFromGameState(state, result.nextState);
+        });
+        globalEventBus.publish({ kind: "GlobalEventEndedEarly", tick: before.tick, eventId });
         return { ok: true };
       },
       reconcileSibling: (siblingCharacterId: CharacterId) => {

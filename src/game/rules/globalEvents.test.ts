@@ -13,6 +13,8 @@ import {
   COURIER_RESEARCH_WEALTH_COST,
   DUCAL_WEDDING_REPUTATION_PER_TICK,
   ERA_TRANSITION_TICK,
+  EXTEND_EVENT_TICKS,
+  EXTEND_EVENT_WEALTH_COST,
   MARKET_CRASH_DURATION_TICKS,
   MARKET_CRASH_WEALTH_PER_TICK,
   MONARCHS_MOOD_DURATION_TICKS,
@@ -45,6 +47,8 @@ import {
   createRngState,
 } from "../rng";
 import {
+  applyEndGlobalEventEarly,
+  applyExtendGlobalEvent,
   applyGlobalEventPhase,
   applyResearchFastCouriers,
   houseHasCultureEquipped,
@@ -93,6 +97,7 @@ describe("makeGlobalEventId", () => {
           id: "globalevent-WarEffort-0" as GlobalEventId,
           startTick: 0,
           endTick: 10,
+          extendedOnce: false,
         },
       ],
       [
@@ -102,6 +107,7 @@ describe("makeGlobalEventId", () => {
           id: "globalevent-MarketCrash-0" as GlobalEventId,
           startTick: 0,
           endTick: 5,
+          extendedOnce: false,
         },
       ],
     ];
@@ -185,6 +191,7 @@ describe("WarEffort per-tick effects", () => {
       id: "globalevent-WarEffort-0" as GlobalEventId,
       startTick: 0,
       endTick: 1000, // far future so expiry doesn't fire
+      extendedOnce: false,
     };
     return withPlayerRng({
       tick: 1,
@@ -294,6 +301,7 @@ describe("MarketCrash per-tick effects", () => {
       id: "globalevent-MarketCrash-0" as GlobalEventId,
       startTick: 0,
       endTick: 1000,
+      extendedOnce: false,
     };
     const state = withPlayerRng({
       tick: 1,
@@ -325,6 +333,7 @@ describe("MonarchsMood per-tick effects", () => {
       id: "globalevent-MonarchsMood-0" as GlobalEventId,
       startTick: 0,
       endTick: 1000,
+      extendedOnce: false,
       favoredCulture,
     };
     return withPlayerRng({
@@ -470,6 +479,7 @@ describe("P25 R11 — RoyalFuneral / DucalWedding / PeasantRevolt", () => {
       id: `globalevent-${kind}-0` as GlobalEventId,
       startTick: 0,
       endTick: 1000,
+      extendedOnce: false,
     } as GlobalEvent;
     return withPlayerRng({
       tick: 1,
@@ -511,6 +521,7 @@ describe("P25 R11 — RoyalFuneral / DucalWedding / PeasantRevolt", () => {
       id: "globalevent-RoyalFuneral-0" as GlobalEventId,
       startTick: 0,
       endTick: 1000,
+      extendedOnce: false,
     } as GlobalEvent;
     const state = withPlayerRng({
       tick: 1,
@@ -523,6 +534,72 @@ describe("P25 R11 — RoyalFuneral / DucalWedding / PeasantRevolt", () => {
   });
 });
 
+// ── P25 R14: extend / end-early free actions ────────────────────────────
+
+describe("P25 R14 — extend / end-early global events", () => {
+  const EV_ID = "globalevent-WarEffort-0" as GlobalEventId;
+  function stateWithEvent(endTick: number, wealth = 100): GameState {
+    const event = {
+      kind: "WarEffort" as const,
+      id: EV_ID,
+      startTick: 0,
+      endTick,
+      extendedOnce: false,
+    };
+    return withPlayerRng({
+      tick: 5,
+      globalEvents: new Map([[EV_ID, event]]),
+      houses: new Map([[PLAYER_HOUSE_ID, makeHouse({ wealth })]]),
+    });
+  }
+
+  it("extend writes a NEW absolute endTick + deducts wealth + latches extendedOnce", () => {
+    const r = applyExtendGlobalEvent(stateWithEvent(20), EV_ID);
+    if (!r.ok) throw new Error(`unexpected: ${r.reason.kind}`);
+    const ev = r.nextState.globalEvents.get(EV_ID);
+    expect(ev?.endTick).toBe(20 + EXTEND_EVENT_TICKS);
+    expect(ev?.extendedOnce).toBe(true);
+    expect(r.nextState.houses.get(PLAYER_HOUSE_ID)?.wealth).toBe(100 - EXTEND_EVENT_WEALTH_COST);
+  });
+
+  it("extend rejects AlreadyExtended on a second attempt", () => {
+    const first = applyExtendGlobalEvent(stateWithEvent(20), EV_ID);
+    if (!first.ok) throw new Error("unreachable");
+    const second = applyExtendGlobalEvent(first.nextState, EV_ID);
+    expect(second.ok).toBe(false);
+    if (second.ok) throw new Error("unreachable");
+    expect(second.reason.kind).toBe("AlreadyExtended");
+  });
+
+  it("extend/end-early reject EventNotFound + InsufficientWealth", () => {
+    const notFound = applyExtendGlobalEvent(stateWithEvent(20), "nope" as GlobalEventId);
+    expect(notFound.ok).toBe(false);
+    if (!notFound.ok) expect(notFound.reason.kind).toBe("EventNotFound");
+    const broke = applyEndGlobalEventEarly(stateWithEvent(20, 0), EV_ID);
+    expect(broke.ok).toBe(false);
+    if (!broke.ok) expect(broke.reason.kind).toBe("InsufficientWealth");
+  });
+
+  it("end-early: exactly ONE more effect application before the expiry sweep drops it", () => {
+    // WarEffort active with endTick far in the future; end it early at tick 5.
+    const r = applyEndGlobalEventEarly(stateWithEvent(1000), EV_ID);
+    if (!r.ok) throw new Error("unreachable");
+    // endTick is now state.tick (5). Advance one tick: the event is still
+    // present at the start of tick 6, applies its effect (WarEffort -2 wealth to
+    // the player), THEN the expiry sweep (endTick <= tick) drops it.
+    const ended = r.nextState;
+    expect(ended.globalEvents.get(EV_ID)?.endTick).toBe(5);
+    const afterOneTick = applyGlobalEventPhase({ ...ended, tick: 6 });
+    // Event dropped (endTick 5 <= tick 6).
+    expect(afterOneTick.globalEvents.has(EV_ID)).toBe(false);
+    // The final WarEffort effect DID apply this tick (player wealth fell by 2).
+    const wealthAfterEnd = ended.houses.get(PLAYER_HOUSE_ID)?.wealth ?? 0;
+    expect(afterOneTick.houses.get(PLAYER_HOUSE_ID)?.wealth).toBe(
+      wealthAfterEnd + WAR_EFFORT_WEALTH_PER_TICK,
+    );
+  });
+});
+
 // ── expireFinishedEvents ────────────────────────────────────────────────
 
 describe("expireFinishedEvents", () => {
@@ -532,6 +609,7 @@ describe("expireFinishedEvents", () => {
       id: "globalevent-WarEffort-0" as GlobalEventId,
       startTick: 100,
       endTick: 110,
+      extendedOnce: false,
     };
     // Tick 109: event active, effects apply, not expired.
     const state109 = withPlayerRng({
@@ -561,6 +639,7 @@ describe("expireFinishedEvents", () => {
       id: "globalevent-MarketCrash-0" as GlobalEventId,
       startTick: 0,
       endTick: 5,
+      extendedOnce: false,
     };
     const state = withPlayerRng({
       tick: 4,
@@ -715,6 +794,7 @@ describe("MonarchsMood per-house mutual exclusion (matrix #8)", () => {
       id: "globalevent-MonarchsMood-0" as GlobalEventId,
       startTick: 0,
       endTick: 1000,
+      extendedOnce: false,
       favoredCulture: CULTURAL_AFFINITY_BY_FAMILY[family],
     };
     const state = withPlayerRng({

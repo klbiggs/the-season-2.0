@@ -1170,6 +1170,16 @@ if (
   throw new Error("P25 R11 event durations must be positive");
 }
 
+// P25 R14: mid-event extend / end-early free actions. Both write a NEW absolute
+// end-tick (never a relative extension — §2 non-negotiable). Extend fires at
+// most once per event instance (the extendedOnce latch).
+export const EXTEND_EVENT_WEALTH_COST = 20;
+export const EXTEND_EVENT_TICKS = 5;
+export const END_EVENT_EARLY_WEALTH_COST = 25;
+if (EXTEND_EVENT_TICKS <= 0) {
+  throw new Error("EXTEND_EVENT_TICKS must be positive");
+}
+
 // Later-era courier research (spec line 397-398)
 export const COURIER_RESEARCH_WEALTH_COST = 30;
 // ↑ One-shot wealth cost to unlock fast couriers. Halves NEW courier transit

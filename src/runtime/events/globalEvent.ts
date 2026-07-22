@@ -39,6 +39,19 @@ export type GlobalEventVariant =
       kind: "CourierResearchUnlocked";
       tick: number;
       houseId: HouseId;
+    }
+  // P25 R14: direct-published by the extend/end-early free-action store
+  // wrappers on success (never via a diff helper).
+  | {
+      kind: "GlobalEventExtended";
+      tick: number;
+      eventId: GlobalEventId;
+      newEndTick: number;
+    }
+  | {
+      kind: "GlobalEventEndedEarly";
+      tick: number;
+      eventId: GlobalEventId;
     };
 
 export const globalEventBus = new EventBus<GlobalEventVariant>();

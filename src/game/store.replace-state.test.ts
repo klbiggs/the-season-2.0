@@ -164,6 +164,7 @@ describe("P13 quint-sync: state.globalEvents (overwriteFromGameState 6th surface
       id: "globalevent-WarEffort-0" as import("./rng").GlobalEventId,
       startTick: 0,
       endTick: 100,
+      extendedOnce: false,
     };
     const synth = {
       ...createInitialState("p13-quint-A"),
@@ -181,6 +182,7 @@ describe("P13 quint-sync: state.globalEvents (overwriteFromGameState 6th surface
       id: "globalevent-MarketCrash-0" as import("./rng").GlobalEventId,
       startTick: 0,
       endTick: 1000, // far future so expiry doesn't drop it
+      extendedOnce: false,
     };
     const synth = {
       ...createInitialState("p13-quint-B"),
