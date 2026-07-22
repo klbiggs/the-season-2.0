@@ -356,6 +356,8 @@ The game lets a single player rise across multiple generations of a noble house 
 | Chaperone | 5 | 1 | Cancels in-flight Seductions on same target | Family must contain a living spinster archetype |
 | Smuggling | 20 | 4 | Sets a one-shot blockade bypass flag | Era must be the earlier (wartime) era; scheme must not complete past era transition |
 | Assassination | 50 | 6 | Target dies, +25 scandal | Family must contain a living bohemian or country-exile archetype |
+| Treason Framing | 40 | 5 | Consumes an unsurfaced forgery; craters the target rival house's reputation, raises mutual hostility | Family must contain a living bohemian-rake archetype (the only forger); an unsurfaced forgery owned by the house |
+| Officer Commission | 40 | 8 | Grants a family member the military-officer trait (self-directed; no target) | None |
 
 - Smuggling additionally cannot start if a previous Smuggling pass is still unclaimed.
 - Smuggling must reject at start time if completion would land past the era transition (so the player isn't charged for a doomed pass).
@@ -387,7 +389,7 @@ The game lets a single player rise across multiple generations of a noble house 
 
 - A 5%-per-tick chance rolls a candidate event from a small fixed registry; duplicate active events of the same type are skipped.
 - Six event types are defined: WarEffort (10 ticks), MarketCrash (5 ticks, `-3 wealth` per tick), MonarchsMood (5 ticks), RoyalFuneral (5 ticks, `-1 reputation` per tick to houses at the Capital), DucalWedding (7 ticks, `+1 reputation` per tick to houses at the Capital), and PeasantRevolt (5 ticks, `-2 wealth` per tick to houses at the Country estate). (The last three are location-keyed and were added after the original three.)
-- **WarEffort effect:** per tick `+1 reputation, -2 wealth`. Additionally, any family character carrying a "military officer" trait or role receives a temporary positive multiplier on their Seduction-scheme outcomes against any target, AND has a small per-tick chance of dying at the front (a deterministic seeded roll); the death follows the usual OnCharacterDied cascade.
+- **WarEffort effect:** per tick `+1 reputation, -2 wealth` — except rival houses profiteer from the war and gain `+3 wealth` per tick instead (the `+1 reputation` still applies to every house, rival or not). Additionally, any family character carrying a "military officer" trait or role receives a temporary positive multiplier on their Seduction-scheme outcomes against any target, AND has a small per-tick chance of dying at the front (a deterministic seeded roll); the death follows the usual OnCharacterDied cascade.
 - **MonarchsMood effect (cultural-pivot mechanic):** at start, a "favored culture" (one of a small fixed set) is rolled. While active, any house with at least one equipped artifact whose family matches the favored culture gains a fixed per-tick reputation surge. Houses without a matching artifact see `+1 scandal` per tick as the King's snub propagates. The favored-culture roll is the same per-tick deterministic seeded draw used elsewhere.
 - Events terminate at an absolute end-tick recorded at start so save/load preserves their lifecycle.
 

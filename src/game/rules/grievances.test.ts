@@ -1,7 +1,7 @@
 // P25 R4 — player diplomacy free actions.
 
 import { describe, expect, it } from "vitest";
-import { makeHouse, makeHousesMap } from "../__test-utils__/factories";
+import { makeElopementSprint, makeHouse, makeHousesMap } from "../__test-utils__/factories";
 import {
   DECLARE_WAR_HOSTILITY_BUMP,
   DECLARE_WAR_SCANDAL_COST,
@@ -166,5 +166,39 @@ describe("applyDeclareWar", () => {
     const r = applyDeclareWar(baseState(), PLAYER_HOUSE_ID);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason.kind).toBe("NotARivalHouse");
+  });
+});
+
+// The playerModalGate ElopementInProgress branch (grievances.ts) — an active
+// player-controlled elopement sprint suspends all three diplomacy free actions
+// (P9 modal-state gate principle). Gate is checked FIRST in each action body,
+// so it wins over grievance-lookup / rival-validity checks.
+describe("diplomacy actions reject during an active player elopement", () => {
+  const withElopement = (overrides = {}) =>
+    baseState({
+      elopements: new Map([[makeElopementSprint().id, makeElopementSprint()]]),
+      houses: makeHousesMap([
+        makeHouse({ id: PLAYER_HOUSE_ID, wealth: 100, grievances: [playerGrievance()] }),
+        makeHouse({ id: RIVAL, hostility: 50, factionId: RIVAL_FACTION }),
+      ]),
+      ...overrides,
+    });
+
+  it("applyWithdrawGrievance → ElopementInProgress", () => {
+    const r = applyWithdrawGrievance(withElopement(), "g1" as GrievanceId);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason.kind).toBe("ElopementInProgress");
+  });
+
+  it("applyExtendOliveBranch → ElopementInProgress", () => {
+    const r = applyExtendOliveBranch(withElopement(), RIVAL);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason.kind).toBe("ElopementInProgress");
+  });
+
+  it("applyDeclareWar → ElopementInProgress", () => {
+    const r = applyDeclareWar(withElopement(), RIVAL);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason.kind).toBe("ElopementInProgress");
   });
 });
