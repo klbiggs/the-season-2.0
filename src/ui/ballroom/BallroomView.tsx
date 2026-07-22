@@ -17,7 +17,7 @@ import { type ConversationFailure, makePairKey } from "../../game/conversation/t
 import type { Character } from "../../game/entities";
 import { flavorStubFor } from "../../game/fixtures/flavorStubs";
 import type { Mood } from "../../game/fixtures/moods";
-import { isSocietyHouse } from "../../game/fixtures/rivals";
+import { RIVAL_HOUSE_IDS_SET, isSocietyHouse } from "../../game/fixtures/rivals";
 import { type CharacterId, type FlavorContentId, PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import type { ProposalOutcome } from "../../game/rules/proposal";
 import type { SeasonStore } from "../../game/store";
@@ -56,11 +56,14 @@ export function BallroomView({ store, onExit }: Props) {
   };
   const revealNpcBio = store((s) => s.revealNpcBio);
 
-  // P23: the ballroom roster is every alive SOCIETY-house NPC (INDEPENDENT +
-  // minted soc-house-<n> dynasties) so society members who married into a
-  // sub-house stay conversable. Rivals stay off the roster (non-conversable
-  // until P25); the player's own house is excluded.
-  const npcs = [...characters.values()].filter((c) => isSocietyHouse(c.houseId) && c.alive);
+  // P25 R6: the ballroom roster is every alive SOCIETY-house NPC (INDEPENDENT +
+  // minted soc-house-<n>) PLUS every alive rival-house character — rivals are now
+  // conversable + scheme-targetable (this widening is also the scheme-target
+  // surface that makes player→rival Sabotage reachable). The player's own house
+  // is excluded (isSocietyHouse is already false for it).
+  const npcs = [...characters.values()].filter(
+    (c) => (isSocietyHouse(c.houseId) || RIVAL_HOUSE_IDS_SET.has(c.houseId)) && c.alive,
+  );
 
   // Session-local React state
   const [selectedTargetId, setSelectedTargetId] = useState(npcs[0]?.id ?? null);

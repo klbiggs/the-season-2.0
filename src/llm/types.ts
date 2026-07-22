@@ -80,6 +80,16 @@ export const CharacterStateSnapshotSchema = z.object({
   otherCharactersInScene: z.array(CharacterSchema),
   targetMarriage: MarriageRecordSchema.nullable(),
   spouse: CharacterSchema.nullable(),
+  // P25 R6: rival-house context (null for non-rival targets). Lets the persona
+  // render the target's house name / faction / a hostility-band attitude line.
+  targetHouse: z
+    .object({
+      displayName: z.string(),
+      factionId: z.string(),
+      hostility: z.number(),
+    })
+    .nullable()
+    .default(null),
 });
 export type CharacterStateSnapshot = z.infer<typeof CharacterStateSnapshotSchema>;
 

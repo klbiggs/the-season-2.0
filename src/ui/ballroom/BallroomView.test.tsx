@@ -71,6 +71,35 @@ describe("BallroomView (P20 faux-pas surfacing)", () => {
     expect(screen.queryByTestId(`portrait-moodlock-${NPC}`)).toBeNull();
   });
 
+  it("rosters rival-house NPCs alongside society NPCs (P25 R6)", () => {
+    const store = createStore({ seed: "b" });
+    const RIVAL = "rival-ashford-head" as CharacterId;
+    store.getState().replaceState(
+      makeGameState({
+        houses: new Map([[PLAYER_HOUSE_ID, makeHouse({ headOfHouseCharacterId: HEAD })]]),
+        characters: new Map([
+          [HEAD, makeCharacter({ id: HEAD, role: "HeadOfHouse" })],
+          [
+            NPC,
+            makeCharacter({ id: NPC, houseId: INDEPENDENT_HOUSE_ID, name: "Miss Independent" }),
+          ],
+          [
+            RIVAL,
+            makeCharacter({
+              id: RIVAL,
+              houseId: "rival-ashford" as never,
+              name: "Lord Ashford",
+              role: "HeadOfHouse",
+            }),
+          ],
+        ]),
+      }),
+    );
+    render(<BallroomView store={store} onExit={() => {}} />);
+    expect(screen.getByTestId(`portrait-card-${RIVAL}`)).toBeTruthy();
+    expect(screen.getByTestId(`portrait-card-${NPC}`)).toBeTruthy();
+  });
+
   it("surfaces the per-turn result on ConversationResolved", () => {
     const store = createStore({ seed: "b" });
     store.getState().replaceState(ballroomState());

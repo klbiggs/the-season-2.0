@@ -22,6 +22,7 @@ const baseRequest = (): ProxyConversationRequest => {
       otherCharactersInScene: [],
       targetMarriage: null,
       spouse: null,
+      targetHouse: null,
     },
     mode: "Ballroom",
     semanticContext: [],

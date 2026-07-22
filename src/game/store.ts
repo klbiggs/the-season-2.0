@@ -45,6 +45,7 @@ import { makeDuelId } from "./fixtures/duelIdFactory";
 import { FACTION_PAIRS } from "./fixtures/factions";
 import type { LocationId } from "./fixtures/locations";
 import { PATRONESSES_FIXTURE } from "./fixtures/patronesses";
+import { RIVAL_HOUSES_FIXTURE, RIVAL_HOUSE_IDS_SET } from "./fixtures/rivals";
 import {
   type ArtifactDefinitionId,
   type ArtifactInstanceId,
@@ -595,6 +596,20 @@ import {
   resolvePromenadeCombat,
 } from "./rules/promenade";
 import { applyReconciliationAttempt } from "./rules/siblingRivals";
+
+// P25 R6: rival-target persona context. Non-rival targets → null (society NPCs
+// carry no house-context block). displayName comes from the RIVAL_HOUSES_FIXTURE
+// (the House entity has no name field); faction/hostility from the live House.
+function resolveTargetHouseContext(
+  state: GameState,
+  houseId: HouseId,
+): { displayName: string; factionId: string; hostility: number } | null {
+  if (!RIVAL_HOUSE_IDS_SET.has(houseId)) return null;
+  const seed = RIVAL_HOUSES_FIXTURE.find((r) => r.houseId === houseId);
+  const house = state.houses.get(houseId);
+  if (seed === undefined || house === undefined) return null;
+  return { displayName: seed.displayName, factionId: house.factionId, hostility: house.hostility };
+}
 
 // Apply a full GameState swap to the immer draft. Used by every store
 // action that produces a new GameState via pure rules + orchestrator.
@@ -1183,6 +1198,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             otherCharactersInScene,
             targetMarriage,
             spouse,
+            targetHouse: resolveTargetHouseContext(stateBefore, target.houseId),
           },
           // P12: ballroom mode framing. The Zod schema's `.default("Ballroom")`
           // would supply this on parse, but emitting explicitly avoids the
@@ -2498,6 +2514,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             otherCharactersInScene,
             targetMarriage,
             spouse,
+            targetHouse: resolveTargetHouseContext(stateBefore, target.houseId),
           },
           mode: "Promenade" as const,
           semanticContext,

@@ -24,6 +24,10 @@
 // the client extracts the snapshot at request-build time (resolving spouse
 // inline), the server reads the snapshot directly.
 
+import {
+  PERSONA_HOSTILITY_DAGGERS_THRESHOLD,
+  RIVAL_HOSTILITY_ACTIVATION_THRESHOLD,
+} from "../../src/game/constants";
 import type { CharacterStateSnapshot, Role } from "../../src/llm/types";
 import { TRAITS } from "../../src/llm/types";
 
@@ -55,10 +59,25 @@ function formatHappinessLine(snapshot: CharacterStateSnapshot): string {
   return "Happiness: discontent.";
 }
 
+// P25 R6: rival-house context — house name / faction / a hostility-band attitude
+// toward the player's house. null for non-rival (society) targets.
+function formatRivalHouseLine(snapshot: CharacterStateSnapshot): string | null {
+  const th = snapshot.targetHouse;
+  if (th === null) return null;
+  const attitude =
+    th.hostility >= PERSONA_HOSTILITY_DAGGERS_THRESHOLD
+      ? "and are at daggers drawn with the player's house"
+      : th.hostility >= RIVAL_HOSTILITY_ACTIVATION_THRESHOLD
+        ? "and are openly hostile to the player's house"
+        : "and are cordially wary of the player's house";
+  return `You belong to ${th.displayName} (${th.factionId} faction), a rival house, ${attitude}.`;
+}
+
 export function buildPersonaPrompt(snapshot: CharacterStateSnapshot): string {
   const target = snapshot.target;
   const traitLabels = target.traits.map((id) => TRAIT_LABEL_BY_ID.get(id) ?? id).join(", ");
   const roleLabel = ROLE_LABELS[target.role];
+  const rivalLine = formatRivalHouseLine(snapshot);
   const baseLines = [
     `You are ${target.name}, ${roleLabel} of London Society.`,
     `Traits: ${traitLabels}.`,
@@ -66,6 +85,7 @@ export function buildPersonaPrompt(snapshot: CharacterStateSnapshot): string {
     `Archetype: ${target.archetype}.`,
     formatMarriageStatusLine(snapshot),
     formatHappinessLine(snapshot),
+    ...(rivalLine !== null ? [rivalLine] : []),
     "Reply in character. Keep your replies brief and period-appropriate.",
   ];
   const others = snapshot.otherCharactersInScene;

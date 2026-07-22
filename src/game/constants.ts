@@ -601,7 +601,13 @@ if (PROMOTED_STAFF_AGE_MIN < 18 || PROMOTED_STAFF_AGE_MIN > PROMOTED_STAFF_AGE_M
 // + Happiness state paragraphs.
 // v4 at P10 — characterStateSnapshot.target.traits now ships the effective-traits
 // union (persistent + equipped-artifact grants via getEffectiveTraits).
-export const PERSONA_CACHE_VERSION = "v4" as const;
+// v5 at P25 R6 — rival targets carry a targetHouse context block (house name /
+// faction / hostility-band attitude line) in the persona prompt.
+export const PERSONA_CACHE_VERSION = "v5" as const;
+
+// P25 R6: persona hostility-band upper boundary ("at daggers drawn"). The lower
+// boundary reuses RIVAL_HOSTILITY_ACTIVATION_THRESHOLD (25, "openly hostile").
+export const PERSONA_HOSTILITY_DAGGERS_THRESHOLD = 60;
 
 // ── P7: Family, Marriage & Succession ────────────────────────────────────
 

@@ -603,10 +603,13 @@ describe("P10 artifact rules", () => {
   });
 
   // ─── Verification matrix item 9: Persona cache version bumped + cache-key shape ──
+  // The canonical value pin now lives in server/prompts/persona.test.ts (bumped
+  // to v5 at P25 R6 for the rival-house context line). This asserts only that the
+  // discipline still holds a non-empty version tag for stale-entry invalidation.
   describe("PERSONA_CACHE_VERSION discipline", () => {
-    it("is bumped to v4 at P10 (signals snapshot shape change for stale-entry invalidation)", async () => {
+    it("holds a non-empty version tag (snapshot-shape-change invalidation)", async () => {
       const { PERSONA_CACHE_VERSION } = await import("../constants");
-      expect(PERSONA_CACHE_VERSION).toBe("v4");
+      expect(PERSONA_CACHE_VERSION.length).toBeGreaterThan(0);
     });
   });
 
