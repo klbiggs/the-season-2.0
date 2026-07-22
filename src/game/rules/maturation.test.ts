@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { makeCharacter, makeCharactersMap, makeGameState } from "../__test-utils__/factories";
 import { ADULTHOOD_AGE_IN_YEARS } from "../constants";
-import type { CharacterId, TraitId } from "../rng";
+import type { CharacterId, HouseId, TraitId } from "../rng";
 import { applyMaturationStep } from "./maturation";
 
 describe("applyMaturationStep — age-18 boundary detection", () => {
@@ -88,6 +88,24 @@ describe("applyMaturationStep — role assignment rules", () => {
     const state = makeGameState({ characters: makeCharactersMap([child]) });
     const after = applyMaturationStep(state);
     expect(after.characters.get("child" as CharacterId)?.role).toBe("Dependent");
+  });
+
+  // P25 R1: the rival-house-child → Exile branch is removed, so rival children
+  // mature into normal heir-eligible roles (Exile is now unreachable via
+  // maturation). Society children were already exempt (P23) — assert both.
+  it("rival-house female child matures to Spinster (NOT Exile)", () => {
+    const child = makeCharacter({
+      id: "child" as CharacterId,
+      houseId: "rival-ashford" as HouseId,
+      age: ADULTHOOD_AGE_IN_YEARS,
+      role: "Dependent",
+      gender: "Female",
+      marriageId: null,
+      traits: [],
+    });
+    const state = makeGameState({ characters: makeCharactersMap([child]) });
+    const after = applyMaturationStep(state);
+    expect(after.characters.get("child" as CharacterId)?.role).toBe("Spinster");
   });
 });
 

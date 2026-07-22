@@ -15,22 +15,20 @@
 import { ADULTHOOD_AGE_IN_YEARS, MATURATION_RANDOM_TRAIT_PROBABILITY } from "../constants";
 import type { Character, GameState } from "../entities";
 import { ARCHETYPE_MATURATION_TRAIT_POOL, classifyArchetype } from "../fixtures/archetypes";
-import { isSocietyHouse } from "../fixtures/rivals";
 import type { Role } from "../fixtures/roles";
-import { PLAYER_HOUSE_ID, type TraitId, drawInt, drawNext } from "../rng";
+import { type TraitId, drawInt, drawNext } from "../rng";
 
 // Role-decision branch per spec §3 + plan's role-assignment rules. Pure
 // function on a single Character; reads no GameState (parent-aliveness not
 // needed at v1). First-match-wins.
 function computeMaturationRole(c: Character): Role {
-  // Branch 1: a rival-house child → Exile. P23: society-house children
-  // (INDEPENDENT + minted soc-house-<n>) get the NORMAL Spinster/Bohemian/
-  // Dependent rules — only rival-house children (none exist at v1; rivals
-  // don't conceive) fall to the Exile branch. Player + society children skip it.
-  if (c.houseId !== PLAYER_HOUSE_ID && !isSocietyHouse(c.houseId)) {
-    return "Exile";
-  }
-  // Branch 2: unwed adult female → Spinster.
+  // P25 R1: the P23 "rival-house child → Exile" branch is REMOVED. Rival
+  // succession now runs (R1), so rival children must be heir-eligible — they
+  // fall through to the normal Spinster/Bohemian/Dependent rules like player
+  // and society children. The Exile role stays reachable only via fixture
+  // Exiles + future paths, NOT via maturation.
+  //
+  // Branch 1: unwed adult female → Spinster.
   if (c.gender === "Female" && c.marriageId === null) {
     return "Spinster";
   }

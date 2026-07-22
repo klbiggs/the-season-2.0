@@ -224,3 +224,120 @@ describe("succession — idempotence gate on heirless flag", () => {
     expect(after2.houses.get(house.id)?.ancestorSummary).toHaveLength(1); // not 2
   });
 });
+
+// P25 R1 — rival succession (dormant-on-death removed). Rivals now flow
+// through the same promotion/heirless machinery as the player house.
+const RIVAL_ASHFORD = "rival-ashford" as HouseId;
+
+function makeRivalState(overrides: Partial<GameState>): GameState {
+  return makeState({
+    rng: new Map<HouseId, RngState>([
+      [PLAYER_HOUSE_ID, createRngState("alpha")],
+      [RIVAL_ASHFORD, createRngState("rival-ashford-seed")],
+    ]),
+    ...overrides,
+  });
+}
+
+describe("P25 R1 — rival succession", () => {
+  it("dead rival head promotes the lex-first adult family heir (generation++, -20 rep)", () => {
+    const head = makeCharacter({
+      id: "rival-ashford-head" as CharacterId,
+      houseId: RIVAL_ASHFORD,
+      name: "Ashford I",
+      age: 81,
+      deathAge: 82, // aging +1 → 82 >= 82 → dies this pass
+      birthTick: -11,
+      role: "HeadOfHouse",
+    });
+    const heir = makeCharacter({
+      id: "rival-ashford-dep-a" as CharacterId,
+      houseId: RIVAL_ASHFORD,
+      name: "Ashford Dependent A",
+      age: 40,
+      deathAge: 90,
+      role: "Dependent",
+    });
+    const house = makeHouse({
+      id: RIVAL_ASHFORD,
+      headOfHouseCharacterId: head.id,
+      generation: 0,
+      reputation: 50,
+    });
+    const state = makeRivalState({
+      tick: 70,
+      houses: makeHousesMap([house]),
+      characters: makeCharactersMap([head, heir]),
+    });
+    const next = runYearPassPure(state);
+    const nHouse = next.houses.get(RIVAL_ASHFORD);
+    expect(next.characters.get(head.id)?.alive).toBe(false);
+    expect(nHouse?.heirless).toBe(false);
+    expect(nHouse?.headOfHouseCharacterId).toBe(heir.id);
+    expect(nHouse?.generation).toBe(1);
+    expect(nHouse?.reputation).toBe(30); // 50 - SUCCESSION_REPUTATION_PENALTY(20)
+    expect(next.characters.get(heir.id)?.role).toBe("HeadOfHouse");
+  });
+
+  it("dead rival head with no eligible heir flips heirless (legitimate dormant end-state)", () => {
+    const head = makeCharacter({
+      id: "rival-ashford-head" as CharacterId,
+      houseId: RIVAL_ASHFORD,
+      name: "Ashford I",
+      age: 81,
+      deathAge: 82,
+      birthTick: -11,
+      role: "HeadOfHouse",
+    });
+    const house = makeHouse({
+      id: RIVAL_ASHFORD,
+      headOfHouseCharacterId: head.id,
+    });
+    const state = makeRivalState({
+      tick: 70,
+      houses: makeHousesMap([house]),
+      characters: makeCharactersMap([head]),
+    });
+    const next = runYearPassPure(state);
+    const nHouse = next.houses.get(RIVAL_ASHFORD);
+    expect(next.characters.get(head.id)?.alive).toBe(false);
+    expect(nHouse?.heirless).toBe(true);
+    expect(nHouse?.headOfHouseCharacterId).toBe(head.id); // unchanged (corpse), not promoted
+    expect(nHouse?.ancestorSummary).toHaveLength(1);
+  });
+
+  it("corpse-skip: a candidate who dies the same year-pass is not promoted", () => {
+    const head = makeCharacter({
+      id: "rival-ashford-head" as CharacterId,
+      houseId: RIVAL_ASHFORD,
+      name: "Ashford I",
+      age: 81,
+      deathAge: 82,
+      birthTick: -11,
+      role: "HeadOfHouse",
+    });
+    // The only other family member also dies this pass → not eligible.
+    const dyingDep = makeCharacter({
+      id: "rival-ashford-dep-a" as CharacterId,
+      houseId: RIVAL_ASHFORD,
+      name: "Ashford Dependent A",
+      age: 89,
+      deathAge: 90,
+      role: "Dependent",
+    });
+    const house = makeHouse({
+      id: RIVAL_ASHFORD,
+      headOfHouseCharacterId: head.id,
+    });
+    const state = makeRivalState({
+      tick: 70,
+      houses: makeHousesMap([house]),
+      characters: makeCharactersMap([head, dyingDep]),
+    });
+    const next = runYearPassPure(state);
+    const nHouse = next.houses.get(RIVAL_ASHFORD);
+    expect(next.characters.get(dyingDep.id)?.alive).toBe(false);
+    expect(nHouse?.heirless).toBe(true);
+    expect(nHouse?.headOfHouseCharacterId).toBe(head.id); // corpse not promoted
+  });
+});
