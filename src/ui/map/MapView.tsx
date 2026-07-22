@@ -200,7 +200,7 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
                   : "bg-violet-700 text-violet-50";
             const label =
               event.kind === "MonarchsMood"
-                ? `${event.kind}: ${event.favoredFamily} favored (${ticksRemaining} ticks left)`
+                ? `${event.kind}: ${event.favoredCulture} favored (${ticksRemaining} ticks left)`
                 : `${event.kind} (${ticksRemaining} ticks left)`;
             return (
               <span

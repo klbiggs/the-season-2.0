@@ -23,7 +23,14 @@ import {
   WAR_EFFORT_WEALTH_PER_TICK,
 } from "../constants";
 import type { ArtifactInstance, GameState, GlobalEvent } from "../entities";
-import { ARTIFACT_FAMILIES, ARTIFACT_REGISTRY, type ArtifactFamily } from "../fixtures/artifacts";
+import {
+  ARTIFACT_FAMILIES,
+  ARTIFACT_REGISTRY,
+  type ArtifactFamily,
+  CULTURAL_AFFINITY_BY_FAMILY,
+  CULTURES,
+  type Culture,
+} from "../fixtures/artifacts";
 import {
   type ArtifactDefinitionId,
   type ArtifactInstanceId,
@@ -37,7 +44,7 @@ import {
 import {
   applyGlobalEventPhase,
   applyResearchFastCouriers,
-  houseHasFamilyEquipped,
+  houseHasCultureEquipped,
   makeGlobalEventId,
 } from "./globalEvents";
 
@@ -290,7 +297,7 @@ describe("MarketCrash per-tick effects", () => {
 
 describe("MonarchsMood per-tick effects", () => {
   function stateWithMonarchsMood(
-    favoredFamily: ArtifactFamily,
+    favoredCulture: Culture,
     extras: Partial<GameState> = {},
   ): GameState {
     const event: GlobalEvent = {
@@ -298,7 +305,7 @@ describe("MonarchsMood per-tick effects", () => {
       id: "globalevent-MonarchsMood-0" as GlobalEventId,
       startTick: 0,
       endTick: 1000,
-      favoredFamily,
+      favoredCulture,
     };
     return withPlayerRng({
       tick: 1,
@@ -307,8 +314,8 @@ describe("MonarchsMood per-tick effects", () => {
     });
   }
 
-  it("match-branch: +2 reputation for house equipping favored-family artifact", () => {
-    // Pick first family with a forgeable artifact for an easier test setup.
+  // sapphires maps to Refinement (P25 R9 affinity table); use that pairing.
+  it("match-branch: +2 reputation for house equipping a favored-culture artifact", () => {
     const family: ArtifactFamily = "sapphires";
     const matchingDef = [...ARTIFACT_REGISTRY.values()].find((d) => d.family === family);
     if (matchingDef === undefined) throw new Error(`no artifact with family ${family}`);
@@ -322,7 +329,7 @@ describe("MonarchsMood per-tick effects", () => {
       lastRefreshTick: 0,
       forgedFlag: false,
     };
-    const state = stateWithMonarchsMood(family, {
+    const state = stateWithMonarchsMood("Refinement", {
       characters: new Map([
         [
           PLAYER_HEAD_ID,
@@ -345,7 +352,7 @@ describe("MonarchsMood per-tick effects", () => {
   });
 
   it("no-match branch: +1 scandal for house with no matching artifact", () => {
-    const state = stateWithMonarchsMood("sapphires", {
+    const state = stateWithMonarchsMood("Refinement", {
       houses: new Map([[PLAYER_HOUSE_ID, makeHouse({ scandal: 0, reputation: 50 })]]),
     });
     const after = applyGlobalEventPhase(state);
@@ -357,13 +364,13 @@ describe("MonarchsMood per-tick effects", () => {
   });
 
   it("clamps reputation at 100 in match-branch; scandal at 100 in no-match branch", () => {
-    const state1 = stateWithMonarchsMood("sapphires", {
+    const state1 = stateWithMonarchsMood("Refinement", {
       houses: new Map([[PLAYER_HOUSE_ID, makeHouse({ scandal: 100, reputation: 50 })]]),
     });
     const after1 = applyGlobalEventPhase(state1);
     expect(expectDefined(after1.houses.get(PLAYER_HOUSE_ID), "player house").scandal).toBe(100); // clamped
 
-    const state2 = stateWithMonarchsMood("sapphires", {
+    const state2 = stateWithMonarchsMood("Refinement", {
       houses: new Map([[PLAYER_HOUSE_ID, makeHouse({ reputation: 99 })]]),
       characters: new Map([
         [
@@ -395,7 +402,7 @@ describe("MonarchsMood per-tick effects", () => {
 
   it("houseHasFamilyEquipped returns false for empty equipment list", () => {
     const state = withPlayerRng();
-    expect(houseHasFamilyEquipped(state, PLAYER_HOUSE_ID, "sapphires")).toBe(false);
+    expect(houseHasCultureEquipped(state, PLAYER_HOUSE_ID, "Refinement")).toBe(false);
   });
 
   it("houseHasFamilyEquipped ignores dead characters", () => {
@@ -427,7 +434,7 @@ describe("MonarchsMood per-tick effects", () => {
         ],
       ]),
     });
-    expect(houseHasFamilyEquipped(state, PLAYER_HOUSE_ID, "sapphires")).toBe(false);
+    expect(houseHasCultureEquipped(state, PLAYER_HOUSE_ID, "Refinement")).toBe(false);
   });
 });
 
@@ -550,10 +557,21 @@ describe("applyResearchFastCouriers", () => {
 
 describe("ARTIFACT_FAMILIES length parity (verification matrix #31)", () => {
   it("ARTIFACT_FAMILIES.length is 7", () => {
-    // Pins the drawInt(r2, ARTIFACT_FAMILIES.length) budget for the MonarchsMood
-    // favored-family roll. A future widening would silently change per-tick
-    // rng draw count (hash-relevant for replay determinism).
     expect(ARTIFACT_FAMILIES.length).toBe(7);
+  });
+
+  // P25 R9: the MonarchsMood favored-value draw is now over CULTURES (3), not
+  // ARTIFACT_FAMILIES (7). Pins the drawInt(r2, CULTURES.length) budget — a
+  // widening would silently shift the per-tick rng draw count (replay-relevant).
+  it("CULTURES.length is 3 (pins the MonarchsMood spawn draw budget)", () => {
+    expect(CULTURES.length).toBe(3);
+  });
+
+  it("CULTURAL_AFFINITY_BY_FAMILY maps every family to a valid culture (exhaustive)", () => {
+    for (const fam of ARTIFACT_FAMILIES) {
+      const culture: Culture = CULTURAL_AFFINITY_BY_FAMILY[fam];
+      expect(CULTURES).toContain(culture);
+    }
   });
 });
 
@@ -612,7 +630,7 @@ describe("MonarchsMood per-house mutual exclusion (matrix #8)", () => {
       id: "globalevent-MonarchsMood-0" as GlobalEventId,
       startTick: 0,
       endTick: 1000,
-      favoredFamily: family,
+      favoredCulture: CULTURAL_AFFINITY_BY_FAMILY[family],
     };
     const state = withPlayerRng({
       tick: 1,

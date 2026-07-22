@@ -26,8 +26,9 @@ import {
 } from "../constants";
 import type { GameState, GlobalEvent, House } from "../entities";
 import {
-  ARTIFACT_FAMILIES,
-  type ArtifactFamily,
+  CULTURAL_AFFINITY_BY_FAMILY,
+  CULTURES,
+  type Culture,
   resolveArtifactDefinition,
 } from "../fixtures/artifacts";
 import { RIVAL_HOUSE_IDS_SET } from "../fixtures/rivals";
@@ -144,7 +145,7 @@ function applyActiveEventTickEffects(state: GameState): GameState {
         acc = applyMarketCrashTick(acc);
         break;
       case "MonarchsMood":
-        acc = applyMonarchsMoodTick(acc, event.favoredFamily);
+        acc = applyMonarchsMoodTick(acc, event.favoredCulture);
         break;
     }
   }
@@ -242,10 +243,10 @@ function applyMarketCrashTick(state: GameState): GameState {
 // per design decision (rivals carry +1 scandal/tick pressure same as player).
 // Out-of-scope for P13: a rival-only artifact bootstrap path; intent revisit
 // at v1.5 if rivals become too brittle.
-function applyMonarchsMoodTick(state: GameState, favoredFamily: ArtifactFamily): GameState {
+function applyMonarchsMoodTick(state: GameState, favoredCulture: Culture): GameState {
   const newHouses = new Map<HouseId, House>();
   for (const [houseId, h] of state.houses) {
-    if (houseHasFamilyEquipped(state, houseId, favoredFamily)) {
+    if (houseHasCultureEquipped(state, houseId, favoredCulture)) {
       newHouses.set(houseId, {
         ...h,
         reputation: clamp(
@@ -264,13 +265,13 @@ function applyMonarchsMoodTick(state: GameState, favoredFamily: ArtifactFamily):
   return { ...state, houses: newHouses };
 }
 
-// Read-side projection. Iterates alive characters in the house and returns
-// true on the first equipped artifact whose definition.family matches.
-// Pure; no state mutation; no RNG.
-export function houseHasFamilyEquipped(
+// P25 R9: read-side projection. Iterates alive characters in the house and
+// returns true on the first equipped artifact whose family maps (via
+// CULTURAL_AFFINITY_BY_FAMILY) to the favored culture. Pure; no RNG.
+export function houseHasCultureEquipped(
   state: GameState,
   houseId: HouseId,
-  family: ArtifactFamily,
+  culture: Culture,
 ): boolean {
   for (const c of state.characters.values()) {
     if (c.houseId !== houseId) continue;
@@ -280,7 +281,7 @@ export function houseHasFamilyEquipped(
       if (inst === undefined) continue;
       const def = resolveArtifactDefinition(state, inst.definitionId);
       if (def === undefined) continue;
-      if (def.family === family) return true;
+      if (CULTURAL_AFFINITY_BY_FAMILY[def.family] === culture) return true;
     }
   }
   return false;
@@ -344,22 +345,22 @@ function maybeFireNewEvent(state: GameState): GameState {
     return { ...state, rng: new Map(state.rng).set(PLAYER_HOUSE_ID, r2) };
   }
 
-  // Mint the event. MonarchsMood needs a third draw for favored-family.
+  // Mint the event. MonarchsMood needs a third draw for the favored culture.
   let event: GlobalEvent;
   let finalRng = r2;
   if (candidateKind === "MonarchsMood") {
-    const { next: famIdx, rngState: r3 } = drawInt(r2, ARTIFACT_FAMILIES.length);
+    const { next: cultIdx, rngState: r3 } = drawInt(r2, CULTURES.length);
     finalRng = r3;
-    const favoredFamily = ARTIFACT_FAMILIES[famIdx];
-    if (favoredFamily === undefined) {
-      throw new Error(`maybeFireNewEvent: drawInt returned out-of-range family index ${famIdx}`);
+    const favoredCulture = CULTURES[cultIdx];
+    if (favoredCulture === undefined) {
+      throw new Error(`maybeFireNewEvent: drawInt returned out-of-range culture index ${cultIdx}`);
     }
     event = {
       kind: "MonarchsMood",
       id: makeGlobalEventId(state, "MonarchsMood"),
       startTick: state.tick,
       endTick: state.tick + MONARCHS_MOOD_DURATION_TICKS,
-      favoredFamily,
+      favoredCulture,
     };
   } else if (candidateKind === "WarEffort") {
     event = {

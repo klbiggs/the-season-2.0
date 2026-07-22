@@ -27,7 +27,7 @@ import {
 } from "./constants";
 import { ConversationPairKeySchema, ExchangeSchema } from "./conversation/types";
 import { ArchetypeSchema } from "./fixtures/archetypes";
-import { ARTIFACT_FAMILIES, ArtifactDefinitionSchema } from "./fixtures/artifacts";
+import { ArtifactDefinitionSchema, CULTURES } from "./fixtures/artifacts";
 import { LocationIdSchema } from "./fixtures/locations";
 import { MoodSchema } from "./fixtures/moods";
 import { RoleSchema } from "./fixtures/roles";
@@ -570,10 +570,11 @@ export type ThiefAttempt = z.infer<typeof ThiefAttemptSchema>;
 
 // P13: GlobalEvent discriminated union. Per spec §3 line 392, every active
 // event carries its absolute start and end ticks so save/load preserves
-// lifecycle. MonarchsMood uniquely carries the cultural-pivot favored-family
+// lifecycle. MonarchsMood uniquely carries the cultural-pivot favored value
 // rolled at start (per spec line 391, "at start, a 'favored culture' (one of
-// a small fixed set) is rolled"). The "small fixed set" maps to
-// ARTIFACT_FAMILIES directly (user-resolved P13 design decision; see plan).
+// a small fixed set) is rolled"). P25 R9 (Q21): the "small fixed set" is now
+// the 3-value CULTURES enum (was ARTIFACT_FAMILIES) — coarser matching via
+// CULTURAL_AFFINITY_BY_FAMILY.
 export const GlobalEventSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("WarEffort"),
@@ -592,7 +593,7 @@ export const GlobalEventSchema = z.discriminatedUnion("kind", [
     id: GlobalEventIdSchema,
     startTick: z.number().int().nonnegative(),
     endTick: z.number().int().nonnegative(),
-    favoredFamily: z.enum(ARTIFACT_FAMILIES),
+    favoredCulture: z.enum(CULTURES),
   }),
 ]);
 export type GlobalEvent = z.infer<typeof GlobalEventSchema>;

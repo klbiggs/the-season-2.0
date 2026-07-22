@@ -33,6 +33,31 @@ export const ARTIFACT_FAMILIES = [
 ] as const;
 export type ArtifactFamily = (typeof ARTIFACT_FAMILIES)[number];
 
+// P25 R9 (Q21): the coarser cultural axis MonarchsMood rolls over. Each of the
+// 7 artifact families maps to exactly one culture, so a favored culture matches
+// a house holding ANY family in that culture's group — coarser matching means
+// more houses can equip their way out of the snub (the pivot becomes a real
+// choice). Identity registry, not designer tuning.
+export const CULTURES = ["Refinement", "Sport", "Heritage"] as const;
+export type Culture = (typeof CULTURES)[number];
+
+export const CULTURAL_AFFINITY_BY_FAMILY: Readonly<Record<ArtifactFamily, Culture>> = {
+  sapphires: "Refinement",
+  tiara: "Refinement",
+  snuffbox: "Refinement",
+  phaeton: "Sport",
+  mount: "Sport",
+  "family-deed": "Heritage",
+  "ancestral-portrait": "Heritage",
+};
+
+// Module-load exhaustiveness guard: every family maps to a valid culture.
+for (const fam of ARTIFACT_FAMILIES) {
+  if (!CULTURES.includes(CULTURAL_AFFINITY_BY_FAMILY[fam])) {
+    throw new Error(`CULTURAL_AFFINITY_BY_FAMILY[${fam}] is not a valid Culture`);
+  }
+}
+
 export const ArtifactDefinitionSchema = z.object({
   id: ArtifactDefinitionIdSchema,
   displayName: z.string(),
