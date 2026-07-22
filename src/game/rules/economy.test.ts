@@ -92,3 +92,31 @@ describe("applyEconomyPhase — solvent house unchanged", () => {
     expect(updated?.scandal).toBe(0);
   });
 });
+
+// P25 R2 — rivals now participate in the economy (skip removed) + earn a flat
+// baseline income. Pinned == Hemorrhaging decay magnitude so a crashed rival
+// nets >= 0 outside events (no irreversible spiral).
+const RIVAL_ASHFORD = "rival-ashford" as HouseId;
+
+describe("applyEconomyPhase — P25 R2 rival baseline income", () => {
+  it("a Solvent rival gains +2 baseline income", () => {
+    const h = makeHouse({ id: RIVAL_ASHFORD, wealth: 200 });
+    const state = makeState({ houses: makeHousesMap([h]) });
+    const updated = applyEconomyPhase(state).houses.get(RIVAL_ASHFORD);
+    expect(updated?.wealth).toBe(202); // 200 + Solvent(0) + baseline(2)
+  });
+
+  it("a Hemorrhaging rival nets 0 (baseline +2 cancels the -2 decay — floor holds)", () => {
+    const h = makeHouse({ id: RIVAL_ASHFORD, wealth: -50 });
+    const state = makeState({ houses: makeHousesMap([h]) });
+    const updated = applyEconomyPhase(state).houses.get(RIVAL_ASHFORD);
+    expect(updated?.wealth).toBe(-50); // -50 + Hemorrhaging(-2) + baseline(2)
+  });
+
+  it("a non-rival (player) house gets NO baseline income", () => {
+    const h = makeHouse({ wealth: 100 }); // PLAYER_HOUSE_ID default
+    const state = makeState({ houses: makeHousesMap([h]) });
+    const updated = applyEconomyPhase(state).houses.get(h.id);
+    expect(updated?.wealth).toBe(100); // Solvent(0), no baseline
+  });
+});

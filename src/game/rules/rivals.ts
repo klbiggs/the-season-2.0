@@ -32,6 +32,7 @@ import {
   RIVAL_OPEN_SABOTAGE_TENSION_BIAS_SLOPE_SCALED,
   RIVAL_WEIGHT_SCALE,
   type RivalActionKind,
+  SCHEME_TUNING,
 } from "../constants";
 import type { GameState, House, RivalActorState } from "../entities";
 import {
@@ -40,13 +41,7 @@ import {
   lexPickOpposingFaction,
   makeFactionPairKey,
 } from "../fixtures/factions";
-import {
-  type CharacterId,
-  type FactionPairKey,
-  PLAYER_HOUSE_ID,
-  type WhisperId,
-  drawNext,
-} from "../rng";
+import { type CharacterId, PLAYER_HOUSE_ID, type WhisperId, drawNext } from "../rng";
 import { clamp } from "../util/clamp";
 import { tryStartScheme } from "./schemes";
 
@@ -59,13 +54,17 @@ type DispatchResult =
 
 // computeEffectiveWeights returns ALREADY-SCALED integer weights per
 // RIVAL_ACTION_KINDS index order. Float-free arithmetic (resolves IEEE-754
-// cross-engine determinism risk). Pre-filters RaiseFactionTension to weight 0
-// when the rival's lex-pick opposing pair is already at FACTION_TENSION_CAP
-// (resolves the wedge where a capped rival would deterministically re-skip).
-function computeEffectiveWeights(
-  rival: RivalActorState,
-  factionTensions: ReadonlyMap<FactionPairKey, number>,
-): readonly number[] {
+// cross-engine determinism risk). Pre-filters:
+//   - RaiseFactionTension → 0 when the rival's lex-pick opposing pair is at
+//     FACTION_TENSION_CAP (the capped-re-skip wedge).
+//   - P25 R2: the wealth-costed schemes (OpenSabotage → Sabotage cost,
+//     Seduction) → 0 when the rival cannot afford them (skipWealthDeduction was
+//     removed; a broke rival picks an affordable action instead of idling).
+// Takes the working `GameState` so it can read the rival's post-decay wealth
+// (and, from R3-step2, grievances/forgeries for the new kinds).
+function computeEffectiveWeights(state: GameState, rival: RivalActorState): readonly number[] {
+  const factionTensions = state.factionTensions;
+  const wealth = state.houses.get(rival.houseId)?.wealth ?? 0;
   return RIVAL_ACTION_KINDS.map((kind) => {
     const baseScaled = RIVAL_ACTION_WEIGHTS[kind] * RIVAL_WEIGHT_SCALE;
     if (kind === "RaiseFactionTension") {
@@ -76,7 +75,12 @@ function computeEffectiveWeights(
       }
       return baseScaled;
     }
+    if (kind === "Seduction") {
+      return wealth < SCHEME_TUNING.Seduction.wealthCost ? 0 : baseScaled;
+    }
     if (kind !== "OpenSabotage") return baseScaled;
+    // OpenSabotage dispatches a Sabotage scheme — gate on its cost.
+    if (wealth < SCHEME_TUNING.Sabotage.wealthCost) return 0;
     // OpenSabotage tension bias: weight grows linearly in (maxOpposing - 50).
     let maxOpposing = 0;
     for (const fid of FACTION_IDS) {
@@ -181,7 +185,6 @@ function dispatchRivalAction(
       const result = tryStartScheme(working, rival.houseId, {
         kind: "Sabotage",
         targetCharacterId: playerHouse.headOfHouseCharacterId,
-        skipWealthDeduction: true,
       });
       if (result.ok) {
         return { working: result.state, result: { kind: "Fired", action: "OpenSabotage" } };
@@ -230,7 +233,6 @@ function dispatchRivalAction(
       const result = tryStartScheme(working, rival.houseId, {
         kind: "Seduction",
         targetCharacterId: targetCharId,
-        skipWealthDeduction: true,
       });
       if (result.ok) {
         return { working: result.state, result: { kind: "Fired", action: "Seduction" } };
@@ -296,7 +298,7 @@ export function applyRivalActionPhase(
     // 6. Weighted pick (integer-scaled). All-zero pool (e.g., RaiseFactionTension
     //    pre-filtered to 0 AND no OpenSabotage bias) means no action available
     //    — skip without burning RNG.
-    const scaledWeights = computeEffectiveWeights(rival, working.factionTensions);
+    const scaledWeights = computeEffectiveWeights(working, rival);
     const poolSize = scaledWeights.reduce((a, b) => a + b, 0);
     if (poolSize <= 0) continue;
 

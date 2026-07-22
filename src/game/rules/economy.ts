@@ -2,7 +2,7 @@
 // Bankruptcy". Pure: takes GameState, returns new GameState via hand-rolled
 // shallow Map clone (CLAUDE.md non-negotiable §1).
 
-import { ECONOMY_DELTAS } from "../constants";
+import { ECONOMY_DELTAS, RIVAL_BASELINE_INCOME_PER_TICK } from "../constants";
 import type { GameState, House } from "../entities";
 import { RIVAL_HOUSE_IDS_SET } from "../fixtures/rivals";
 import { PLAYER_HOUSE_ID } from "../rng";
@@ -33,12 +33,11 @@ export function applyEconomyPhase(state: GameState): GameState {
     state.houses,
   );
   for (const [houseId, house] of state.houses) {
-    // P8: rival houses skip economy decay. Rival wealth is cosmetic at v1
-    // ("rival economy" deferred per Out-of-scope); Independent + player
-    // continue to receive deltas (Independent is unaffected at v1 since no
-    // UI surfaces its wealth, but the gate is narrow to RIVAL_HOUSE_IDS_SET
-    // to preserve pre-P8 Independent economy participation).
-    if (RIVAL_HOUSE_IDS_SET.has(houseId)) continue;
+    // P25 R2: rival houses now participate in the economy (removed the P8
+    // cosmetic-wealth skip). They get bankruptcy-tier decay like any house PLUS
+    // a flat baseline income (they have no location economy — see the
+    // RIVAL_BASELINE_INCOME_PER_TICK note). Independent + society keep their
+    // pre-existing tier-only participation.
     // Safe: tiersByHouseId built from the same Map's keys.
     const tier = tiersByHouseId.get(houseId);
     if (tier === undefined) continue;
@@ -55,9 +54,13 @@ export function applyEconomyPhase(state: GameState): GameState {
     if (houseId === PLAYER_HOUSE_ID) {
       artifactScandalDelta = effectiveScandalContributionFromArtifacts(state);
     }
+    // P25 R2: rival baseline income (draw-free). Composes additively with the
+    // tier delta under the wealth write. Wealth stays UNCLAMPED (bankruptcy-tier
+    // fidelity — same as the tier delta).
+    const baselineIncome = RIVAL_HOUSE_IDS_SET.has(houseId) ? RIVAL_BASELINE_INCOME_PER_TICK : 0;
     houses.set(houseId, {
       ...house,
-      wealth: house.wealth + delta.wealth,
+      wealth: house.wealth + delta.wealth + baselineIncome,
       reputation: clamp(house.reputation + delta.reputation, 0, 100),
       scandal: clamp(house.scandal + delta.scandal + artifactScandalDelta, 0, 100),
     });

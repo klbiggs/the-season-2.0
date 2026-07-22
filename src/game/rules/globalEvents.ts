@@ -18,6 +18,7 @@ import {
   MONARCHS_MOOD_DURATION_TICKS,
   MONARCHS_MOOD_FAVORED_FAMILY_REPUTATION_SURGE_PER_TICK,
   MONARCHS_MOOD_SNUB_SCANDAL_PER_TICK,
+  RIVAL_WAR_PROFITEER_WEALTH_PER_TICK,
   WAR_EFFORT_DURATION_TICKS,
   WAR_EFFORT_OFFICER_DEATH_PROBABILITY_BASIS_POINTS,
   WAR_EFFORT_REPUTATION_PER_TICK,
@@ -29,6 +30,7 @@ import {
   type ArtifactFamily,
   resolveArtifactDefinition,
 } from "../fixtures/artifacts";
+import { RIVAL_HOUSE_IDS_SET } from "../fixtures/rivals";
 import {
   type CharacterId,
   type GlobalEventId,
@@ -149,25 +151,27 @@ function applyActiveEventTickEffects(state: GameState): GameState {
   return acc;
 }
 
-// WarEffort per-tick: +1 rep / -2 wealth on EVERY house (player + rivals +
-// Independent), then per-officer death roll. Reputation clamped at mutation
-// site per CLAUDE.md "Clamp at every mutation site" non-negotiable.
-// Wealth is INTENTIONALLY UNCLAMPED — matches the economy.ts:60 precedent
-// (bankruptcy tier "Ruined" requires wealth <= -500; clamping at a min
-// would mask the tier transition).
+// WarEffort per-tick: +1 rep on EVERY house; -2 wealth on the player +
+// Independent, but rival houses PROFITEER (+RIVAL_WAR_PROFITEER_WEALTH_PER_TICK
+// instead of -2), then per-officer death roll. Reputation clamped at the
+// mutation site per CLAUDE.md "Clamp at every mutation site"; wealth is
+// INTENTIONALLY UNCLAMPED (bankruptcy-tier fidelity — economy.ts precedent).
 //
-// NOTE: RIVAL_HOUSE_IDS_SET intentionally NOT consulted — rivals participate
-// in macro-economic pressure (per the user-resolved P13 design decision
-// "all houses get hit"). Future refactor should NOT add a rival-skip gate
-// here without revising the design decision.
+// P25 R2 DESIGN DECISION (supersedes the P13 "all houses hit equally"):
+// rivals are war profiteers — they GAIN wealth during a WarEffort while the
+// player bleeds. This is the rival economy's growth lever. The +1 reputation
+// still hits every house; only the wealth delta forks on RIVAL_HOUSE_IDS_SET.
 function applyWarEffortTick(state: GameState): GameState {
   // House-wide deltas first (no RNG).
   const newHouses = new Map<HouseId, House>();
   for (const [id, h] of state.houses) {
+    const wealthDelta = RIVAL_HOUSE_IDS_SET.has(id)
+      ? RIVAL_WAR_PROFITEER_WEALTH_PER_TICK
+      : WAR_EFFORT_WEALTH_PER_TICK;
     newHouses.set(id, {
       ...h,
       reputation: clamp(h.reputation + WAR_EFFORT_REPUTATION_PER_TICK, 0, 100),
-      wealth: h.wealth + WAR_EFFORT_WEALTH_PER_TICK, // UNCLAMPED — see header note
+      wealth: h.wealth + wealthDelta, // UNCLAMPED — see header note
     });
   }
   let acc: GameState = { ...state, houses: newHouses };

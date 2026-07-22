@@ -17,6 +17,7 @@ import {
   MONARCHS_MOOD_DURATION_TICKS,
   MONARCHS_MOOD_FAVORED_FAMILY_REPUTATION_SURGE_PER_TICK,
   MONARCHS_MOOD_SNUB_SCANDAL_PER_TICK,
+  RIVAL_WAR_PROFITEER_WEALTH_PER_TICK,
   WAR_EFFORT_DURATION_TICKS,
   WAR_EFFORT_REPUTATION_PER_TICK,
   WAR_EFFORT_WEALTH_PER_TICK,
@@ -185,6 +186,27 @@ describe("WarEffort per-tick effects", () => {
     );
     expect(expectDefined(after.houses.get(otherHouseId), "other house").reputation).toBe(
       30 + WAR_EFFORT_REPUTATION_PER_TICK,
+    );
+  });
+
+  it("P25 R2: a rival house PROFITEERS (+3 wealth) instead of -2, but still +1 rep", () => {
+    const rivalId = "rival-ashford" as HouseId;
+    const state = stateWithWarEffort({
+      houses: new Map([
+        [PLAYER_HOUSE_ID, makeHouse({ wealth: 100, reputation: 50 })],
+        [rivalId, makeHouse({ id: rivalId, wealth: 180, reputation: 40 })],
+      ]),
+    });
+    const after = applyGlobalEventPhase(state);
+    // Rival gains wealth (war profiteer), unlike the player who bleeds -2.
+    expect(expectDefined(after.houses.get(rivalId), "rival").wealth).toBe(
+      180 + RIVAL_WAR_PROFITEER_WEALTH_PER_TICK,
+    );
+    expect(expectDefined(after.houses.get(rivalId), "rival").reputation).toBe(
+      40 + WAR_EFFORT_REPUTATION_PER_TICK,
+    );
+    expect(expectDefined(after.houses.get(PLAYER_HOUSE_ID), "player").wealth).toBe(
+      100 + WAR_EFFORT_WEALTH_PER_TICK,
     );
   });
 

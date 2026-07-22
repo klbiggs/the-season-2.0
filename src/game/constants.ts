@@ -705,6 +705,17 @@ export const RIVAL_HOSTILITY_ACTIVATION_THRESHOLD = 25;
 export const RIVAL_HOSTILITY_DECAY_PER_TICK = -1;
 export const RIVAL_ACTION_COOLDOWN_TICKS = 8;
 
+// P25 R2: rival economy. Rivals have NO location economy (applyLocationEffectsPhase
+// is player-only), so a flat per-tick baseline income keeps them solvent enough
+// to fund schemes/forgeries. Pinned == the Hemorrhaging decay magnitude (2) so a
+// crashed rival nets >= 0 outside events (no irreversible spiral). War-profiteer:
+// during an active WarEffort rivals gain wealth INSTEAD of the -2 house delta.
+export const RIVAL_BASELINE_INCOME_PER_TICK = 2;
+export const RIVAL_WAR_PROFITEER_WEALTH_PER_TICK = 3;
+if (RIVAL_BASELINE_INCOME_PER_TICK <= 0 || RIVAL_WAR_PROFITEER_WEALTH_PER_TICK <= 0) {
+  throw new Error("Rival income constants must be positive");
+}
+
 // Spec §3 line 405 — base weights for the 5 rival actions (P24a added Seduction).
 // Integer-scaled (×100) in computeEffectiveWeights to avoid IEEE-754 cross-engine
 // variance.
