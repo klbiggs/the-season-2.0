@@ -1077,3 +1077,51 @@ First v1.1-track phase. UI-only: wired already-built store actions to UI afforda
 - src/runtime/events/family.ts — BetrothalArranged/Honored/Broken + publishBetrothalTransitions (13/13/11 set); ArchetypeReclassified.trigger widened + RoleFlip detection
 - src/ui/society/SocietyView.tsx — Propose affordance + betrothal panel (sanctioned mutations on the Ton roster)
 - src/ui/ballroom/BallroomView.tsx — roster → isSocietyHouse; src/ui/ledger/houseName.ts — "House <Surname>" for society sub-dynasties
+
+## P25 — Rivals, Factions, Global Events & Era Depth — closed 2026-07-22
+
+Fourteen items (R1–R14) shipped in dependency order, each its own commit. Rivals went from decorative to durable, economically real adversaries that succeed, spend, duel, forge, and can be talked to; the world-state layer gained three event kinds, a visible era, a coarse cultural axis, and an activated military axis.
+
+**Decisions made:**
+- **Officer acquisition = table edits + an `OfficerCommission` 8th scheme** (user-elected at open). `ARCHETYPE_MATURATION_TRAIT_POOL` entries are `readonly [TraitId, TraitId]` with a module-load length guard, so the pools were **swapped, not widened**: BohemianRake `Melancholic`→`MilitaryOfficer`, CountryExile `Rustic`→`MilitaryOfficer`. Both displaced traits survive elsewhere (conception novelty slot / procedural pool); only tutor-bonus grantability is lost. MilitaryAcademy (8th location) rejected — 7 locations stays fixed.
+- **Culture = full re-key (§10 Q21).** `CULTURES = [Refinement, Sport, Heritage]` + `CULTURAL_AFFINITY_BY_FAMILY` over the 7 artifact families. MonarchsMood rolls `favoredCulture`; the §7 L658 strict if/else branch shape (surge +2 / snub +1 scandal only) is untouched.
+- **§10 Q8 resolved: build the faction-tension force-graph.** Pill-toggled spatial sub-view on PatronessesTab; the numeric matrix stays the source of truth.
+- **The `[non-goal]` triad was settled by a decision-team debate (2026-07-17): build mid-event end-tick mutation ONLY.** Drop-all's advocate conceded "no merits reason to drop Item 1" and narrowed to exactly this subset. The draft toggle was dropped as the sole genuine spec contradiction (L390's unconditional death clause) with a shared officer-death-stream callCount hazard; multi-tick research was dropped as delay-without-decisions. Determinism-safe technique for the draft toggle is recorded in the plan for whenever it is revisited.
+- **R2 war-profiteer reverses P13's "all houses hit equally."** Rivals gain `+3` wealth during WarEffort instead of `-2`; `+1` reputation still hits every house. The guard comment that forbade exactly this branch was rewritten to record the new decision. Baseline rival income `+2/tick` is pinned to equal the Hemorrhaging decay magnitude so a crashed rival nets ≥ 0 outside events — no irreversible spiral.
+- **R3's field-subset `Acc` was retired for full-`GameState` threading.** A duel kill's cascade mutates conversationHistory, affectionMap, betrothals and elopements in addition to the tracked fields; any enumerated-field accumulator silently drops some. Landed as **two commits** — thread-at-weights-5 (proved byte-identical by the 30-run replay) then pool 5→7 — so a threading bug could never be confused with the expected weight re-baseline.
+- **`OfficerCommission` is filtered OUT of the ballroom scheme picker.** `SchemeButtons.tsx` maps `SCHEME_KINDS` unfiltered, so the enum widening would have auto-surfaced an 8th button starting a commission on the *selected NPC* — the SelfTarget gate does not fire for a non-own-house target. Its only entry point is FamilyTreeTab.
+- **Publisher set 13/13/11 → 14/14/12**: `publishDuelTransitions` rides every tick-advancing wrapper except `runYearPass`, and P24a's unaddressed `publishElopementTransitions` ride on `runYearPass` was paid down here.
+
+**Open questions hit:**
+- §10 **Q8** (faction-tension viz) and **Q21** (Culture enum) both resolved at open and recorded in MASTER §10; no new §10 questions emerged.
+- **§10 Q14 mislabel corrected.** MASTER §11.2-D tagged "NPC-initiated duels" `[OQ#14]`, but Q14 is NPC-initiated *conversations* (P26). "Either side may demand satisfaction" was spec-mandated all along (spec §3 L122) — never an open question. Tag fixed in §11.2-D.
+
+**Post-implementation review (adversarial, 18 agents):** five lenses over the full ~3000-line diff, each finding independently checked by two diverse skeptics. **Zero live functional defects.** Five confirmed gaps — all documentation or test coverage — were closed in a follow-up commit: the spec's WarEffort line lacked the rival-profiteer qualifier; the §7 cost table listed 6 of 8 `SCHEME_KINDS` (missing TreasonFraming *and* OfficerCommission) while the L79 prose already said "Eight"; `publishDuelTransitions`, the MapView duel banner, and `playerModalGate`'s `ElopementInProgress` branch had no tests.
+
+**Browser verification:** golden path exercised live (Vite + proxy). Confirmed with exact deltas: event chips (3 kinds, distinct colors, correct `endTick − tick + 1` countdowns); Extend (+5 ticks, −20 wealth, `extendedOnce` latch greys the button); End-early (−25 wealth, countdown collapses to 1); Purchase a Commission (−40 wealth, scheme Active); Withdraw (hostility 10→0); Olive Branch (15→0, −15 wealth); Declare War (20→40, scandal +5, +10 tension on the correct `country|crown` pair); the faction web; the ballroom roster carrying all 9 rival NPCs; and a **live LLM round-trip with a rival target** where `targetHouse` carried the *live* hostility (0, post-Withdraw) rather than the fixture's starting 10, with society targets correctly sending `null`. All four free actions correctly left `tick` unchanged.
+- Not browser-staged (both test-covered): the rival-duel notice banner and the era-flip banner — each needs a mid-tick rival/era event impractical to trigger by hand.
+
+**Worth remembering — a near-miss that was NOT a bug:** GrievancesTab's "Held Against You" initially rendered empty against an injected grievance. The filter keys on `defendantCharacterId` resolving to a player-house member, and it mirrors `findEligibleGrievanceForRival`'s predicate exactly (`resolved || defendantCharacterId === null`). So the feed shows precisely the grievances a rival could actually duel over — a grievance with a null defendant is correctly invisible because it is not duel-eligible. The fixture was wrong, not the code. Keep the two predicates in lockstep if either changes.
+
+**Deferred / next-up:**
+- Full rival family lifecycle (rival marriages / conception on the default path). P25 accepts **bounded ~3-generation rival durability** — all 9 rival fixture characters are unmarried and conception requires a marriage, so the heir pool is the fixture Dependents. → P26+.
+- Rival courier sources: R13 arms `courierResearchEarned` for rivals at the era flip, but whisper couriers hardcode `PLAYER_HOUSE_ID`, so the flag is **armed-but-latent** until a rival courier path ships.
+- WarEffort draftable-archetypes and multi-tick research (debate-dropped, above).
+- Rivals stay **promenade-excluded** by design — the promenade draws its partner randomly, so widening would make rivals *involuntary* partners and shift the `drawInt` distribution. Ballroom-only satisfies "rivals as conversation targets".
+- Culture line in persona prompts (the cache bump was spent on R6's rival block) → P26.
+- R6's hostility band rides the *cached* systemInstruction, so the attitude freezes for the 60-min TTL. Consistent with how happiness/marriage already cache; if live attitude matters, move the band to `buildContents` → P26.
+- `plans/SESSION-NOTES.md` has **no P24 section** — P24a/b/c were implemented but never formally closed. Pre-existing gap, noted not fabricated.
+
+**Files of note:**
+- src/game/rules/rivals.ts — full-`GameState` threading (field-subset `Acc` retired); `computeEffectiveWeights(state, rival)` affordability + eligibility weight→0 pre-filters; DemandSatisfaction (synchronous `resolveDuel` + rng round-trip) and CommissionForgery dispatches
+- src/game/rules/grievances.ts — NEW: withdraw / olive-branch / declare-war pure envelopes + `playerModalGate`
+- src/runtime/events/grievances.ts — NEW: `grievancesBus` (GrievanceWithdrawn / OliveBranchExtended / WarDeclared)
+- src/runtime/events/duels.ts — `publishDuelTransitions`; emits BOTH DuelInitiated and DuelResolved for a same-tick mint+resolve
+- src/game/rules/globalEvents.ts — war-profiteer branch; Culture re-key; 3 new event kinds; R13 era-flip rival research; R14 extend / end-early
+- src/game/util/lookups.ts — `findGrievanceAcrossHouses` (promoted from duel.ts; return shape widened)
+- src/game/rules/{succession,economy,maturation}.ts — the three `RIVAL_HOUSE_IDS_SET` / Exile-gate deletions
+- src/game/store.ts — 5 new free actions; `resolveTargetHouseContext`; 14/14/12 publisher wiring
+- server/prompts/persona.ts — `formatRivalHouseLine` (hostility bands 25 / 60); PERSONA_CACHE_VERSION v5
+- src/ui/ballroom/SchemeButtons.tsx — OfficerCommission filtered out of the ballroom picker
+- src/ui/map/MapView.tsx — duel banner + era chip/banner + 6-way event-chip color map + extend/end-early buttons
+- src/ui/ledger/tabs/PatronessesTab.tsx — `buildFactionGraphData` + Matrix|Web toggle

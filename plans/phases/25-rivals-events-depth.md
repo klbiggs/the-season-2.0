@@ -1,6 +1,6 @@
 # P25 — Rivals, Factions, Global Events & Era Depth (v1.5)
 
-> **Status: 🚧 in progress (fleshed + converged; ready to implement).** Track: v1.5. Source: [MASTER.md §11.2-D/F](../MASTER.md#112-v15--deferred-backlog-aggregated-deduped).
+> **Status: ✅ done (closed 2026-07-22).** All 14 items (R1–R14) shipped; gates green (1039 tests / lint / typecheck / knip); adversarial review found zero live functional defects; UI golden path browser-verified. See [SESSION-NOTES.md](../SESSION-NOTES.md#p25--rivals-factions-global-events--era-depth--closed-2026-07-22). Track: v1.5. Source: [MASTER.md §11.2-D/F](../MASTER.md#112-v15--deferred-backlog-aggregated-deduped).
 > Brings the adversarial world (rivals, factions) and the world-state layer (global events, era, military) to full depth — removing the documented v1 limitations (dormant-on-death rivals, cosmetic rival wealth, player-only duels, invisible era) and activating the military axis.
 
 ## Depends on
