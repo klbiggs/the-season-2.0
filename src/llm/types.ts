@@ -119,6 +119,10 @@ export const ProxyConversationRequestSchema = z.object({
   // (on per-turn `contents`, NOT systemInstruction — P12 cache mutual-exclusion).
   // `.default([])` is the backward-compat shortcut — pre-P17 clients omit it.
   semanticContext: z.array(z.string()).default([]),
+  // P26 (G3): key-moment routing. A non-null keyMoment routes to the Pro model
+  // (spec §5 — pre-wired at v1, activated here). Computed client-side via
+  // computeKeyMoment; "audience" is wired but never emitted at v1.5.
+  keyMoment: z.enum(["proposal", "scheme", "duel", "audience"]).nullable().default(null),
 });
 export type ProxyConversationRequest = z.infer<typeof ProxyConversationRequestSchema>;
 

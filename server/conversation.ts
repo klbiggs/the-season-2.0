@@ -31,7 +31,7 @@ export async function handleConversation(req: IncomingMessage, res: ServerRespon
   const env = validateEnv();
   const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
   const request = parsed.data;
-  const model = routeModel(request.history);
+  const model = routeModel(request.history, request.keyMoment);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SERVER_TIMEOUT_MS);

@@ -607,6 +607,7 @@ import {
 import { advanceTickPure } from "../runtime/tickOrchestrator";
 import { runYearPassPure } from "../runtime/yearPass";
 import type { PromenadeSessionId, VisitSessionId } from "./rng";
+import { computeKeyMoment } from "./rules/keyMoments";
 // P12 promenade imports. bootstrapNpcMountFamily is imported with the rest
 // of bootstrap.ts at the top (line 134); rules-side helpers live here.
 import {
@@ -1295,6 +1296,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           // pre-parse construction-vs-parse asymmetry.
           mode: "Ballroom" as const,
           semanticContext,
+          keyMoment: computeKeyMoment(stateBefore, target.id),
         };
 
         // Publish ConversationSent BEFORE awaiting the LLM (per
@@ -2558,6 +2560,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           },
           mode: "Promenade" as const,
           semanticContext,
+          keyMoment: computeKeyMoment(stateBefore, target.id),
         };
 
         // Pin-priority resolver. UI always pins a promenade tactic.
@@ -2798,6 +2801,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           },
           mode: "Visit" as const,
           semanticContext,
+          keyMoment: computeKeyMoment(stateBefore, target.id),
         };
         const outcome = await conversationOrchestrator.send(request, input.pinnedTactic);
         if (outcome.kind === "Failed") {
