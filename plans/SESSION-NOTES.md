@@ -4,7 +4,7 @@ Closeout notes per phase. Decisions made during implementation that aren't captu
 
 > Gap note (recorded 2026-07-22): this file jumps P26 → P15. Phases P16–P25 shipped without a closeout entry; their decisions live only in the phase subplans, the CLAUDE.md pins, and git history.
 
-## P26 — closed 2026-07-22 (status stays 🚧 in progress — see Deferred)
+## P26 — closed 2026-07-22 (✅ done; the two deferred items were closed same-day — see the addendum)
 
 **Decisions made:**
 - **Two-phase streaming (Q15)**: call #1 streams prose over SSE with NO tools; call #2 is a forced-function `classify` (always Flash). Splitting was forced by the shape of the problem — a forced-function `respond` can't stream token-by-token. Combat + history append stay atomic after both legs. `sendStreamed` carries an inner `STREAM_LEG_TIMEOUT_MS = 11_000` sub-budget inside the 15s composite so a Pro-routed stream can't starve classify.
@@ -18,12 +18,20 @@ Closeout notes per phase. Decisions made during implementation that aren't captu
 **Open questions hit:**
 - MASTER §10 Q14 (NPC-initiated) and Q15 (streaming) both resolved this phase; their table rows already carry "v1.5 update — Resolved at P26". No new OQs emerged.
 
-**Deferred / next-up (the two reasons status is not ✅):**
+**Deferred / next-up (both CLOSED same-day — see the addendum below):**
 - **Server-side streaming suites absent.** The phase's verification says streaming is "covered (client + server suites)". The client half is solid (`src/llm/client.stream.test.ts`, 9 tests: delta/done, trailing-frame flush, multi-frame chunk, in-band timeout/network, pre-stream 500, empty stream, classify 422/408). There is no `server/conversationStream.test.ts`, `server/classify.test.ts`, or `server/flavorStream.test.ts`, and **`sendStreamed` has zero tests** — so fallback-to-single-shot, the 11s sub-budget, mid-stream abort, and "classify failure → no history append, no tick" are unexercised by the suite. Browser-verified on the happy path only (Pro 2 deltas/9.1s, Flash 3 deltas/4.0s).
 - **Phase-order tracker not updated for the PHASES 16→17 insertion.** No test references `applyCallingCardPhase`, and `src/runtime/tickOrchestrator.test.ts:124` still reads "slot 8 of 9". The draw-budget contract IS pinned at the rule layer (`callingCards.test.ts` "advances the player rng callCount by exactly 1 on a no-spawn tick" + a 200-tick determinism run), and the 63-test replay harness passes, so determinism is covered — it is the phase-order assertion specifically that is stale.
 - Deferred from P24a and still open: C8 (synthetic starting schemes).
 
+**Addendum — the two deferred items, closed 2026-07-22:**
+- **A real bug fell out of the phase-order work.** The existing ordering test substitutes its OWN phase array into `runOrchestratorWithPhases`, so it only ever proved the runner walks the array it was handed. Verified empirically: moving `applyCallingCardPhase` after `applyRivalActionPhase` — a direct violation of the "rivals last among RNG-consuming phases" non-negotiable — left **all 1132 tests green**. Nothing in the repo caught phase misordering. New `src/runtime/tickOrchestrator.guard.test.ts` source-scans the real PHASES literal (PHASES stays module-private per the frozen-PHASES rule, so it cannot be imported) and pins order, length, the calling-card slot, and the rivals-terminal contract. Confirmed it fails 4/5 on that mutation.
+- **A second real bug: an 11s server stall reported as "cancelled".** `timedOut` was set only by the outer 15s timer, so the inner stream-leg cap fell through to the cancel branch — telling the player they aborted something they did not. Plan line 28 specifies the timeout path. Fixed in `conversationOrchestrator.ts` (the inner cap now sets `timedOut` itself); the test that had ratified `"cancelled"` now pins `"timeout"`.
+- Server suites added: `conversationStream` / `classify` / `flavorStream` (36 tests), plus `conversationOrchestrator.stream.test.ts` (13) covering fallback-once, no-retry-on-cancel, the 11s sub-budget, staleness, and toolCalls passthrough. Suite 1086 → 1141.
+- **Every claim above was mutation-tested**, not assumed: reverting the timeout fix, dropping `clearTimeout(streamLegTimer)`, re-adding `tools`/`toolConfig` to the streamed leg (the copy-paste regression that would yield zero prose deltas in production), and misordering PHASES each turn the relevant test red.
+- Method note: the three suites were authored by parallel agents and then adversarially reviewed for tests that cannot fail. That review was worth it — it caught a tautological timer assertion, a fallback test that passed identically whether or not the streamed path ran, and the phase-order tautology above. Two of my own follow-up assertions were also wrong and were corrected by their failures (notably: the fallback is `this.send` on the ORCHESTRATOR, so a `LlmClient.prototype.send` spy sees `(request, signal)` and never the pin).
+
 **Files of note:**
+- src/runtime/tickOrchestrator.guard.test.ts:1 — the only thing that catches phase misordering
 - src/llm/sse.ts:1 — the single SSE reader; do not hand-roll a second copy
 - server/conversationStream.ts:77 — the Flash-only `thinkingBudget: 0` gate
 - src/game/rules/callingCards.ts:1 — burn-on-all-outcomes trigger roll (PHASES slot 8)

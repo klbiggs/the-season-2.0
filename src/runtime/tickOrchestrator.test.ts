@@ -5,6 +5,7 @@ import {
   makeHouse,
   makeHousesMap,
 } from "../game/__test-utils__/factories";
+import { CALLING_CARD_EXPIRY_TICKS } from "../game/constants";
 import type { Character, GameState, MarriageRecord } from "../game/entities";
 import {
   type CharacterId,
@@ -13,7 +14,7 @@ import {
   type RngState,
   createRngState,
 } from "../game/rng";
-import { PLAYER_HOUSE_ID } from "../game/rng.seeds";
+import { INDEPENDENT_HOUSE_ID, PLAYER_HOUSE_ID } from "../game/rng.seeds";
 import { createPhaseOrderTracker } from "./__test-utils__/phaseOrderTracker";
 import { advanceTickPure, runOrchestratorWithPhases } from "./tickOrchestrator";
 
@@ -121,7 +122,7 @@ describe("advanceTickPure — phase-array ordering", () => {
 
   // P7: happiness drift phase inserts at slot 8 (between mood-drift and
   // rival-action stub). "Rivals always run last" contract preserved.
-  it("happiness-drift phase fires after mood-drift and before rival-action (slot 8 of 9)", () => {
+  it("happiness-drift phase fires after mood-drift and before rival-action (slot 10 of 17)", () => {
     const tracker = createPhaseOrderTracker();
     const phases = [
       tracker.trackedPhase("advance-tick"),
@@ -130,6 +131,8 @@ describe("advanceTickPure — phase-array ordering", () => {
       tracker.trackedPhase("courier-draining"),
       tracker.trackedPhase("scheme-resolution"),
       tracker.trackedPhase("global-event-roll"),
+      // P26: calling-card roll inserted immediately after the global-event roll.
+      tracker.trackedPhase("calling-card"),
       tracker.trackedPhase("mood-drift"),
       tracker.trackedPhase("happiness-drift"),
       tracker.trackedPhase("rival-action"),
@@ -137,17 +140,68 @@ describe("advanceTickPure — phase-array ordering", () => {
       tracker.trackedPhase("dynasty-perk-evaluation"),
     ];
     runOrchestratorWithPhases(makeState({}), phases);
-    expect(tracker.trace).toHaveLength(10);
-    // Slot 8 happiness sits between mood-drift (slot 7) and rival-action.
+    expect(tracker.trace).toHaveLength(11);
+    // Slot 10 happiness sits between mood-drift (slot 9) and rival-action.
+    const globalEventIdx = tracker.trace.indexOf("global-event-roll");
+    const callingCardIdx = tracker.trace.indexOf("calling-card");
     const moodIdx = tracker.trace.indexOf("mood-drift");
     const happinessIdx = tracker.trace.indexOf("happiness-drift");
     const rivalIdx = tracker.trace.indexOf("rival-action");
     const perkIdx = tracker.trace.indexOf("dynasty-perk-evaluation");
+    // P26: calling-card sits between the global-event roll and mood drift —
+    // both are player-stream draws, so the relative order is the determinism
+    // contract.
+    expect(callingCardIdx).toBe(globalEventIdx + 1);
+    expect(moodIdx).toBe(callingCardIdx + 1);
     expect(happinessIdx).toBe(moodIdx + 1);
     expect(rivalIdx).toBe(happinessIdx + 1);
     // P15: rival-action is the last RNG-CONSUMING phase (second-to-last overall);
     // the RNG-free dynasty-perk evaluation is the sole phase permitted after it.
     expect(rivalIdx).toBe(tracker.trace.length - 2);
     expect(perkIdx).toBe(tracker.trace.length - 1);
+  });
+});
+
+// The ordering test above runs a SUBSTITUTED phase array, so it can never prove
+// the real (module-private) PHASES contains the calling-card phase. This drives
+// advanceTickPure — the only reader of PHASES — and asserts a card actually
+// mints. applyCallingCardPhase is the sole writer of state.callingCards, so
+// dropping it from the chain fails this outright.
+describe("advanceTickPure — calling-card phase is wired into the real PHASES chain", () => {
+  function stateWithCallerPool(seed: string): GameState {
+    // Caller pool = adult, alive, non-player, non-rival characters. Society
+    // (Independent) NPCs qualify; the player head does not.
+    const head = makeCharacter({ id: "test-char" as CharacterId, houseId: PLAYER_HOUSE_ID });
+    const npcs = Array.from({ length: 6 }, (_, i) =>
+      makeCharacter({
+        id: `npc-${i}` as CharacterId,
+        houseId: INDEPENDENT_HOUSE_ID,
+        age: 25,
+        alive: true,
+      }),
+    );
+    return makeState({
+      rng: new Map<HouseId, RngState>([[PLAYER_HOUSE_ID, createRngState(seed)]]),
+      houses: makeHousesMap([makeHouse()]),
+      characters: makeCharactersMap([head, ...npcs]),
+    });
+  }
+
+  it("mints and later expires calling cards when driven through advanceTickPure", () => {
+    let state = stateWithCallerPool("orchestrator-calling-card");
+    for (let i = 0; i < 300; i += 1) {
+      state = advanceTickPure(state);
+    }
+    const cards = [...state.callingCards.values()];
+    expect(cards.length).toBeGreaterThan(0);
+    for (const card of cards) {
+      // Caller came from the eligible pool (never the player head).
+      expect(card.callerCharacterId.startsWith("npc-")).toBe(true);
+      // Absolute end-tick, per the one-canonical-clock rule.
+      expect(card.expiresAtTick).toBe(card.issuedAtTick + CALLING_CARD_EXPIRY_TICKS);
+    }
+    // The expiry sweep runs inside the live chain too, so long-past cards are
+    // no longer Pending.
+    expect(cards.some((c) => c.status === "Expired")).toBe(true);
   });
 });

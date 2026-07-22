@@ -267,7 +267,7 @@ All machines live in `src/game/machines/` and are XState v5 actor refs held in t
 | P24b | v1.5 — Material Assets Depth: Artifacts, Wardrobe & Forgery | [`phases/24b-material-artifacts-forgery.md`](./phases/24b-material-artifacts-forgery.md) | P10, P16, P22, P23, P8 | ✅ done |
 | P24c | v1.5 — Downstairs Network Depth: Staff | [`phases/24c-staff-network-depth.md`](./phases/24c-staff-network-depth.md) | P6, P15, P23 | ✅ done |
 | P25 | v1.5 — Rivals, Factions, Global Events & Era Depth | [`phases/25-rivals-events-depth.md`](./phases/25-rivals-events-depth.md) | P8, P10, P13 | 📋 planned (v1.5) |
-| P26 | v1.5 — Conversation, LLM, Memory & Promenade Depth | [`phases/26-conversation-llm-depth.md`](./phases/26-conversation-llm-depth.md) | P4, P12, P17, P18 | 🚧 in progress |
+| P26 | v1.5 — Conversation, LLM, Memory & Promenade Depth | [`phases/26-conversation-llm-depth.md`](./phases/26-conversation-llm-depth.md) | P4, P12, P17, P18 | ✅ done |
 | P27 | v1.5 — Platform: Ledger QoL, Tooling & Infra | [`phases/27-platform-qol-infra.md`](./phases/27-platform-qol-infra.md) | P0, P2, P14 | 📋 planned (v1.5) |
 
 **Note**: P7.5 is a cross-cutting architectural amendment (LLM-key relocation), not a new feature phase. P8+ "Depends on" columns do NOT inherit P7.5.

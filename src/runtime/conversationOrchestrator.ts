@@ -275,8 +275,16 @@ class ConversationOrchestrator {
 
     try {
       // Stream leg — its own inner cap composed with the outer budget.
+      // Blowing the inner cap is a TIMEOUT, not a cancel: only the outer timer
+      // sets `timedOut`, so without this flag an 11s server stall would surface
+      // to the player as "cancelled" — i.e. blame them for a stall they did not
+      // cause. Plan 26 line 28: "A stream exceeding its cap maps to the timeout
+      // failure path."
       const streamLegController = new AbortController();
-      const streamLegTimer = setTimeout(() => streamLegController.abort(), STREAM_LEG_TIMEOUT_MS);
+      const streamLegTimer = setTimeout(() => {
+        timedOut = true;
+        streamLegController.abort();
+      }, STREAM_LEG_TIMEOUT_MS);
       let dialogue: string;
       try {
         dialogue = await this.client.sendStream(
