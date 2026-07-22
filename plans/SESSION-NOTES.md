@@ -2,6 +2,36 @@
 
 Closeout notes per phase. Decisions made during implementation that aren't captured by the subplan or git history. Newest entry on top.
 
+> Gap note (recorded 2026-07-22): this file jumps P26 → P15. Phases P16–P25 shipped without a closeout entry; their decisions live only in the phase subplans, the CLAUDE.md pins, and git history.
+
+## P26 — closed 2026-07-22 (status stays 🚧 in progress — see Deferred)
+
+**Decisions made:**
+- **Two-phase streaming (Q15)**: call #1 streams prose over SSE with NO tools; call #2 is a forced-function `classify` (always Flash). Splitting was forced by the shape of the problem — a forced-function `respond` can't stream token-by-token. Combat + history append stay atomic after both legs. `sendStreamed` carries an inner `STREAM_LEG_TIMEOUT_MS = 11_000` sub-budget inside the 15s composite so a Pro-routed stream can't starve classify.
+- **`thinkingBudget: 0` is Flash-only.** Found only by running the real API in a browser: `gemini-3.1-pro-preview` returns HTTP 400 ("This model only works in thinking mode"), so every first-meeting stream silently 400'd and fell back to single-shot. The P18 flavor-endpoint precedent of blanket thinking-off does not transfer to Pro. Thinking-mode legs also need `STREAM_THINKING_OUTPUT_TOKEN_BUDGET` — thinking tokens are deducted from `maxOutputTokens` (the P18 lesson, re-learned).
+- **Streamed prose needs an explicit anti-narration instruction.** The single-shot path gets that discipline free from `respond`'s `dialogue` FIELD; raw streamed prose drifts into `*stage direction*`.
+- **SSE parsing centralized at `src/llm/sse.ts`.** The trailing-frame flush shipped broken once (a terminal `done` arriving in the same read as the last delta was dropped, truncating replies mid-sentence). Two hand-rolled copies would have been two chances to get it wrong.
+- **Scene-via-contents (Q14 decision 4)**: the "Other characters in this scene" section moved OUT of the cached persona into per-turn `contents`. Load-bearing for H3's multi-partner promenade — `cachedContent` and `systemInstruction` are mutually exclusive, so scene membership baked into a cached persona would silently stale on every cache hit (the P12 lesson applied to scene composition).
+- **Calling-card draw burns on all outcomes** — the second unconditional per-tick player-rng draw after P13's global-event roll. Discarding the outcome (Pending cap hit, empty pool) without burning would have made the roll re-fire deterministically.
+- **Flavor authoring supersedes "produced at most once" → "at most once per player election."** `recordFlavorText` keeps once-only semantics; `authorFlavorText`/`overwriteFlavorText` are the new overwrite paths. Scandal columns deliberately get NO editor: their `(priorColumnTick, now]` aggregation window has moved by the time a regenerate could fire, so the replacement would summarize the wrong events.
+
+**Open questions hit:**
+- MASTER §10 Q14 (NPC-initiated) and Q15 (streaming) both resolved this phase; their table rows already carry "v1.5 update — Resolved at P26". No new OQs emerged.
+
+**Deferred / next-up (the two reasons status is not ✅):**
+- **Server-side streaming suites absent.** The phase's verification says streaming is "covered (client + server suites)". The client half is solid (`src/llm/client.stream.test.ts`, 9 tests: delta/done, trailing-frame flush, multi-frame chunk, in-band timeout/network, pre-stream 500, empty stream, classify 422/408). There is no `server/conversationStream.test.ts`, `server/classify.test.ts`, or `server/flavorStream.test.ts`, and **`sendStreamed` has zero tests** — so fallback-to-single-shot, the 11s sub-budget, mid-stream abort, and "classify failure → no history append, no tick" are unexercised by the suite. Browser-verified on the happy path only (Pro 2 deltas/9.1s, Flash 3 deltas/4.0s).
+- **Phase-order tracker not updated for the PHASES 16→17 insertion.** No test references `applyCallingCardPhase`, and `src/runtime/tickOrchestrator.test.ts:124` still reads "slot 8 of 9". The draw-budget contract IS pinned at the rule layer (`callingCards.test.ts` "advances the player rng callCount by exactly 1 on a no-spawn tick" + a 200-tick determinism run), and the 63-test replay harness passes, so determinism is covered — it is the phase-order assertion specifically that is stale.
+- Deferred from P24a and still open: C8 (synthetic starting schemes).
+
+**Files of note:**
+- src/llm/sse.ts:1 — the single SSE reader; do not hand-roll a second copy
+- server/conversationStream.ts:77 — the Flash-only `thinkingBudget: 0` gate
+- src/game/rules/callingCards.ts:1 — burn-on-all-outcomes trigger roll (PHASES slot 8)
+- src/runtime/flavorOrchestrator.ts:123 — stream-first with single-shot fallback; partials never persisted
+- src/ui/shared/FlavorEditor.tsx:1 — shared edit/regenerate control (4 surfaces)
+- src/runtime/tickOrchestrator.test.ts:124 — stale "slot 8 of 9" label to fix
+- plans/phases/26-conversation-llm-depth.md:124 — the verification list this closeout walked
+
 ## P15 — closed 2026-05-24
 
 **Decisions made:**
