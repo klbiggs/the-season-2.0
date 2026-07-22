@@ -1,15 +1,23 @@
 // P8: rival-action loop. Per-tick rule walking state.rivalActors in lex-id
 // order. For each rival passing activation + cooldown + head-alive + player-
 // not-exiled gates, rolls one weighted action from RIVAL_ACTION_WEIGHTS and
-// dispatches to one of the 4 branches (LeakWhisper, PettySabotage,
-// OpenSabotage, RaiseFactionTension).
+// dispatches to one of the 5 branches (LeakWhisper, PettySabotage,
+// OpenSabotage, RaiseFactionTension, Seduction).
 //
 // Uses each rival's own state.rng[rivalHouseId] — NEVER the player's RNG.
-// Per-iteration multi-Map accumulator pattern (CLAUDE.md non-negotiable):
-// lazy-clones all mutable Maps on first write; subsequent iterations read
-// from acc.* (not state.*) so cross-iteration collisions are impossible.
 //
-// Replaces the P1 identity stub at tickOrchestrator.ts slot 10 ("rivals
+// P25 R3: the phase threads ONE full working `GameState` through the loop
+// (hostility decay → gates → dispatch → cooldown burn) rather than a
+// field-subset accumulator. A DemandSatisfaction duel resolves via
+// `resolveDuel`, whose death cascade (`pruneOrphanedConversationKeys`) mutates
+// conversationHistory / affectionMap / betrothals / elopements BEYOND the
+// old accumulator's tracked Maps — a field-subset accumulator would silently
+// drop those, so the whole-GameState thread is load-bearing. Every dispatch
+// branch reads from and returns the working state; the P6 per-iteration
+// collision-avoidance is preserved because id factories walk the working
+// state (not the captured `state` parameter).
+//
+// Replaces the P1 identity stub at tickOrchestrator.ts slot 15 ("rivals
 // always run last" — CLAUDE.md non-negotiable).
 
 import {
@@ -25,14 +33,7 @@ import {
   RIVAL_WEIGHT_SCALE,
   type RivalActionKind,
 } from "../constants";
-import type {
-  CourierPayload,
-  GameState,
-  House,
-  RivalActorState,
-  Scheme,
-  Whisper,
-} from "../entities";
+import type { GameState, House, RivalActorState } from "../entities";
 import {
   FACTION_IDS,
   PLAYER_FACTION_ID,
@@ -41,28 +42,13 @@ import {
 } from "../fixtures/factions";
 import {
   type CharacterId,
-  type CourierPayloadId,
   type FactionPairKey,
-  type HouseId,
   PLAYER_HOUSE_ID,
-  type RngState,
-  type SchemeId,
   type WhisperId,
   drawNext,
 } from "../rng";
 import { clamp } from "../util/clamp";
 import { tryStartScheme } from "./schemes";
-
-// Module-scope so dispatchRivalAction can reference the type.
-type Acc = {
-  rivalActors: Map<HouseId, RivalActorState> | null;
-  schemes: Map<SchemeId, Scheme> | null;
-  whispers: Map<WhisperId, Whisper> | null;
-  couriers: Map<CourierPayloadId, CourierPayload> | null;
-  houses: Map<HouseId, House> | null;
-  factionTensions: Map<FactionPairKey, number> | null;
-  rng: Map<HouseId, RngState> | null;
-};
 
 type DispatchResult =
   | { kind: "Fired"; action: RivalActionKind }
@@ -121,118 +107,109 @@ function pickByScaledWeight(scaledWeights: readonly number[], rollScaled: number
   return RIVAL_ACTION_KINDS[RIVAL_ACTION_KINDS.length - 1] ?? "LeakWhisper";
 }
 
+// Each branch reads from and returns the working `GameState`. `rivalHouse` is
+// the post-decay house for this rival (already written into `working.houses`).
 function dispatchRivalAction(
   pickedKind: RivalActionKind,
   rival: RivalActorState,
   rivalHouse: House,
-  acc: Acc,
-  state: GameState,
+  working: GameState,
   tick: number,
-): DispatchResult {
+): { working: GameState; result: DispatchResult } {
   switch (pickedKind) {
     case "LeakWhisper": {
-      // Pick a player-house character to talk about. state.characters is
-      // read-stable across this loop (the rival-action phase never mutates
-      // characters); safe to read from state directly. Lex-smallest id wins.
+      // Pick a player-house character to talk about (lex-smallest alive id).
       const candidates: CharacterId[] = [];
-      for (const c of state.characters.values()) {
+      for (const c of working.characters.values()) {
         if (c.houseId === PLAYER_HOUSE_ID && c.alive) candidates.push(c.id);
       }
       candidates.sort();
       const targetCharId = candidates[0];
       if (targetCharId === undefined) {
-        return { kind: "Skipped", reason: "PlayerHouseNotFound" };
+        return { working, result: { kind: "Skipped", reason: "PlayerHouseNotFound" } };
       }
-      // P8: minimal whisper creation. Full whisper-id factory + courier flow
-      // is implemented at P6; for P8 we generate a deterministic stub whisper
-      // id keyed on (rivalId, target, tick) since rival-leaks have no
-      // synergy-flag origin.
+      // Deterministic stub whisper id keyed on (rivalId, target, tick) —
+      // rival-leaks have no synergy-flag origin (full factory is P6).
       const whisperId = `rival-leak:${rival.houseId}:${targetCharId}:${tick}` as WhisperId;
-      acc.whispers ??= new Map(state.whispers);
-      if (!acc.whispers.has(whisperId)) {
-        acc.whispers.set(whisperId, {
-          id: whisperId,
-          text: "",
-          originatingTick: tick,
-          sourceCharacterId: rival.associatedCharacterIds[0] ?? rivalHouse.headOfHouseCharacterId,
-          subjectCharacterId: targetCharId,
-          destinationHouseId: PLAYER_HOUSE_ID,
-          arrivedAtTick: tick,
-          verificationProgress: 0,
-          status: "Unverified",
-          weaponizedAs: null,
-          weaponizedAtTick: null,
-          scandalSheetAttribution: null,
-          accidentalSlipDripsRemaining: 0,
-          llmGenerated: false,
-        });
+      if (working.whispers.has(whisperId)) {
+        return { working, result: { kind: "Fired", action: "LeakWhisper" } };
       }
-      return { kind: "Fired", action: "LeakWhisper" };
+      const newWhispers = new Map(working.whispers);
+      newWhispers.set(whisperId, {
+        id: whisperId,
+        text: "",
+        originatingTick: tick,
+        sourceCharacterId: rival.associatedCharacterIds[0] ?? rivalHouse.headOfHouseCharacterId,
+        subjectCharacterId: targetCharId,
+        destinationHouseId: PLAYER_HOUSE_ID,
+        arrivedAtTick: tick,
+        verificationProgress: 0,
+        status: "Unverified",
+        weaponizedAs: null,
+        weaponizedAtTick: null,
+        scandalSheetAttribution: null,
+        accidentalSlipDripsRemaining: 0,
+        llmGenerated: false,
+      });
+      return {
+        working: { ...working, whispers: newWhispers },
+        result: { kind: "Fired", action: "LeakWhisper" },
+      };
     }
     case "PettySabotage": {
-      acc.houses ??= new Map(state.houses);
-      const playerHouse = acc.houses.get(PLAYER_HOUSE_ID);
-      if (playerHouse === undefined) return { kind: "Skipped", reason: "PlayerHouseNotFound" };
-      acc.houses.set(PLAYER_HOUSE_ID, {
+      const playerHouse = working.houses.get(PLAYER_HOUSE_ID);
+      if (playerHouse === undefined) {
+        return { working, result: { kind: "Skipped", reason: "PlayerHouseNotFound" } };
+      }
+      const newHouses = new Map(working.houses);
+      newHouses.set(PLAYER_HOUSE_ID, {
         ...playerHouse,
         reputation: clamp(playerHouse.reputation + PETTY_SABOTAGE_REPUTATION_DELTA, 0, 100),
       });
-      return { kind: "Fired", action: "PettySabotage" };
+      return {
+        working: { ...working, houses: newHouses },
+        result: { kind: "Fired", action: "PettySabotage" },
+      };
     }
     case "OpenSabotage": {
-      const playerHouse = (acc.houses ?? state.houses).get(PLAYER_HOUSE_ID);
-      if (playerHouse === undefined) return { kind: "Skipped", reason: "PlayerHouseNotFound" };
-      // Reconstruct synthetic GameState from the accumulator so tryStartScheme
-      // reads post-mutation Maps (resolves Cycle-4 B2 stale-state risk).
-      // state.characters is read-stable across this loop; passed through.
-      const accState: GameState = {
-        ...state,
-        houses: acc.houses ?? state.houses,
-        schemes: acc.schemes ?? state.schemes,
-        rng: acc.rng ?? state.rng,
-        whispers: acc.whispers ?? state.whispers,
-        couriers: acc.couriers ?? state.couriers,
-        factionTensions: acc.factionTensions ?? state.factionTensions,
-      };
-      const result = tryStartScheme(accState, rival.houseId, {
+      const playerHouse = working.houses.get(PLAYER_HOUSE_ID);
+      if (playerHouse === undefined) {
+        return { working, result: { kind: "Skipped", reason: "PlayerHouseNotFound" } };
+      }
+      // tryStartScheme mutates only houses + schemes and returns a full state;
+      // adopt it wholesale (it carries every other working Map forward).
+      const result = tryStartScheme(working, rival.houseId, {
         kind: "Sabotage",
         targetCharacterId: playerHouse.headOfHouseCharacterId,
         skipWealthDeduction: true,
       });
       if (result.ok) {
-        // Propagate scheme + house mutations from result.state back to acc.
-        acc.schemes ??= new Map(state.schemes);
-        const newScheme = result.state.schemes.get(result.schemeId);
-        if (newScheme !== undefined) acc.schemes.set(result.schemeId, newScheme);
-        acc.houses ??= new Map(state.houses);
-        for (const [hid, h] of result.state.houses) {
-          if (acc.houses.get(hid) !== h) acc.houses.set(hid, h);
-        }
-        return { kind: "Fired", action: "OpenSabotage" };
+        return { working: result.state, result: { kind: "Fired", action: "OpenSabotage" } };
       }
       if (result.reason.kind === "TargetIsDead") {
-        return { kind: "Skipped", reason: "TargetDead" };
+        return { working, result: { kind: "Skipped", reason: "TargetDead" } };
       }
-      // Any other rejection (MissingArchetype, WrongEra, etc.) — at v1 these
-      // are structurally unreachable for rival OpenSabotage but the catch-all
-      // keeps the dispatch result honest.
-      return { kind: "Skipped", reason: "OtherRejection" };
+      return { working, result: { kind: "Skipped", reason: "OtherRejection" } };
     }
     case "RaiseFactionTension": {
       const opposing = lexPickOpposingFaction(rival.factionId);
-      if (opposing === null) return { kind: "Skipped", reason: "OtherRejection" };
-      const pairKey = makeFactionPairKey(rival.factionId, opposing);
-      const tensions = acc.factionTensions ?? state.factionTensions;
-      const current = tensions.get(pairKey) ?? 0;
-      if (current >= FACTION_TENSION_CAP) {
-        return { kind: "Skipped", reason: "FactionTensionAtCap" };
+      if (opposing === null) {
+        return { working, result: { kind: "Skipped", reason: "OtherRejection" } };
       }
-      acc.factionTensions ??= new Map(state.factionTensions);
-      acc.factionTensions.set(
+      const pairKey = makeFactionPairKey(rival.factionId, opposing);
+      const current = working.factionTensions.get(pairKey) ?? 0;
+      if (current >= FACTION_TENSION_CAP) {
+        return { working, result: { kind: "Skipped", reason: "FactionTensionAtCap" } };
+      }
+      const newTensions = new Map(working.factionTensions);
+      newTensions.set(
         pairKey,
         clamp(current + FACTION_TENSION_DELTA_PER_RAISE_ACTION, 0, FACTION_TENSION_CAP),
       );
-      return { kind: "Fired", action: "RaiseFactionTension" };
+      return {
+        working: { ...working, factionTensions: newTensions },
+        result: { kind: "Fired", action: "RaiseFactionTension" },
+      };
     }
     case "Seduction": {
       // P24a: a rival runs a Seduction against the lex-smallest alive
@@ -242,42 +219,26 @@ function dispatchRivalAction(
       // (owner) house. The per-aggressor Q2 gate may reject if the rival head
       // already runs an Active Seduction (→ Skipped/OtherRejection).
       const candidates: CharacterId[] = [];
-      for (const c of state.characters.values()) {
+      for (const c of working.characters.values()) {
         if (c.houseId === PLAYER_HOUSE_ID && c.alive) candidates.push(c.id);
       }
       candidates.sort();
       const targetCharId = candidates[0];
       if (targetCharId === undefined) {
-        return { kind: "Skipped", reason: "PlayerHouseNotFound" };
+        return { working, result: { kind: "Skipped", reason: "PlayerHouseNotFound" } };
       }
-      const accState: GameState = {
-        ...state,
-        houses: acc.houses ?? state.houses,
-        schemes: acc.schemes ?? state.schemes,
-        rng: acc.rng ?? state.rng,
-        whispers: acc.whispers ?? state.whispers,
-        couriers: acc.couriers ?? state.couriers,
-        factionTensions: acc.factionTensions ?? state.factionTensions,
-      };
-      const result = tryStartScheme(accState, rival.houseId, {
+      const result = tryStartScheme(working, rival.houseId, {
         kind: "Seduction",
         targetCharacterId: targetCharId,
         skipWealthDeduction: true,
       });
       if (result.ok) {
-        acc.schemes ??= new Map(state.schemes);
-        const newScheme = result.state.schemes.get(result.schemeId);
-        if (newScheme !== undefined) acc.schemes.set(result.schemeId, newScheme);
-        acc.houses ??= new Map(state.houses);
-        for (const [hid, h] of result.state.houses) {
-          if (acc.houses.get(hid) !== h) acc.houses.set(hid, h);
-        }
-        return { kind: "Fired", action: "Seduction" };
+        return { working: result.state, result: { kind: "Fired", action: "Seduction" } };
       }
       if (result.reason.kind === "TargetIsDead") {
-        return { kind: "Skipped", reason: "TargetDead" };
+        return { working, result: { kind: "Skipped", reason: "TargetDead" } };
       }
-      return { kind: "Skipped", reason: "OtherRejection" };
+      return { working, result: { kind: "Skipped", reason: "OtherRejection" } };
     }
   }
 }
@@ -290,32 +251,27 @@ export function applyRivalActionPhase(
   state: GameState,
   opts?: ApplyRivalActionPhaseOptions,
 ): GameState {
-  const acc: Acc = {
-    rivalActors: null,
-    schemes: null,
-    whispers: null,
-    couriers: null,
-    houses: null,
-    factionTensions: null,
-    rng: null,
-  };
+  let working = state;
 
   const sortedRivalIds = [...state.rivalActors.keys()].sort();
   for (const rivalId of sortedRivalIds) {
-    const rival = (acc.rivalActors ?? state.rivalActors).get(rivalId);
+    const rival = working.rivalActors.get(rivalId);
     if (rival === undefined) continue;
-    const preDecayHouse = (acc.houses ?? state.houses).get(rivalId);
+    const preDecayHouse = working.houses.get(rivalId);
     if (preDecayHouse === undefined) continue;
 
     // 1. Hostility decay (-1/tick), clamp [0, 100]. Runs unconditionally
     //    even when the rival fails subsequent gates (spec §3 line 403:
     //    "passive decay keeps inactive rivals quiet").
-    acc.houses ??= new Map(state.houses);
     const postDecayHouse: House = {
       ...preDecayHouse,
       hostility: clamp(preDecayHouse.hostility + RIVAL_HOSTILITY_DECAY_PER_TICK, 0, 100),
     };
-    acc.houses.set(rivalId, postDecayHouse);
+    {
+      const newHouses = new Map(working.houses);
+      newHouses.set(rivalId, postDecayHouse);
+      working = { ...working, houses: newHouses };
+    }
 
     // 2. Activation gate.
     if (postDecayHouse.hostility < RIVAL_HOSTILITY_ACTIVATION_THRESHOLD) continue;
@@ -327,53 +283,47 @@ export function applyRivalActionPhase(
     if (!cooldownReady) continue;
 
     // 4. Head-alive gate. selectAggressor throws on dead head; skip here so
-    //    the throw site is never reached.
-    const rivalHead = state.characters.get(postDecayHouse.headOfHouseCharacterId);
+    //    the throw site is never reached. Reads the WORKING state so a mid-loop
+    //    duel death (a later phase feature) is seen.
+    const rivalHead = working.characters.get(postDecayHouse.headOfHouseCharacterId);
     if (rivalHead === undefined || !rivalHead.alive) continue;
 
-    // 5. Player-exile gate. Terminal-state per CLAUDE.md — all 4 rival
-    //    actions target the player; skip the entire dispatch on exile.
-    const playerHouseExileCheck = state.houses.get(PLAYER_HOUSE_ID);
+    // 5. Player-exile gate. Terminal-state per CLAUDE.md — all rival actions
+    //    target the player; skip the entire dispatch on exile.
+    const playerHouseExileCheck = working.houses.get(PLAYER_HOUSE_ID);
     if (playerHouseExileCheck?.exiled === true) continue;
 
     // 6. Weighted pick (integer-scaled). All-zero pool (e.g., RaiseFactionTension
     //    pre-filtered to 0 AND no OpenSabotage bias) means no action available
     //    — skip without burning RNG.
-    const scaledWeights = computeEffectiveWeights(
-      rival,
-      acc.factionTensions ?? state.factionTensions,
-    );
+    const scaledWeights = computeEffectiveWeights(rival, working.factionTensions);
     const poolSize = scaledWeights.reduce((a, b) => a + b, 0);
     if (poolSize <= 0) continue;
 
-    acc.rng ??= new Map(state.rng);
-    const rngState = acc.rng.get(rivalId);
+    const rngState = working.rng.get(rivalId);
     if (rngState === undefined) continue;
     const { next: roll, rngState: nextRng } = drawNext(rngState);
-    acc.rng.set(rivalId, nextRng);
+    {
+      const newRng = new Map(working.rng);
+      newRng.set(rivalId, nextRng);
+      working = { ...working, rng: newRng };
+    }
     const rollScaled = Math.floor(roll * poolSize);
     const pickedKind = pickByScaledWeight(scaledWeights, rollScaled);
 
-    // 7. Dispatch.
-    dispatchRivalAction(pickedKind, rival, postDecayHouse, acc, state, state.tick);
+    // 7. Dispatch — reads/returns the working state.
+    working = dispatchRivalAction(pickedKind, rival, postDecayHouse, working, state.tick).working;
 
     // 8. Cooldown burn — unconditional on every roll (Fired AND Skipped) so
-    //    a terminal-skip action (e.g., RaiseFactionTension at-cap, though
-    //    pre-filtered) doesn't wedge the rival into a deterministic re-pick
-    //    loop. Per spec §3 line 404 "cooldown advances even on defensive
-    //    no-ops".
-    acc.rivalActors ??= new Map(state.rivalActors);
-    acc.rivalActors.set(rivalId, { ...rival, lastActionTick: state.tick });
+    //    a terminal-skip action doesn't wedge the rival into a deterministic
+    //    re-pick loop (spec §3 line 404). Re-read the rival from the working
+    //    state (a dispatch death cascade may have re-written rivalActors) so
+    //    the lastActionTick write doesn't clobber a cascade prune.
+    const rivalNow = working.rivalActors.get(rivalId) ?? rival;
+    const newRivalActors = new Map(working.rivalActors);
+    newRivalActors.set(rivalId, { ...rivalNow, lastActionTick: state.tick });
+    working = { ...working, rivalActors: newRivalActors };
   }
 
-  return {
-    ...state,
-    rivalActors: acc.rivalActors ?? state.rivalActors,
-    schemes: acc.schemes ?? state.schemes,
-    whispers: acc.whispers ?? state.whispers,
-    couriers: acc.couriers ?? state.couriers,
-    houses: acc.houses ?? state.houses,
-    factionTensions: acc.factionTensions ?? state.factionTensions,
-    rng: acc.rng ?? state.rng,
-  };
+  return working;
 }
