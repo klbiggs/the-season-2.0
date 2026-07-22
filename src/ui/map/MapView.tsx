@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { LOCATIONS, LOCATION_PIN_COORDS, type LocationId } from "../../game/fixtures/locations";
+import { RIVAL_HOUSE_IDS_SET } from "../../game/fixtures/rivals";
 import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import { canTravel } from "../../game/rules/travel";
 import type { SeasonStore } from "../../game/store";
+import { duelBus } from "../../runtime/events/duels";
 import { locationBus } from "../../runtime/events/location";
 import { useBusEvent } from "../../runtime/events/useBusEvent";
 import { ActionRejectionToast } from "./ActionRejectionToast";
@@ -44,6 +46,9 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
   // The result is surfaced via a before/after diff (no bus event exists for
   // births/succession).
   const [yearSummary, setYearSummary] = useState<string | null>(null);
+  // P25 R3: rival-initiated duel notifications. duelBus has no other subscriber,
+  // so a rival killing a player character mid-tick would otherwise be silent.
+  const [duelNotice, setDuelNotice] = useState<string | null>(null);
   const isExiled = house?.exiled === true;
 
   const onPassYear = () => {
@@ -103,6 +108,34 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
     });
   });
 
+  // P25 R3: surface rival-initiated duels (challenger ∈ a rival house). The
+  // DuelInitiated payload carries both ids; DuelResolved carries only duelId,
+  // so we correlate via state.duels (never-deleted → the lookup is always safe).
+  useBusEvent(duelBus, "DuelInitiated", (event) => {
+    const st = store.getState();
+    const challenger = st.characters.get(event.challengerCharacterId);
+    if (challenger === undefined || !RIVAL_HOUSE_IDS_SET.has(challenger.houseId)) return;
+    const defender = st.characters.get(event.defenderCharacterId);
+    setDuelNotice(
+      `${challenger.name} has demanded satisfaction of ${defender?.name ?? "your kin"}.`,
+    );
+  });
+  useBusEvent(duelBus, "DuelResolved", (event) => {
+    const st = store.getState();
+    const duel = st.duels.get(event.duelId);
+    if (duel === undefined) return;
+    const challenger = st.characters.get(duel.challengerCharacterId);
+    if (challenger === undefined || !RIVAL_HOUSE_IDS_SET.has(challenger.houseId)) return;
+    const name = st.characters.get(duel.defenderCharacterId)?.name ?? "your kin";
+    setDuelNotice(
+      event.loserCasualty === "Killed"
+        ? `${name} was killed in a duel with ${challenger.name}.`
+        : event.loserCasualty === "Wounded"
+          ? `${name} was wounded in a duel with ${challenger.name}.`
+          : `The duel with ${challenger.name} ended in a stalemate.`,
+    );
+  });
+
   // P14: the exile terminal-state banner was HOISTED to App.tsx persistent
   // chrome so it surfaces across all four views (Map / Ballroom / Promenade /
   // Ledger), not just the map. MapView no longer renders it.
@@ -136,6 +169,22 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
           </output>
         )}
       </div>
+      {duelNotice !== null && (
+        <div
+          className="flex items-center justify-between gap-3 px-6 py-2 bg-rose-900 text-rose-50 text-sm"
+          data-testid="duel-notice"
+          role="alert"
+        >
+          <span>{duelNotice}</span>
+          <button
+            type="button"
+            onClick={() => setDuelNotice(null)}
+            className="rounded border border-rose-300/40 px-2 py-0.5 text-xs hover:bg-rose-800"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {activeEvents.length > 0 && (
         <div
           className="flex flex-wrap justify-end gap-2 px-6 py-2 bg-stone-900"

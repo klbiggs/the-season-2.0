@@ -77,9 +77,11 @@ describe("publishGlobalEventTransitions diff (matrix #18)", () => {
 
 // ── Verification matrix #19: publisher-set count invariants ─────────────
 
-describe("Publisher set 11/11/9 (matrix #19)", () => {
+describe("Publisher set 14/14/12 (matrix #19)", () => {
   // Spy on each diff helper module to count invocations per wrapper. The
-  // wrapper-call counts validate the CLAUDE.md "11/11/9" pin.
+  // wrapper-call counts validate the CLAUDE.md "14/14/12" pin (P25 R3 added
+  // publishDuelTransitions to the tick group and publishElopementTransitions
+  // to runYearPass).
   //
   // The diff helpers are imported by store.ts via ES module bindings; vi.spyOn
   // can intercept calls on the module object. We import the module objects
@@ -89,7 +91,7 @@ describe("Publisher set 11/11/9 (matrix #19)", () => {
   // each helper emits. Some helpers emit zero events when before === after
   // (e.g., on a fresh state where nothing changes). The wrapper invokes the
   // helper regardless — that's what the publisher-set count measures.
-  it("advanceTick invokes all 11 diff publishers (no direct-publishes)", async () => {
+  it("advanceTick invokes all 14 diff publishers (no direct-publishes)", async () => {
     const conversationModule = await import("../runtime/events/conversation");
     const schemeModule = await import("../runtime/events/scheme");
     const whisperModule = await import("../runtime/events/whispers");
@@ -99,12 +101,15 @@ describe("Publisher set 11/11/9 (matrix #19)", () => {
     const siblingModule = await import("../runtime/events/siblingRival");
     const inheritedModule = await import("../runtime/events/inheritedSecret");
     const globalModule = await import("../runtime/events/globalEvent");
+    const dynastyModule = await import("../runtime/events/dynastyLegacy");
+    const duelModule = await import("../runtime/events/duels");
 
     const spies = [
       vi.spyOn(conversationModule, "publishCharacterDeaths"),
       vi.spyOn(schemeModule, "publishSchemeTransitions"),
       vi.spyOn(whisperModule, "publishWhisperTransitions"),
       vi.spyOn(familyModule, "publishMarriageTransitions"),
+      vi.spyOn(familyModule, "publishBetrothalTransitions"),
       vi.spyOn(familyModule, "publishTemptationLatchTransitions"),
       vi.spyOn(elopementModule, "publishElopementTransitions"),
       vi.spyOn(artifactModule, "publishArtifactTransitions"),
@@ -112,8 +117,10 @@ describe("Publisher set 11/11/9 (matrix #19)", () => {
       vi.spyOn(inheritedModule, "publishInheritedSecretTransitions"),
       vi.spyOn(inheritedModule, "publishBloodFeudTransitions"),
       vi.spyOn(globalModule, "publishGlobalEventTransitions"),
+      vi.spyOn(dynastyModule, "publishDynastyPerkAwards"),
+      vi.spyOn(duelModule, "publishDuelTransitions"),
     ];
-    expect(spies.length).toBe(11);
+    expect(spies.length).toBe(14);
 
     const store = createStore({ seed: "p13-publisher-count" });
     store.getState().advanceTick();
@@ -124,31 +131,36 @@ describe("Publisher set 11/11/9 (matrix #19)", () => {
     }
   });
 
-  it("runYearPass invokes 9 diff publishers (NOT publishGlobalEventTransitions, NOT publishSchemeTransitions, NOT publishElopementTransitions, NOT publishArtifactTransitions)", async () => {
+  it("runYearPass invokes 12 diff publishers — rides publishElopementTransitions (P25 R3 paydown) but NOT publishGlobalEventTransitions / publishSchemeTransitions / publishArtifactTransitions / publishDuelTransitions", async () => {
     const globalModule = await import("../runtime/events/globalEvent");
     const schemeModule = await import("../runtime/events/scheme");
     const elopementModule = await import("../runtime/events/elopement");
     const artifactModule = await import("../runtime/events/artifacts");
+    const duelModule = await import("../runtime/events/duels");
 
     const globalSpy = vi.spyOn(globalModule, "publishGlobalEventTransitions");
     const schemeSpy = vi.spyOn(schemeModule, "publishSchemeTransitions");
     const elopementSpy = vi.spyOn(elopementModule, "publishElopementTransitions");
     const artifactSpy = vi.spyOn(artifactModule, "publishArtifactTransitions");
+    const duelSpy = vi.spyOn(duelModule, "publishDuelTransitions");
 
     const store = createStore({ seed: "p13-yearpass-count" });
     store.getState().runYearPass();
 
     // Year-pass STEPS does not include global-event phase, scheme resolution,
-    // elopement-mounting, or artifact phases — so these 4 are NOT invoked.
+    // artifact phases, or rival duels — so these are NOT invoked. Elopement DOES
+    // ride now (P25 R3: death-cascade Branch 5 can flip a sprint in year-pass).
     expect(globalSpy).not.toHaveBeenCalled();
     expect(schemeSpy).not.toHaveBeenCalled();
-    expect(elopementSpy).not.toHaveBeenCalled();
     expect(artifactSpy).not.toHaveBeenCalled();
+    expect(duelSpy).not.toHaveBeenCalled();
+    expect(elopementSpy).toHaveBeenCalledTimes(1);
 
     globalSpy.mockRestore();
     schemeSpy.mockRestore();
     elopementSpy.mockRestore();
     artifactSpy.mockRestore();
+    duelSpy.mockRestore();
   });
 });
 
