@@ -17,7 +17,7 @@ import { validateEnv } from "./env";
 import { getOrCreatePersonaCache } from "./personaCache";
 import { buildPersonaPrompt } from "./prompts/persona";
 import { routeModel } from "./routing";
-import { GENERATE_WHISPER_TOOL, RESPOND_TOOL } from "./tools";
+import { GENERATE_GRIEVANCE_TOOL, GENERATE_WHISPER_TOOL, RESPOND_TOOL } from "./tools";
 
 const SERVER_TIMEOUT_MS = 13_000;
 
@@ -31,7 +31,7 @@ export async function handleConversation(req: IncomingMessage, res: ServerRespon
   const env = validateEnv();
   const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
   const request = parsed.data;
-  const model = routeModel(request.history);
+  const model = routeModel(request.history, request.keyMoment);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SERVER_TIMEOUT_MS);
@@ -56,7 +56,9 @@ export async function handleConversation(req: IncomingMessage, res: ServerRespon
       contents,
       config: {
         ...cachingConfig,
-        tools: [{ functionDeclarations: [RESPOND_TOOL, GENERATE_WHISPER_TOOL] }],
+        tools: [
+          { functionDeclarations: [RESPOND_TOOL, GENERATE_WHISPER_TOOL, GENERATE_GRIEVANCE_TOOL] },
+        ],
         toolConfig: {
           functionCallingConfig: {
             mode: FunctionCallingConfigMode.ANY,
@@ -102,19 +104,43 @@ const PROMENADE_MODE_FRAMING_PREFIX =
   "Available tactics: WittyBanter, DeepEmpathy, ComplimentMount " +
   "(the last is meaningful only when the partner owns a horse).]\n\n";
 
+// P26: Visit-mode framing (NPC-initiated drawing-room call). Same low-stakes
+// promenade combat envelope (no faux-pas), but the NPC came calling on the
+// player, so the framing signals initiative. Rides per-turn contents, never
+// systemInstruction (same cache mutual-exclusion reason as PROMENADE above).
+const VISIT_MODE_FRAMING_PREFIX =
+  "[Setting: A private drawing-room call. The character has called on the player " +
+  "of their own accord and is disposed to converse. The conversation is low-stakes; " +
+  "faux-pas penalties do NOT apply; structural composure damage is not in play. " +
+  "Available tactics: WittyBanter, DeepEmpathy, ComplimentMount " +
+  "(the last is meaningful only when the character owns a horse).]\n\n";
+
 // Exported for unit testing of the section ordering (semantic + mode-frame).
 export function buildContents(req: {
   history: ReadonlyArray<{ speaker: "house-head" | "other"; text: string }>;
   freeformMessage: string;
-  mode: "Ballroom" | "Promenade";
+  mode: "Ballroom" | "Promenade" | "Visit";
   semanticContext: ReadonlyArray<string>;
+  // P26 (G7): scene composition, moved out of the cached persona. Optional +
+  // default [] so the 1-on-1 opener path (no scene) omits the section entirely.
+  otherCharactersInScene?: ReadonlyArray<{ name: string; traits?: ReadonlyArray<string> }>;
 }): string {
-  const modeFramingPrefix = req.mode === "Promenade" ? PROMENADE_MODE_FRAMING_PREFIX : "";
+  const modeFramingPrefix =
+    req.mode === "Promenade"
+      ? PROMENADE_MODE_FRAMING_PREFIX
+      : req.mode === "Visit"
+        ? VISIT_MODE_FRAMING_PREFIX
+        : "";
+  // P26 (G7): scene section on per-turn contents (fast-changing state; a cached
+  // persona would go stale). Empty/absent → omitted (opener path).
+  const scene = req.otherCharactersInScene ?? [];
+  const sceneSection =
+    scene.length > 0 ? `[Also present: ${scene.map((c) => c.name).join(", ")}]\n\n` : "";
   // P17: semantic-memory hits as a separate section. Rides on per-turn
   // `contents`, NOT systemInstruction (cachedContent + systemInstruction are
   // mutually exclusive — see PROMENADE_MODE_FRAMING_PREFIX note above). Ordering:
-  // [Setting:] mode-frame → [Relevant past events:] → transcript → message.
-  // Empty array → section omitted.
+  // [Setting:] mode-frame → [Also present:] → [Relevant past events:] →
+  // transcript → message. Empty sections omitted.
   const semanticSection =
     req.semanticContext.length > 0
       ? `[Relevant past events:]\n${req.semanticContext.map((s) => `- ${s}`).join("\n")}\n\n`
@@ -123,7 +149,7 @@ export function buildContents(req: {
     .map((ex) => (ex.speaker === "house-head" ? `Player: ${ex.text}` : `NPC: ${ex.text}`))
     .join("\n");
   const body = transcript === "" ? req.freeformMessage : `${transcript}\n${req.freeformMessage}`;
-  return modeFramingPrefix + semanticSection + body;
+  return modeFramingPrefix + sceneSection + semanticSection + body;
 }
 
 function mapSdkErrorToHttpStatus(err: unknown): number {

@@ -16,8 +16,46 @@ import {
   EMBEDDING_MODEL,
   EMBED_SERVER_TIMEOUT_MS,
 } from "../src/game/constants";
+import type { EmbedRequest } from "../src/llm/types";
 import { EmbedRequestSchema } from "../src/llm/types";
 import { validateEnv } from "./env";
+
+// P26 (G5): embedding-provider seam. The provider abstracts the model behind
+// /api/llm/embed so a second provider (Voyage / OpenAI) is a later drop-in — a
+// new object + API key. At v1.5 the ONLY live provider is Gemini (reusing
+// GEMINI_API_KEY); `EMBED_PROVIDER` env selects it (absent/"gemini" → Gemini;
+// any other value → a startup error). The provider's modelId/dimensions are the
+// pinning surface the vector-index sidecar records for discard/re-embed.
+type EmbedProvider = {
+  modelId: string;
+  dimensions: number;
+  embed(
+    texts: ReadonlyArray<string>,
+    taskType: EmbedRequest["taskType"],
+    signal: AbortSignal,
+  ): Promise<number[][]>;
+};
+
+export function resolveEmbedProvider(apiKey: string): EmbedProvider {
+  const name = process.env.EMBED_PROVIDER ?? "gemini";
+  if (name === "gemini") {
+    const ai = new GoogleGenAI({ apiKey });
+    return {
+      modelId: EMBEDDING_MODEL,
+      dimensions: EMBEDDING_DIMENSIONS,
+      async embed(texts, taskType, signal) {
+        const response = await ai.models.embedContent({
+          model: EMBEDDING_MODEL,
+          contents: [...texts],
+          config: { outputDimensionality: EMBEDDING_DIMENSIONS, taskType, abortSignal: signal },
+        });
+        return (response.embeddings ?? []).map((e) => e.values ?? []);
+      },
+    };
+  }
+  // No second live provider at v1.5 — an unknown value is a config error.
+  throw new Error(`Unknown EMBED_PROVIDER "${name}". Set EMBED_PROVIDER=gemini or leave it unset.`);
+}
 
 export async function handleEmbed(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const body = await readJson(req);
@@ -27,22 +65,13 @@ export async function handleEmbed(req: IncomingMessage, res: ServerResponse): Pr
     return;
   }
   const env = validateEnv();
-  const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+  const provider = resolveEmbedProvider(env.GEMINI_API_KEY);
   const { texts, taskType } = parsed.data;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), EMBED_SERVER_TIMEOUT_MS);
   try {
-    const response = await ai.models.embedContent({
-      model: EMBEDDING_MODEL,
-      contents: texts,
-      config: {
-        outputDimensionality: EMBEDDING_DIMENSIONS,
-        taskType,
-        abortSignal: controller.signal,
-      },
-    });
-    const embeddings = (response.embeddings ?? []).map((e) => e.values ?? []);
+    const embeddings = await provider.embed(texts, taskType, controller.signal);
     if (embeddings.length !== texts.length || embeddings.some((v) => v.length === 0)) {
       respondJson(res, 422, {
         kind: "schema",

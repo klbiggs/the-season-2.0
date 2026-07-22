@@ -14,9 +14,10 @@ import type { CharacterStateSnapshot } from "../../src/llm/types";
 import { makeCharacter } from "../../src/llm/types";
 import { buildPersonaPrompt } from "./persona";
 
+// P26 (G7) removed `otherCharactersInScene` from the snapshot — scene composition
+// now rides per-turn `contents`, not the cached persona.
 const makeSnapshot = (overrides: Partial<CharacterStateSnapshot> = {}): CharacterStateSnapshot => ({
   target: makeCharacter(),
-  otherCharactersInScene: [],
   targetMarriage: null,
   spouse: null,
   targetHouse: null,
@@ -95,7 +96,11 @@ describe("buildPersonaPrompt rival-house line (P25 R6)", () => {
 });
 
 describe("PERSONA_CACHE_VERSION", () => {
-  it("is pinned at v5 (P25 R6 rival-line format bump)", () => {
-    expect(PERSONA_CACHE_VERSION).toBe("v5");
+  // v6 after the P25<-P26 merge. Both phases independently bumped to "v5" in
+  // parallel worktrees (P25 R6 added the rival-house line; P26 G7 moved the
+  // scene composition out into per-turn contents), so the merged format is a
+  // third distinct shape and needed its own value to invalidate both caches.
+  it("is pinned at v6 (merged rival-line + scene-removed persona format)", () => {
+    expect(PERSONA_CACHE_VERSION).toBe("v6");
   });
 });

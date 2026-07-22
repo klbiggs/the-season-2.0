@@ -7,6 +7,7 @@
 import type {
   ArtifactInstance,
   Betrothal,
+  CallingCard,
   Character,
   ElopementSprintState,
   FlavorContentEntry,
@@ -20,6 +21,7 @@ import type {
 import type {
   ArtifactInstanceId,
   BetrothalId,
+  CallingCardId,
   CharacterId,
   ElopementId,
   FactionId,
@@ -72,6 +74,8 @@ export function makeGameState(overrides: Partial<GameState> = {}): GameState {
     flavorText: new Map<FlavorContentId, FlavorContentEntry>(),
     // P23 default — empty betrothal registry at fresh state.
     betrothals: new Map<BetrothalId, Betrothal>(),
+    // P26 default — empty calling-card registry at fresh state.
+    callingCards: new Map<CallingCardId, CallingCard>(),
     ...overrides,
   };
 }

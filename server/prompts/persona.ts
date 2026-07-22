@@ -14,10 +14,11 @@
 //   Marriage status: <unmarried | married to NAME | widowed>.
 //   Happiness: <content | subdued | discontent | discontent — has felt the temptation>.
 //   Reply in character. Keep your replies brief and period-appropriate.
-//   [P6: when otherCharactersInScene non-empty]
-//   Other characters in this scene:
-//   - <id>: <name> (<role>)
-//   - ...
+//
+// P26 (G7): the P6-era "Other characters in this scene" section is GONE from
+// this prompt — scene composition rides per-turn `contents` instead (see the
+// in-body note at the scene-section site). The persona is now scene-independent,
+// so one cached persona serves every scene composition.
 //
 // P7.5: moved from src/llm/prompts/persona.ts. Signature refactored from
 // `buildPersonaPrompt(target, others, state)` → `buildPersonaPrompt(snapshot)` —
@@ -77,6 +78,12 @@ export function buildPersonaPrompt(snapshot: CharacterStateSnapshot): string {
   const target = snapshot.target;
   const traitLabels = target.traits.map((id) => TRAIT_LABEL_BY_ID.get(id) ?? id).join(", ");
   const roleLabel = ROLE_LABELS[target.role];
+  // P26 (G7): the scene composition ("Other characters in this scene") MOVED
+  // out of the cached persona (systemInstruction) into per-turn `contents`
+  // (buildContents' [Also present:] line). Scene is fast-changing state — a
+  // 60-min cached persona would go stale for up to an hour; per-turn contents
+  // stays fresh. Cache key stays (target.id | model | version); the persona is
+  // now composition-independent.
   const rivalLine = formatRivalHouseLine(snapshot);
   const baseLines = [
     `You are ${target.name}, ${roleLabel} of London Society.`,
@@ -88,11 +95,5 @@ export function buildPersonaPrompt(snapshot: CharacterStateSnapshot): string {
     ...(rivalLine !== null ? [rivalLine] : []),
     "Reply in character. Keep your replies brief and period-appropriate.",
   ];
-  const others = snapshot.otherCharactersInScene;
-  if (others.length === 0) return baseLines.join("\n");
-  const sceneLines = [
-    "Other characters in this scene:",
-    ...others.map((c) => `- ${c.id}: ${c.name} (${ROLE_LABELS[c.role]})`),
-  ];
-  return [...baseLines, ...sceneLines].join("\n");
+  return baseLines.join("\n");
 }

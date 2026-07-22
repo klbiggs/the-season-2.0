@@ -1,7 +1,7 @@
 import { type SeasonStore, createInitialState } from "../../game/store";
 import { DEV_SLOT } from "../../persist/dexie";
 import type { SaveLoadError } from "../../persist/errors";
-import { seedLoreCorpus, setActiveSlot } from "../../runtime/semanticIndex";
+import { reembedSlotIfStale, seedLoreCorpus, setActiveSlot } from "../../runtime/semanticIndex";
 
 // Player-shell corrupt-save banner. Identical aria/data-testid contract to
 // the deleted dev-shell banner (testIds carry forward verbatim so the
@@ -25,7 +25,7 @@ export function CorruptSaveBanner({ error, store, seed, onDismiss }: Props) {
     // P17: re-point the vector-index slot + seed lore (idempotent; inert unless
     // semantic memory is enabled).
     setActiveSlot(DEV_SLOT);
-    void seedLoreCorpus(DEV_SLOT);
+    void reembedSlotIfStale(DEV_SLOT).then(() => seedLoreCorpus(DEV_SLOT));
     onDismiss();
   };
   return (

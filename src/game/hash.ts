@@ -3,6 +3,7 @@ import type { ConversationPairKey, Exchange } from "./conversation/types";
 import type {
   ArtifactInstance,
   Betrothal,
+  CallingCard,
   Character,
   CourierPayload,
   Duel,
@@ -28,6 +29,7 @@ import type {
   ArtifactDefinitionId,
   ArtifactInstanceId,
   BetrothalId,
+  CallingCardId,
   CharacterId,
   CourierPayloadId,
   DuelId,
@@ -106,6 +108,8 @@ export function hashableState(state: GameState): {
   flavorText: Array<[FlavorContentId, FlavorContentEntry]>;
   // P23: betrothal registry. Gameplay state; lex-sorted via serializeRegistry.
   betrothals: Array<[BetrothalId, Betrothal]>;
+  // P26: calling-card registry. Gameplay state; lex-sorted via serializeRegistry.
+  callingCards: Array<[CallingCardId, CallingCard]>;
 } {
   return {
     tick: state.tick,
@@ -150,6 +154,8 @@ export function hashableState(state: GameState): {
     flavorText: serializeRegistry(state.flavorText),
     // P23: betrothal registry. Lex-sorted via serializeRegistry.
     betrothals: serializeRegistry(state.betrothals),
+    // P26: calling-card registry. Lex-sorted via serializeRegistry.
+    callingCards: serializeRegistry(state.callingCards),
   };
 }
 

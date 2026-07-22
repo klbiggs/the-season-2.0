@@ -9,13 +9,19 @@
 // server/conversation.ts.
 
 import { CancelledError, NetworkError, SchemaError, zodIssuesFrom } from "./errors";
+import { readSseStream } from "./sse";
 import {
+  type ClassifyRequest,
+  type ClassifyResponseRaw,
+  ClassifyResponseSchema,
   type ConversationResponseRaw,
   ConversationResponseSchema,
   type ProxyConversationRequest,
 } from "./types";
 
 const CONVERSATION_ENDPOINT = "/api/llm/conversation";
+const CONVERSATION_STREAM_ENDPOINT = "/api/llm/conversation/stream";
+const CLASSIFY_ENDPOINT = "/api/llm/classify";
 
 export class LlmClient {
   async send(
@@ -55,6 +61,80 @@ export class LlmClient {
     const body: unknown = await response.json().catch(() => null);
     try {
       return ConversationResponseSchema.parse(body);
+    } catch (cause) {
+      throw new SchemaError(zodIssuesFrom(cause));
+    }
+  }
+
+  // P26 (G1) call #1: stream the dialogue prose. Invokes `onDelta` per token
+  // chunk and resolves with the full text. Timer-free (the orchestrator owns
+  // the budget). Throws the same typed errors as send().
+  async sendStream(
+    request: ProxyConversationRequest,
+    composedSignal: AbortSignal,
+    onDelta: (text: string) => void,
+  ): Promise<string> {
+    let response: Response;
+    try {
+      response = await fetch(CONVERSATION_STREAM_ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+        signal: composedSignal,
+      });
+    } catch (cause) {
+      if (cause instanceof Error && cause.name === "AbortError") throw new CancelledError();
+      throw new NetworkError(cause);
+    }
+
+    if (response.status === 408) throw new CancelledError();
+    if (response.status >= 500) throw new NetworkError(`server ${response.status}`);
+    if (response.status === 422) {
+      const body = (await response.json().catch(() => null)) as {
+        issues?: ReadonlyArray<{ path: string; message: string }>;
+      } | null;
+      throw new SchemaError(
+        body?.issues ?? [{ path: "(unknown)", message: "stream schema error" }],
+      );
+    }
+    if (!response.ok) throw new NetworkError(`unexpected status ${response.status}`);
+    if (response.body === null) throw new NetworkError("stream body missing");
+    return readSseStream(response.body, onDelta);
+  }
+
+  // P26 (G1) call #2: classify the exchange (non-streaming forced function).
+  async classify(
+    request: ClassifyRequest,
+    composedSignal: AbortSignal,
+  ): Promise<ClassifyResponseRaw> {
+    let response: Response;
+    try {
+      response = await fetch(CLASSIFY_ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+        signal: composedSignal,
+      });
+    } catch (cause) {
+      if (cause instanceof Error && cause.name === "AbortError") throw new CancelledError();
+      throw new NetworkError(cause);
+    }
+
+    if (response.status === 408) throw new CancelledError();
+    if (response.status >= 500) throw new NetworkError(`server ${response.status}`);
+    if (response.status === 422) {
+      const body = (await response.json().catch(() => null)) as {
+        issues?: ReadonlyArray<{ path: string; message: string }>;
+      } | null;
+      throw new SchemaError(
+        body?.issues ?? [{ path: "(unknown)", message: "classify schema error" }],
+      );
+    }
+    if (!response.ok) throw new NetworkError(`unexpected status ${response.status}`);
+
+    const body: unknown = await response.json().catch(() => null);
+    try {
+      return ClassifyResponseSchema.parse(body);
     } catch (cause) {
       throw new SchemaError(zodIssuesFrom(cause));
     }

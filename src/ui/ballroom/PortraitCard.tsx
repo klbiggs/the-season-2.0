@@ -4,6 +4,8 @@
 // (a <details> may not nest inside a button).
 
 import type { Character } from "../../game/entities";
+import type { FlavorContentId } from "../../game/rng.seeds";
+import { FlavorEditor } from "../shared/FlavorEditor";
 
 type Props = {
   character: Character;
@@ -14,6 +16,9 @@ type Props = {
   // P18: fired when the player opens the "Who is this?" bio expander — triggers
   // generation (idempotent). The deliberate reveal, not a conversation.
   onRevealBio: () => void;
+  // P26 (G8): author-over / regenerate the bio.
+  onAuthorBio: (text: string) => void;
+  onRegenerateBio: () => void;
   // P20: current tick, for the faux-pas mood-lock indicator. A character is
   // mood-locked (Defensive, immovable) while tick < moodLockUntilTick.
   tick: number;
@@ -27,7 +32,16 @@ const MOOD_COLOR: Readonly<Record<string, string>> = {
   Grieving: "text-indigo-700",
 };
 
-export function PortraitCard({ character, selected, onSelect, bio, onRevealBio, tick }: Props) {
+export function PortraitCard({
+  character,
+  selected,
+  onSelect,
+  bio,
+  onRevealBio,
+  onAuthorBio,
+  onRegenerateBio,
+  tick,
+}: Props) {
   const moodClass = MOOD_COLOR[character.mood] ?? "text-stone-500";
   const locked = tick < character.moodLockUntilTick;
   return (
@@ -68,7 +82,13 @@ export function PortraitCard({ character, selected, onSelect, bio, onRevealBio, 
         <summary className="cursor-pointer select-none text-center text-stone-400 hover:text-stone-600">
           Who is this?
         </summary>
-        <p className="mt-1 italic leading-relaxed text-stone-600">{bio}</p>
+        <FlavorEditor
+          text={bio}
+          flavorId={`bio:${character.id}` as FlavorContentId}
+          onSave={onAuthorBio}
+          onRegenerate={onRegenerateBio}
+          testIdPrefix={`portrait-bio-${character.id}`}
+        />
       </details>
     </div>
   );

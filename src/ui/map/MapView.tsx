@@ -6,7 +6,7 @@ import {
 } from "../../game/constants";
 import { LOCATIONS, LOCATION_PIN_COORDS, type LocationId } from "../../game/fixtures/locations";
 import { RIVAL_HOUSE_IDS_SET } from "../../game/fixtures/rivals";
-import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
+import { type CharacterId, PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import type { GlobalEventKind } from "../../game/rules/globalEvents";
 import { canTravel } from "../../game/rules/travel";
 import type { SeasonStore } from "../../game/store";
@@ -33,7 +33,8 @@ const EVENT_CHIP_COLOR: Record<GlobalEventKind, string> = {
 
 type Props = {
   store: SeasonStore;
-  onEnterBallroom?: (() => void) | undefined;
+  // P26: threads the approaching-NPC id up from enterBallroom's return.
+  onEnterBallroom?: ((approachingCharacterId: CharacterId | null) => void) | undefined;
   // P12: promenade entry hook. MapView threads this down to
   // LocationDetailsPanel's "Take a Promenade in Hyde Park" button.
   onEnterPromenade?: (() => void) | undefined;

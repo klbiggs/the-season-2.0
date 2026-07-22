@@ -41,6 +41,8 @@ export type {
   FactionId,
   FactionPairKey,
   BetrothalId,
+  CallingCardId,
+  VisitSessionId,
 } from "./rng";
 
 export const DEFAULT_SEED = "the-season-default";

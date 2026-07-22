@@ -7,6 +7,7 @@ import {
   type ArtifactDefinitionId,
   type ArtifactInstanceId,
   type CharacterId,
+  type HouseId,
   PLAYER_HOUSE_ID,
   type ThiefAttemptId,
 } from "../../../game/rng.seeds";
@@ -80,6 +81,34 @@ describe("ArtifactsTab (matrix #22-29)", () => {
     render(<ArtifactsTab store={store} />);
     expect(screen.getByTestId("thief-attempt-banners")).toBeTruthy();
     expect(screen.getByTestId("thief-attempt-thief-1")).toBeTruthy();
+  });
+
+  it("does NOT surface a thwart banner for a non-player theft (P24b E4)", () => {
+    const store = createStore({ seed: "art" });
+    const rivalInst: ArtifactInstance = {
+      id: "artifact-rival-0" as ArtifactInstanceId,
+      definitionId: "tiara" as ArtifactDefinitionId,
+      ownerHouseId: "rival-ashford" as HouseId,
+      ownerCharacterId: "rival-ashford-head" as CharacterId,
+      lastRefreshTick: 0,
+      forgedFlag: false,
+    };
+    const attempt: ThiefAttempt = {
+      id: "thief-rival-1" as ThiefAttemptId,
+      targetedArtifactInstanceId: rivalInst.id,
+      ownerCharacterId: rivalInst.ownerCharacterId,
+      noticedAtTick: 3,
+      thwarted: null,
+      resolvedAtTick: null,
+    };
+    const base = stateWithUnequippedSapphires();
+    store.getState().replaceState({
+      ...base,
+      artifactInstances: new Map([...base.artifactInstances, [rivalInst.id, rivalInst]]),
+      thiefAttempts: new Map([[attempt.id, attempt]]),
+    });
+    render(<ArtifactsTab store={store} />);
+    expect(screen.queryByTestId("thief-attempt-banners")).toBeNull();
   });
 
   it("gates the forgery ledger on a living Bohemian Rake (matrix #26)", () => {

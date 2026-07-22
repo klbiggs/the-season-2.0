@@ -2,6 +2,44 @@
 
 Closeout notes per phase. Decisions made during implementation that aren't captured by the subplan or git history. Newest entry on top.
 
+> Gap note (recorded 2026-07-22): this file jumps P26 → P15. Phases P16–P25 shipped without a closeout entry; their decisions live only in the phase subplans, the CLAUDE.md pins, and git history.
+
+## P26 — closed 2026-07-22 (✅ done; the two deferred items were closed same-day — see the addendum)
+
+**Decisions made:**
+- **Two-phase streaming (Q15)**: call #1 streams prose over SSE with NO tools; call #2 is a forced-function `classify` (always Flash). Splitting was forced by the shape of the problem — a forced-function `respond` can't stream token-by-token. Combat + history append stay atomic after both legs. `sendStreamed` carries an inner `STREAM_LEG_TIMEOUT_MS = 11_000` sub-budget inside the 15s composite so a Pro-routed stream can't starve classify.
+- **`thinkingBudget: 0` is Flash-only.** Found only by running the real API in a browser: `gemini-3.1-pro-preview` returns HTTP 400 ("This model only works in thinking mode"), so every first-meeting stream silently 400'd and fell back to single-shot. The P18 flavor-endpoint precedent of blanket thinking-off does not transfer to Pro. Thinking-mode legs also need `STREAM_THINKING_OUTPUT_TOKEN_BUDGET` — thinking tokens are deducted from `maxOutputTokens` (the P18 lesson, re-learned).
+- **Streamed prose needs an explicit anti-narration instruction.** The single-shot path gets that discipline free from `respond`'s `dialogue` FIELD; raw streamed prose drifts into `*stage direction*`.
+- **SSE parsing centralized at `src/llm/sse.ts`.** The trailing-frame flush shipped broken once (a terminal `done` arriving in the same read as the last delta was dropped, truncating replies mid-sentence). Two hand-rolled copies would have been two chances to get it wrong.
+- **Scene-via-contents (Q14 decision 4)**: the "Other characters in this scene" section moved OUT of the cached persona into per-turn `contents`. Load-bearing for H3's multi-partner promenade — `cachedContent` and `systemInstruction` are mutually exclusive, so scene membership baked into a cached persona would silently stale on every cache hit (the P12 lesson applied to scene composition).
+- **Calling-card draw burns on all outcomes** — the second unconditional per-tick player-rng draw after P13's global-event roll. Discarding the outcome (Pending cap hit, empty pool) without burning would have made the roll re-fire deterministically.
+- **Flavor authoring supersedes "produced at most once" → "at most once per player election."** `recordFlavorText` keeps once-only semantics; `authorFlavorText`/`overwriteFlavorText` are the new overwrite paths. Scandal columns deliberately get NO editor: their `(priorColumnTick, now]` aggregation window has moved by the time a regenerate could fire, so the replacement would summarize the wrong events.
+
+**Open questions hit:**
+- MASTER §10 Q14 (NPC-initiated) and Q15 (streaming) both resolved this phase; their table rows already carry "v1.5 update — Resolved at P26". No new OQs emerged.
+
+**Deferred / next-up (both CLOSED same-day — see the addendum below):**
+- **Server-side streaming suites absent.** The phase's verification says streaming is "covered (client + server suites)". The client half is solid (`src/llm/client.stream.test.ts`, 9 tests: delta/done, trailing-frame flush, multi-frame chunk, in-band timeout/network, pre-stream 500, empty stream, classify 422/408). There is no `server/conversationStream.test.ts`, `server/classify.test.ts`, or `server/flavorStream.test.ts`, and **`sendStreamed` has zero tests** — so fallback-to-single-shot, the 11s sub-budget, mid-stream abort, and "classify failure → no history append, no tick" are unexercised by the suite. Browser-verified on the happy path only (Pro 2 deltas/9.1s, Flash 3 deltas/4.0s).
+- **Phase-order tracker not updated for the PHASES 16→17 insertion.** No test references `applyCallingCardPhase`, and `src/runtime/tickOrchestrator.test.ts:124` still reads "slot 8 of 9". The draw-budget contract IS pinned at the rule layer (`callingCards.test.ts` "advances the player rng callCount by exactly 1 on a no-spawn tick" + a 200-tick determinism run), and the 63-test replay harness passes, so determinism is covered — it is the phase-order assertion specifically that is stale.
+- Deferred from P24a and still open: C8 (synthetic starting schemes).
+
+**Addendum — the two deferred items, closed 2026-07-22:**
+- **A real bug fell out of the phase-order work.** The existing ordering test substitutes its OWN phase array into `runOrchestratorWithPhases`, so it only ever proved the runner walks the array it was handed. Verified empirically: moving `applyCallingCardPhase` after `applyRivalActionPhase` — a direct violation of the "rivals last among RNG-consuming phases" non-negotiable — left **all 1132 tests green**. Nothing in the repo caught phase misordering. New `src/runtime/tickOrchestrator.guard.test.ts` source-scans the real PHASES literal (PHASES stays module-private per the frozen-PHASES rule, so it cannot be imported) and pins order, length, the calling-card slot, and the rivals-terminal contract. Confirmed it fails 4/5 on that mutation.
+- **A second real bug: an 11s server stall reported as "cancelled".** `timedOut` was set only by the outer 15s timer, so the inner stream-leg cap fell through to the cancel branch — telling the player they aborted something they did not. Plan line 28 specifies the timeout path. Fixed in `conversationOrchestrator.ts` (the inner cap now sets `timedOut` itself); the test that had ratified `"cancelled"` now pins `"timeout"`.
+- Server suites added: `conversationStream` / `classify` / `flavorStream` (36 tests), plus `conversationOrchestrator.stream.test.ts` (13) covering fallback-once, no-retry-on-cancel, the 11s sub-budget, staleness, and toolCalls passthrough. Suite 1086 → 1141.
+- **Every claim above was mutation-tested**, not assumed: reverting the timeout fix, dropping `clearTimeout(streamLegTimer)`, re-adding `tools`/`toolConfig` to the streamed leg (the copy-paste regression that would yield zero prose deltas in production), and misordering PHASES each turn the relevant test red.
+- Method note: the three suites were authored by parallel agents and then adversarially reviewed for tests that cannot fail. That review was worth it — it caught a tautological timer assertion, a fallback test that passed identically whether or not the streamed path ran, and the phase-order tautology above. Two of my own follow-up assertions were also wrong and were corrected by their failures (notably: the fallback is `this.send` on the ORCHESTRATOR, so a `LlmClient.prototype.send` spy sees `(request, signal)` and never the pin).
+
+**Files of note:**
+- src/runtime/tickOrchestrator.guard.test.ts:1 — the only thing that catches phase misordering
+- src/llm/sse.ts:1 — the single SSE reader; do not hand-roll a second copy
+- server/conversationStream.ts:77 — the Flash-only `thinkingBudget: 0` gate
+- src/game/rules/callingCards.ts:1 — burn-on-all-outcomes trigger roll (PHASES slot 8)
+- src/runtime/flavorOrchestrator.ts:123 — stream-first with single-shot fallback; partials never persisted
+- src/ui/shared/FlavorEditor.tsx:1 — shared edit/regenerate control (4 surfaces)
+- src/runtime/tickOrchestrator.test.ts:124 — stale "slot 8 of 9" label to fix
+- plans/phases/26-conversation-llm-depth.md:124 — the verification list this closeout walked
+
 ## P15 — closed 2026-05-24
 
 **Decisions made:**
@@ -1078,6 +1116,63 @@ First v1.1-track phase. UI-only: wired already-built store actions to UI afforda
 - src/ui/society/SocietyView.tsx — Propose affordance + betrothal panel (sanctioned mutations on the Ton roster)
 - src/ui/ballroom/BallroomView.tsx — roster → isSocietyHouse; src/ui/ledger/houseName.ts — "House <Surname>" for society sub-dynasties
 
+## P24a — Covert Ops Depth: Schemes, Seduction & Elopement — closed 2026-07-17
+
+**Decisions made:**
+- Elopement went singleton → `state.elopements: Map<ElopementId, ElopementSprintState>` (quint-sync field replacement). Terminal sprints PERSIST (`resolved` flag, never nulled); the modal gate narrowed to `hasActivePlayerElopement` — only unresolved PLAYER sprints suspend time; rival/society sprints auto-resolve in the new tick phase (PHASES 15→16).
+- Seduction discovery = multi-tick suspicion ramp (§10 Q6 v1.5 flip): `accumulatedAffection` went live as the per-tick accrual; `SEDUCTION_DISCOVERY_PROBABILITY`/`SEDUCTION_AFFECTION_DELTA_ON_SUCCESS` retired. Chaperone pass widened to cancel mid-flight (unconditional Active scan).
+- Abandonment shipped (§10 Q25 follow-on): `abandonMarriage` free action + per-sprint `abandonOnWin`; reuses `MarriageDissolved` with `deceasedSpouseId: null` (no new event kind).
+- Rival action pool 4→5 (`Seduction`); C8 (synthetic starting schemes) DEFERRED — high downstream-RNG ripple.
+
+**Open questions hit:** §10 Q6 / Q25 / Q26 (#26) rows updated with v1.5-update supersessions in MASTER §10.
+
+**Close-out (this session):** the two flagged loose ends landed — (1) `publishElopementTransitions` now rides `runYearPass` (a year-pass aging death CAN resolve a non-player sprint via death-cascade Branch 5; the wrapper was the only site not updated — the diff-helper header and aging.ts comments already claimed the ride). Publisher set recounted **13/13/12** (supersedes P23's 13/13/11); the stale store.ts Q4 "Branch-5 unreachable" comment truthed-up; `p13-integration.test.ts` publisher-pin updated. (2) Dedicated ≥30-run auto-resolve determinism test (forced rival sprint through `advanceTickPure`) + a runYearPass-ride integration test. Audit-driven coverage added for C1 mid-flight accrual + later-ending-Chaperone cancel, C4 non-player-not-blocked, C5 pursuit traits, C6 mood-lock, C7 flag-clear, and the staff-wrapper elopement gates. Accepted gaps (UI-coverage-only per convention): suspicion bar + aggressor picker render/wiring.
+
+**Deferred / next-up:** C8 starting schemes; rival personas/conversation → P25/P26.
+
+**Files of note:**
+- src/game/rules/elopement.ts — Map rework + `hasActivePlayerElopement` + `applyElopementAutoResolvePhase` + abandon-on-win
+- src/game/rules/schemes.ts — `processSeductionTick` (3-pass resolution); src/game/rules/abandonMarriage.ts
+- src/game/store.ts:runYearPass — elopement publisher ride (close-out)
+- src/game/fixtures/elopementIdFactory.ts — state-walking `makeElopementId`
+
+## P24b — Material Assets Depth: Artifacts, Wardrobe & Forgery — closed 2026-07-17
+
+**Decisions made:**
+- Procedural artifact DEFINITIONS in state (`proceduralArtifactDefinitions`, quint-synced, persisted-never-regenerated); ALL lookups via `resolveArtifactDefinition` (bare `ARTIFACT_REGISTRY.get` banned by `artifacts.guard.test.ts`); new `ArtifactDefinitionId` brand.
+- Per-family wardrobe decay (§10 Q10 v1.5 flip); Observant private forgery detection (§10 Q11 v1.5 flip — no `surfaced` flip, no Vain cascade, no bus event); thefts + surfacing cascade generalized to ALL houses; rival/society houses own equipped procedural instances (E6, §11.2-D pulled forward).
+
+**Open questions hit:** §10 Q10 / Q11 rows updated with v1.5-update supersessions in MASTER §10.
+
+**Close-out (this session) — DEFECT FOUND + FIXED (E4):** the thwart affordance had no owner-house gate. A non-player theft stays in-flight one tick (strict-< sweep predicate) and `ArtifactsTab` rendered a Thwart button for it; `applyThwartTheftPure` would burn player wealth + a courier and, on a failed roll, DELETE the other house's artifact. Reachable at bootstrap (society effective rep can clear the 70 threshold with E6 rep bonuses). Fix: `NotPlayerOwnedTarget` rejection in `applyThwartTheftPure` + player-owned filter on the banner list; the previously-untested player thwart success/failure paths are now pinned (repo-wide, no successful-thwart test existed). Also added: E2 interval-discriminating decay test. Accepted gaps: E5 forger-picker UI coverage; E6 bootstrap-forged-instance assertion (seed-search cost).
+
+**Files of note:**
+- src/game/rules/artifacts.ts — `applyThwartTheftPure` owner-house gate (close-out fix)
+- src/ui/ledger/tabs/ArtifactsTab.tsx — player-owned thwart-banner filter (close-out fix)
+- src/game/rules/artifacts.nonplayer.test.ts — E3/E4 deterministic seed-search suite + thwart paths
+- src/game/rules/proceduralArtifacts.ts; src/game/fixtures/artifacts.ts — `resolveArtifactDefinition`
+
+## P24c — Downstairs Network Depth: Staff — closed 2026-07-17
+
+**Decisions made:**
+- Staff became a managed network: hire (procedural 4-draw identity) / fire / promote-to-Character as FREE actions; never-delete extends to staff (`dismissedAtTick` / `promotedToCharacterId` flags, inert-skip in `applyStaffOutputsPhase`).
+- Promote draws gender on the player stream (P16 precedent, NOT `hashCharIdToGender`); id = `promoted-<staffId>`; deathAge + role finalize after traits (P23 draw-order).
+- `Character.assignedLocationId` (BribeDriver location specialization, I3) — set explicitly by all 7 builders; fresh-state hash re-baselined (no new draws).
+- Whispers dynasty perk espionage-resistance half wired (threshold shift only — draw count undisturbed).
+
+**Open questions hit:** none new (Q19 unchanged; the P6 staff pins superseded in CLAUDE.md).
+
+**Close-out (this session):** audit-driven coverage added — I3 BribeDriver fallback branch (no NPC at player location → lex-smallest), I2 archetype-via-`classifyArchetype` assertion (Female + Cunning/Observant → Spymaster non-vacuity), hire/fire/promote wrapper elopement gates. Accepted gaps: `StaffPromoted` publish + `npcAssignedLocation` golden pairs untested directly (implicit via hash-parity).
+
+**Files of note:**
+- src/game/rules/staffPromotion.ts; src/game/fixtures/staff.ts — `makeStaffId` / `buildProceduralStaffMember`
+- src/game/rules/staff.ts — inert-skip, location-aware picker, perk-resistance threshold
+- src/game/rules/staff.network.test.ts — hire/fire/bribery-resistance/fallback suite
+
+## P24 close-out audit method note (2026-07-17)
+
+The close-out ran a 17-agent parallel verification audit (one agent per subplan Verification item, each checking implementation + test coverage with file:line evidence). Result: all behavior claims implemented; 1 real defect (E4 thwart gate, fixed above); 14 items with coverage gaps, of which the rule-layer ones were closed this session (+29 net new tests, 977→1006) and the UI-affordance ones accepted per the "coverage on UI is lower priority" convention.
+
 ## P25 — Rivals, Factions, Global Events & Era Depth — closed 2026-07-22
 
 Fourteen items (R1–R14) shipped in dependency order, each its own commit. Rivals went from decorative to durable, economically real adversaries that succeed, spend, duel, forge, and can be talked to; the world-state layer gained three event kinds, a visible era, a coarse cultural axis, and an activated military axis.
@@ -1090,7 +1185,7 @@ Fourteen items (R1–R14) shipped in dependency order, each its own commit. Riva
 - **R2 war-profiteer reverses P13's "all houses hit equally."** Rivals gain `+3` wealth during WarEffort instead of `-2`; `+1` reputation still hits every house. The guard comment that forbade exactly this branch was rewritten to record the new decision. Baseline rival income `+2/tick` is pinned to equal the Hemorrhaging decay magnitude so a crashed rival nets ≥ 0 outside events — no irreversible spiral.
 - **R3's field-subset `Acc` was retired for full-`GameState` threading.** A duel kill's cascade mutates conversationHistory, affectionMap, betrothals and elopements in addition to the tracked fields; any enumerated-field accumulator silently drops some. Landed as **two commits** — thread-at-weights-5 (proved byte-identical by the 30-run replay) then pool 5→7 — so a threading bug could never be confused with the expected weight re-baseline.
 - **`OfficerCommission` is filtered OUT of the ballroom scheme picker.** `SchemeButtons.tsx` maps `SCHEME_KINDS` unfiltered, so the enum widening would have auto-surfaced an 8th button starting a commission on the *selected NPC* — the SelfTarget gate does not fire for a non-own-house target. Its only entry point is FamilyTreeTab.
-- **Publisher set 13/13/11 → 14/14/12**: `publishDuelTransitions` rides every tick-advancing wrapper except `runYearPass`, and P24a's unaddressed `publishElopementTransitions` ride on `runYearPass` was paid down here.
+- **Publisher set 13/13/11 → 14/14/12**: `publishDuelTransitions` rides every tick-advancing wrapper except `runYearPass`, and P24a's unaddressed `publishElopementTransitions` ride on `runYearPass` was paid down here. **(Superseded on merge with P26 — see the merge note at the end of this section: the true post-merge set is 15/15/12.)**
 
 **Open questions hit:**
 - §10 **Q8** (faction-tension viz) and **Q21** (Culture enum) both resolved at open and recorded in MASTER §10; no new §10 questions emerged.
@@ -1125,3 +1220,16 @@ Fourteen items (R1–R14) shipped in dependency order, each its own commit. Riva
 - src/ui/ballroom/SchemeButtons.tsx — OfficerCommission filtered out of the ballroom picker
 - src/ui/map/MapView.tsx — duel banner + era chip/banner + 6-way event-chip color map + extend/end-early buttons
 - src/ui/ledger/tabs/PatronessesTab.tsx — `buildFactionGraphData` + Matrix|Web toggle
+
+### P25 <- P26 merge note (2026-07-22)
+
+P25 (this worktree) and P26 (a separate worktree) were developed in parallel from the same base and merged after P25 closed. The textual merge touched 11 files; the interesting part was the four *semantic* collisions a clean text merge does not flag:
+
+1. **`PERSONA_CACHE_VERSION` double-bump.** Both phases bumped it to `"v5"` — P25 R6 for the rival-house context line, P26 G7 for moving scene composition out of the cached persona into per-turn contents. The merged persona format is a THIRD distinct format, so neither `v5` is a valid key for it: a returning player holding either phase's entry would be served a persona that no longer matches. Resolved to **`v6`**, with the value pin kept in exactly ONE place (`server/prompts/persona.test.ts`) — `artifacts.test.ts` now asserts only that a non-empty tag exists, so a future merge has one site to fix, not two.
+2. **Publisher-count collision.** Both phases widened 13/13/11 to "14/14/12" — P25 by adding `publishDuelTransitions`, P26 by adding `publishCallingCardTransitions`. The true merged set is **15/15/12**: the tick group carries both, and `runYearPass` gains `publishElopementTransitions` exactly once (both phases added that same ride; two calls would double-publish every transition). Recounted from `store.ts` rather than trusting either number.
+3. **A publisher gap only the merge could create.** P26's `exitVisit` is a new tick-advancing wrapper that calls `advanceTickPure` — so the rival phase, where DemandSatisfaction duels are minted AND resolved, runs inside it. It fired `publishCallingCardTransitions` but not `publishDuelTransitions` (which did not exist when P26 was written), so a rival duel landing on a visit-exit tick would never have reached the UI. Ride added.
+4. **Ballroom roster vs. the approach-draw pool.** P26 replaced BallroomView's inline filter with a pure `ballroomRoster(state)` projection that doubles as the draw pool for the NPC ballroom-approach roll, deliberately identical to the visible ring "by construction" — and it excluded rivals, its comment reading "non-conversable until P25" while P25 was shipping exactly that widening next door. Resolved by widening **the projection**, not the view: filtering in the view would have made rivals visible yet never drawn to approach, breaking the invariant P26 built. This changes the `drawInt` range for `rollBallroomApproach` → deliberate replay re-baseline (pre-release).
+
+Also fixed: `p13-integration.test.ts`'s spy list had a duplicated `publishBetrothalTransitions` (both phases added it, auto-merge kept both), which inflated the asserted count while covering one fewer real publisher. And P26's two new snapshot build sites (`fireNpcOpener`, the Visit conversation) gained P25's `targetHouse` — a rival NPC's opener and Visit now carry the same house/faction/hostility context the ballroom persona gets.
+
+Post-merge gates: **1203 tests / 119 files green**, typecheck, biome, boundaries, knip all clean; 30-run replay determinism holds.

@@ -16,6 +16,7 @@ describe("resolveCombat", () => {
         targetMood: "Defensive",
         targetTraits: [],
         isAgainstPinnedTarget: false,
+        targetHasMountFamilyEquipped: false,
       });
       expect(out.kind).toBe("InstantFail");
       expect(out.affectionDelta).toBe(0);
@@ -31,6 +32,7 @@ describe("resolveCombat", () => {
         targetMood: "Distracted",
         targetTraits: [],
         isAgainstPinnedTarget: false,
+        targetHasMountFamilyEquipped: false,
       });
       expect(out.kind).toBe("ZeroYield");
       expect(out.affectionDelta).toBe(0);
@@ -46,6 +48,7 @@ describe("resolveCombat", () => {
         targetMood: "Defensive",
         targetTraits: ["Charming" as TraitId],
         isAgainstPinnedTarget: true,
+        targetHasMountFamilyEquipped: false,
       });
       expect(out.kind).toBe("InstantFail");
     });
@@ -60,6 +63,7 @@ describe("resolveCombat", () => {
         targetMood: "Jealous",
         targetTraits: [],
         isAgainstPinnedTarget: false,
+        targetHasMountFamilyEquipped: false,
       });
       expect(out.kind).toBe("Normal");
       if (out.kind === "Normal") {
@@ -77,6 +81,7 @@ describe("resolveCombat", () => {
         targetMood: "Receptive",
         targetTraits: [],
         isAgainstPinnedTarget: false,
+        targetHasMountFamilyEquipped: false,
       });
       expect(out.kind).toBe("Normal");
       if (out.kind === "Normal") {
@@ -94,6 +99,7 @@ describe("resolveCombat", () => {
         targetMood: "Jealous",
         targetTraits: ["Charming" as TraitId],
         isAgainstPinnedTarget: false,
+        targetHasMountFamilyEquipped: false,
       });
       expect(out.kind).toBe("Normal");
       if (out.kind === "Normal") {
@@ -110,6 +116,7 @@ describe("resolveCombat", () => {
         targetMood: "Jealous",
         targetTraits: ["Charming" as TraitId, "Sophisticated" as TraitId],
         isAgainstPinnedTarget: false,
+        targetHasMountFamilyEquipped: false,
       });
       expect(out.kind).toBe("Normal");
       if (out.kind === "Normal") expect(out.affectionDelta).toBe(40);
@@ -123,6 +130,7 @@ describe("resolveCombat", () => {
         targetMood: "Jealous",
         targetTraits: [],
         isAgainstPinnedTarget: true, // irrelevant for Wallflower
+        targetHasMountFamilyEquipped: false,
       });
       expect(out.kind).toBe("Normal");
       if (out.kind === "Normal") expect(out.affectionDelta).toBe(5);
@@ -136,6 +144,7 @@ describe("resolveCombat", () => {
         targetMood: "Jealous",
         targetTraits: [],
         isAgainstPinnedTarget: true,
+        targetHasMountFamilyEquipped: false,
       });
       expect(out.kind).toBe("Normal");
       if (out.kind === "Normal") expect(out.affectionDelta).toBe(13); // Math.round(12.5) = 13
@@ -149,6 +158,7 @@ describe("resolveCombat", () => {
         targetMood: "Jealous",
         targetTraits: [],
         isAgainstPinnedTarget: false,
+        targetHasMountFamilyEquipped: false,
       });
       expect(out.kind).toBe("Normal");
       if (out.kind === "Normal") expect(out.affectionDelta).toBe(10);
@@ -162,6 +172,7 @@ describe("resolveCombat", () => {
         targetMood: "Jealous",
         targetTraits: [],
         isAgainstPinnedTarget: false,
+        targetHasMountFamilyEquipped: false,
       });
       expect(out.kind).toBe("Normal");
       if (out.kind === "Normal") expect(out.affectionDelta).toBe(5);
@@ -177,6 +188,7 @@ describe("resolveCombat", () => {
         targetMood: "Receptive",
         targetTraits: [],
         isAgainstPinnedTarget: false,
+        targetHasMountFamilyEquipped: false,
       });
       if (out.kind === "Normal") expect(out.composureDelta).toBe(0);
     });
@@ -190,6 +202,7 @@ describe("resolveCombat", () => {
         targetMood: "Jealous",
         targetTraits: ["Dull" as TraitId],
         isAgainstPinnedTarget: false,
+        targetHasMountFamilyEquipped: false,
       });
       if (out.kind === "Normal") expect(out.composureDelta).toBe(-10);
     });
@@ -203,6 +216,7 @@ describe("resolveCombat", () => {
         targetMood: "Jealous",
         targetTraits: ["Dull" as TraitId, "Reclusive" as TraitId],
         isAgainstPinnedTarget: false,
+        targetHasMountFamilyEquipped: false,
       });
       if (out.kind === "Normal") expect(out.composureDelta).toBe(-20);
     });
@@ -217,6 +231,7 @@ describe("resolveCombat", () => {
         targetMood: "Jealous",
         targetTraits: ["Charming" as TraitId],
         isAgainstPinnedTarget: false,
+        targetHasMountFamilyEquipped: false,
       });
       if (out.kind === "Normal") expect(out.synergy).toBe(true);
     });
@@ -229,6 +244,7 @@ describe("resolveCombat", () => {
         targetMood: "Receptive",
         targetTraits: [],
         isAgainstPinnedTarget: false,
+        targetHasMountFamilyEquipped: false,
       });
       if (out.kind === "Normal") expect(out.synergy).toBe(true);
     });
@@ -241,8 +257,79 @@ describe("resolveCombat", () => {
         targetMood: "Jealous",
         targetTraits: ["Dull" as TraitId], // penalty for Flattery
         isAgainstPinnedTarget: false,
+        targetHasMountFamilyEquipped: false,
       });
       if (out.kind === "Normal") expect(out.synergy).toBe(false);
     });
+  });
+});
+
+// ── P26 (H4): ComplimentMount as a ballroom tactic ────────────────────────
+describe("resolveCombat — ComplimentMount ballroom tactic (H4)", () => {
+  it("mountless target → ZeroYield (nothing to compliment; no trait/mood bonus)", () => {
+    const out = resolveCombat({
+      tactic: "ComplimentMount",
+      stance: "Mingle",
+      qualityMultiplier: 1.5,
+      targetMood: "Receptive", // would be a mood-synergy hit if not gated
+      targetTraits: ["Vain" as TraitId], // would be a trait-synergy hit if not gated
+      isAgainstPinnedTarget: false,
+      targetHasMountFamilyEquipped: false,
+    });
+    expect(out.kind).toBe("ZeroYield");
+    expect(out.affectionDelta).toBe(0);
+    expect(out.synergy).toBe(false);
+  });
+
+  it("mount-owning target → Normal with mood synergy (Receptive)", () => {
+    // base 10 + mood-match bonus 15 = 25, × Mingle 1.0 × quality 1.0 = 25.
+    const out = resolveCombat({
+      tactic: "ComplimentMount",
+      stance: "Mingle",
+      qualityMultiplier: 1.0,
+      targetMood: "Receptive",
+      targetTraits: [],
+      isAgainstPinnedTarget: false,
+      targetHasMountFamilyEquipped: true,
+    });
+    expect(out.kind).toBe("Normal");
+    if (out.kind === "Normal") {
+      expect(out.synergy).toBe(true);
+      expect(out.affectionDelta).toBe(25);
+    }
+  });
+
+  it("mount-owning Vain target → trait synergy stacks with mood", () => {
+    // base 10 + trait-bonus 15 (Vain) + mood-match 15 (Receptive) = 40.
+    const out = resolveCombat({
+      tactic: "ComplimentMount",
+      stance: "Mingle",
+      qualityMultiplier: 1.0,
+      targetMood: "Receptive",
+      targetTraits: ["Vain" as TraitId],
+      isAgainstPinnedTarget: false,
+      targetHasMountFamilyEquipped: true,
+    });
+    expect(out.kind).toBe("Normal");
+    if (out.kind === "Normal") {
+      expect(out.affectionDelta).toBe(40);
+      expect(out.synergy).toBe(true);
+    }
+  });
+
+  it("mount-owning Reserved target → ComplimentMount penalty (composure hit)", () => {
+    const out = resolveCombat({
+      tactic: "ComplimentMount",
+      stance: "Mingle",
+      qualityMultiplier: 1.0,
+      targetMood: "Distracted", // no mood synergy
+      targetTraits: ["Reserved" as TraitId], // ComplimentMount penalty
+      isAgainstPinnedTarget: false,
+      targetHasMountFamilyEquipped: true,
+    });
+    expect(out.kind).toBe("Normal");
+    if (out.kind === "Normal") {
+      expect(out.composureDelta).toBe(-10); // one penalty trait × -10
+    }
   });
 });

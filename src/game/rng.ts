@@ -72,6 +72,15 @@ export type GlobalEventId = string & { readonly __brand: "GlobalEventId" };
 export type FlavorContentId = string & { readonly __brand: "FlavorContentId" };
 // P23: brand for the betrothal registry (state.betrothals Map key).
 export type BetrothalId = string & { readonly __brand: "BetrothalId" };
+// P26: brand for the calling-card registry (state.callingCards Map key).
+// Draw-free state-walk factory at fixtures/callingCardIdFactory.ts (`card-<i>`,
+// index = state.callingCards.size — cards are never deleted so size is
+// monotonic).
+export type CallingCardId = string & { readonly __brand: "CallingCardId" };
+// P26: branded session ID for NPC-initiated Visit sessions (drawing-room
+// calls). Tick-derived (zero RNG consumption); mirrors BallSessionId /
+// PromenadeSessionId. See plans/phases/26-conversation-llm-depth.md G2.
+export type VisitSessionId = string & { readonly __brand: "VisitSessionId" };
 
 // P3 (B1 fix): PLAYER_HOUSE_ID lives here, not in rng.seeds.ts, so that
 // src/game/rules/** can import it. rules → game-other is disallowed per
@@ -95,6 +104,13 @@ export function makeBallSessionId(tick: number): BallSessionId {
 // prefix keeps them distinct in logs / event payloads regardless.
 export function makePromenadeSessionId(tick: number): PromenadeSessionId {
   return `promenade-${tick}` as PromenadeSessionId;
+}
+
+// P26: tick-derived Visit session ID (NPC-initiated drawing-room call). Same
+// cross-mode mutual exclusion + zero-RNG contract as the ball/promenade ids;
+// the `visit-` prefix keeps it distinct in logs / event payloads.
+export function makeVisitSessionId(tick: number): VisitSessionId {
+  return `visit-${tick}` as VisitSessionId;
 }
 
 // Branded-string Zod schemas use `.transform` (not `.brand`) to match the
@@ -149,6 +165,9 @@ export const FlavorContentIdSchema = z.string().transform((s) => s as FlavorCont
 // P23: brand schema for BetrothalId. state.betrothals is z.map(K, V) keyed on
 // this brand. Same `.transform` pattern.
 export const BetrothalIdSchema = z.string().transform((s) => s as BetrothalId);
+// P26: brand schema for CallingCardId. state.callingCards is z.map(K, V) keyed
+// on this brand. Same `.transform` pattern.
+export const CallingCardIdSchema = z.string().transform((s) => s as CallingCardId);
 
 export const RngStateSchema = z.object({
   seed: z.string(),

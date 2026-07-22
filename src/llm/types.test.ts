@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type ConversationResponseRaw,
+  ConversationResponseSchema,
   narrowResponse,
   resolveMoodHint,
   resolveTactic,
@@ -79,5 +80,45 @@ describe("narrowResponse — clamps qualityMultiplier + applies resolvers", () =
   it("moodHint = valid Mood → kept", () => {
     const out = narrowResponse({ ...baseRaw, moodHint: "Defensive" }, null);
     expect(out.moodHint).toBe("Defensive");
+  });
+});
+
+// ── P26 (G6): generateGrievance toolCall union ────────────────────────────
+describe("ConversationResponseSchema toolCalls union (G6)", () => {
+  it("parses a generateWhisper toolCall", () => {
+    const parsed = ConversationResponseSchema.parse({
+      dialogue: "Indeed.",
+      classifiedTactic: "Flattery",
+      qualityMultiplier: 1.0,
+      toolCalls: [{ name: "generateWhisper", args: { subjectCharacterId: "npc-2", text: "psst" } }],
+    });
+    expect(parsed.toolCalls[0]?.name).toBe("generateWhisper");
+  });
+
+  it("parses a generateGrievance toolCall", () => {
+    const parsed = ConversationResponseSchema.parse({
+      dialogue: "How dare you.",
+      classifiedTactic: "SlyGossip",
+      qualityMultiplier: 1.0,
+      toolCalls: [{ name: "generateGrievance", args: { severity: "a grave insult" } }],
+    });
+    expect(parsed.toolCalls[0]?.name).toBe("generateGrievance");
+  });
+
+  it("parses a generateGrievance toolCall with no args (severity optional)", () => {
+    const parsed = ConversationResponseSchema.parse({
+      dialogue: "How dare you.",
+      classifiedTactic: "SlyGossip",
+      qualityMultiplier: 1.0,
+      toolCalls: [{ name: "generateGrievance", args: {} }],
+    });
+    expect(parsed.toolCalls[0]?.name).toBe("generateGrievance");
+  });
+});
+
+describe("GRIEVANCE_SOURCES (G6)", () => {
+  it("includes 'Conversation'", async () => {
+    const { GRIEVANCE_SOURCES } = await import("../game/constants");
+    expect(GRIEVANCE_SOURCES).toContain("Conversation");
   });
 });

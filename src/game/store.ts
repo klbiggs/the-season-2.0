@@ -4,9 +4,11 @@ import { immer } from "zustand/middleware/immer";
 import { artifactBus, publishArtifactTransitions } from "../runtime/events/artifacts";
 import {
   ACCIDENTAL_SLIP_DRIP_PER_CONVERSATION,
+  CALLING_CARD_DECLINE_AFFECTION_PENALTY,
   CONVERSATION_HISTORY_LIMIT_PER_PAIR,
   DUEL_DEMAND_SATISFACTION_REPUTATION_COST,
   FAUX_PAS_LOCK_DURATION_IN_TICKS,
+  OPENER_TIMEOUT_MS,
   type StaffAssignment,
   type Stance,
   type Tactic,
@@ -20,6 +22,7 @@ import {
 } from "./conversation/types";
 import {
   type Betrothal,
+  type CallingCard,
   type Character,
   CharacterSchema,
   type CourierPayload,
@@ -51,6 +54,7 @@ import {
   type ArtifactInstanceId,
   type BallSessionId,
   type BetrothalId,
+  type CallingCardId,
   type CharacterId,
   type CourierPayloadId,
   type DuelId,
@@ -280,6 +284,9 @@ export function createInitialState(
     // P23: empty betrothal registry at fresh state. Entries land via
     // arrangeBetrothal; no seeding helper.
     betrothals: new Map<BetrothalId, Betrothal>(),
+    // P26: empty calling-card registry at fresh state. Cards are minted by the
+    // slot-8 applyCallingCardPhase per-tick roll; no seeding helper.
+    callingCards: new Map<CallingCardId, CallingCard>(),
   };
 }
 
@@ -289,6 +296,10 @@ export type BallroomMessageInput = {
   pinnedTactic: Tactic | null;
   stance: Stance;
   freeformMessage: string;
+  // P26 (G1): when supplied, the send routes through the two-phase STREAMED
+  // path and invokes this per token chunk (UI-ephemeral — partial tokens are
+  // never persisted). Omit for the single-shot path.
+  onDelta?: (text: string) => void;
 };
 
 export type StoreActions = {
@@ -308,7 +319,7 @@ export type StoreActions = {
   // at /api/llm/conversation (the proxy holds the Gemini key server-side).
   // All four return typed discriminated unions for UI prose rendering.
   enterBallroom: () =>
-    | { ok: true; sessionId: BallSessionId }
+    | { ok: true; sessionId: BallSessionId; approachingCharacterId: CharacterId | null }
     | { ok: false; reason: BallEntryRejection };
   exitBallroom: (playerComposureAtExit: number) => void;
   sendBallroomMessage: (
@@ -459,13 +470,15 @@ export type StoreActions = {
   // state on the orchestrator (in-memory). sendPromenadeMessage POSTs
   // through the same proxy at /api/llm/conversation with mode="Promenade".
   // exitPromenade ADVANCES THE TICK (commit-on-leave) and fires the full
-  // 10-publisher set per CLAUDE.md "10/10/9 publisher set across store
-  // wrappers". The other three are session-management; they do NOT tick.
+  // 15-publisher set per CLAUDE.md's "15/15/12 publisher set across store
+  // wrappers" pin. The other three are session-management; they do NOT tick.
   enterPromenade: () =>
     | {
         ok: true;
         sessionId: import("./rng").PromenadeSessionId;
-        partnerCharacterId: CharacterId;
+        // P26 (H3): the multi-NPC scene's partner set (up to
+        // PROMENADE_PARTNER_COUNT_MAX).
+        partnerCharacterIds: ReadonlyArray<CharacterId>;
       }
     | { ok: false; reason: import("./rules/promenade").PromenadeEntryRejection };
   exitPromenade: () => void;
@@ -475,6 +488,36 @@ export type StoreActions = {
     { ok: true; outcome: ConversationResponse } | { ok: false; reason: ConversationFailure }
   >;
   abortPromenadeRequest: () => void;
+  // P26: NPC-initiated calling-card actions (Q14). Accept opens a Visit
+  // session (drawing-room call); decline marks the card + applies a small
+  // affection penalty. Both are free actions (no tick advance) with the modal
+  // gates. exitVisit is the tick-on-exit (commit-on-leave) close, mirroring
+  // exitPromenade. sendVisitMessage mirrors sendPromenadeMessage.
+  acceptCallingCard: (
+    cardId: CallingCardId,
+  ) =>
+    | { ok: true; sessionId: import("./rng").VisitSessionId }
+    | { ok: false; reason: CallingCardActionRejection };
+  declineCallingCard: (
+    cardId: CallingCardId,
+  ) => { ok: true } | { ok: false; reason: CallingCardActionRejection };
+  exitVisit: () => void;
+  sendVisitMessage: (
+    input: PromenadeMessageInput,
+  ) => Promise<
+    { ok: true; outcome: ConversationResponse } | { ok: false; reason: ConversationFailure }
+  >;
+  abortVisitRequest: () => void;
+  // P26: append an NPC-authored opener line (Q14, NPC speaks first) to the
+  // (player, target) conversation history. Free action: no tick, no publishers
+  // (interactive-only LLM append, same class as a normal exchange). Staleness-
+  // guarded: no-ops when the requesting session is no longer current (CLAUDE.md
+  // rule #7). Called ONLY from the fire-and-forget opener round-trip.
+  recordNpcOpener: (
+    sessionId: BallSessionId | VisitSessionId,
+    targetCharacterId: CharacterId,
+    text: string,
+  ) => void;
   // P18: persist one generated flavor entry. Called ONLY from the
   // flavorOrchestrator success path (never a UI affordance). Free action:
   // no tick advance, no publisher fan-out, no modal-state gate (a conscious
@@ -489,6 +532,22 @@ export type StoreActions = {
   // idempotent (no-op if already persisted / in flight). Skips player-house
   // characters (bios are for ballroom NPCs).
   revealNpcBio: (characterId: CharacterId) => void;
+  // P26 (G8): player-authored flavor. Create-or-OVERWRITE (unlike
+  // recordFlavorText's once-only semantics) with generatedAtTick = current tick.
+  // Free + ungated, same rationale as recordFlavorText (additive keyed prose,
+  // gameplay-inert). Empty/whitespace text is rejected as a no-op — an empty
+  // entry would persist as authored content and permanently suppress the
+  // designer stub with nothing in its place.
+  authorFlavorText: (id: FlavorContentId, kind: FlavorContentEntry["kind"], text: string) => void;
+  // P26 (G8): the regenerate landing path. Same overwrite semantics as
+  // authorFlavorText but takes the whole entry (flavorOrchestrator builds it).
+  overwriteFlavorText: (entry: FlavorContentEntry) => void;
+  // P26 (G8): player-elected regeneration of an already-persisted entry.
+  // Bypasses ensureFlavor's already-persisted check (still flag-gated +
+  // in-flight-deduped); success lands via overwriteFlavorText. Supersedes the
+  // P18 "produced at most once" pin → "at most once per player election".
+  regenerateNpcBio: (characterId: CharacterId) => void;
+  regenerateArtifactBackstory: (definitionId: ArtifactDefinitionId) => void;
 };
 
 // P12: input shape for sendPromenadeMessage. Differs from BallroomMessageInput
@@ -498,7 +557,26 @@ export type StoreActions = {
 export type PromenadeMessageInput = {
   freeformMessage: string;
   pinnedTactic: "WittyBanter" | "DeepEmpathy" | "ComplimentMount";
+  // P26 (H3): which partner in the multi-NPC scene this message addresses.
+  // Must be a member of the open session's partner set (else `cancelled`).
+  // Omitted by the Visit flow (single caller) — resolved from the session.
+  targetCharacterId?: CharacterId;
+  // P26 (H1): the promenade stance. Only "Mingle" enables the mount bonus. The
+  // Visit UI (no stance toggle) always passes "Mingle".
+  stance: Stance;
+  // P26 (G1): opt into the two-phase streamed path (see BallroomMessageInput).
+  onDelta?: (text: string) => void;
 };
+
+// P26: rejection union for acceptCallingCard / declineCallingCard. Includes
+// the standard modal-gate variants (per CLAUDE.md: every new player action's
+// rejection union must carry PlayerExiled + ElopementInProgress).
+export type CallingCardActionRejection =
+  | { kind: "PlayerExiled" }
+  | { kind: "ElopementInProgress" }
+  | { kind: "CardNotPending" }
+  | { kind: "CallerDead" }
+  | { kind: "SessionAlreadyOpen" };
 
 export type DemandSatisfactionRejection =
   | { kind: "GrievanceNotFound" }
@@ -542,9 +620,14 @@ import {
   applyAssignTutorPure,
   applyChooseTutorBonusTraitPure,
 } from "../game/rules/tutor";
-import type { ConversationResponse } from "../llm/types";
+import { fetchOpener } from "../llm/opener";
+import type { ConversationResponse, OpenerRequest } from "../llm/types";
 import { conversationOrchestrator } from "../runtime/conversationOrchestrator";
-import { conversationBus, publishCharacterDeaths } from "../runtime/events/conversation";
+import {
+  conversationBus,
+  publishCallingCardTransitions,
+  publishCharacterDeaths,
+} from "../runtime/events/conversation";
 import type { BallEntryRejection } from "../runtime/events/conversation";
 import { duelBus, publishDuelTransitions } from "../runtime/events/duels";
 import { publishDynastyPerkAwards } from "../runtime/events/dynastyLegacy";
@@ -570,7 +653,11 @@ import { publishWhisperTransitions, whisperBus } from "../runtime/events/whisper
 // P18: importing flavorOrchestrator registers its bus subscriptions (NPC bio +
 // scandal column) at module load; bindFlavorStore wires the state accessor;
 // ensureFlavor is called from equipArtifact (artifact backstory trigger).
-import { bindStore as bindFlavorStore, ensureFlavor } from "../runtime/flavorOrchestrator";
+import {
+  bindStore as bindFlavorStore,
+  ensureFlavor,
+  regenerateFlavor,
+} from "../runtime/flavorOrchestrator";
 // P17: importing semanticIndex registers its bus subscriptions (indexing) at
 // module load; bindStore wires the state accessor; retrieve runs the read path.
 import {
@@ -582,7 +669,8 @@ import {
 // have been declared above.
 import { advanceTickPure } from "../runtime/tickOrchestrator";
 import { runYearPassPure } from "../runtime/yearPass";
-import type { PromenadeSessionId } from "./rng";
+import type { PromenadeSessionId, VisitSessionId } from "./rng";
+import { computeKeyMoment } from "./rules/keyMoments";
 // P12 promenade imports. bootstrapNpcMountFamily is imported with the rest
 // of bootstrap.ts at the top (line 134); rules-side helpers live here.
 import {
@@ -591,9 +679,10 @@ import {
   canEnterPromenade,
   characterEquipsMountFamily,
   narrowToPromenadeTactic,
-  pickPromenadePartner,
+  pickPromenadePartners,
   playerHeadEquipsMountFamily,
   resolvePromenadeCombat,
+  rollBallroomApproach,
 } from "./rules/promenade";
 import { applyReconciliationAttempt } from "./rules/siblingRivals";
 
@@ -609,6 +698,62 @@ function resolveTargetHouseContext(
   const house = state.houses.get(houseId);
   if (seed === undefined || house === undefined) return null;
   return { displayName: seed.displayName, factionId: house.factionId, hostility: house.hostility };
+}
+
+// P26 (Q14): fire-and-forget NPC opener round-trip. Builds the persona snapshot
+// from current state, requests a short opening line from the proxy, and appends
+// it via recordNpcOpener (which staleness-guards the session). Any failure
+// degrades silently (the conversation opens with no opener line). The
+// `typeof fetch` guard keeps it inert in non-browser envs without a fetch stub.
+async function fireNpcOpener(
+  readState: () => StoreState,
+  targetCharacterId: CharacterId,
+  sessionId: BallSessionId | VisitSessionId,
+  approachContext: "Ballroom" | "Visit",
+): Promise<void> {
+  if (typeof fetch !== "function") return;
+  const state = readState();
+  const target = state.characters.get(targetCharacterId);
+  if (target === undefined) return;
+  let targetMarriage: MarriageRecord | null = null;
+  let spouse: Character | null = null;
+  if (target.marriageId !== null) {
+    const m = state.marriages.get(target.marriageId);
+    if (m !== undefined) {
+      targetMarriage = m;
+      if (!m.dissolved) {
+        const spouseId = m.spouseAId === target.id ? m.spouseBId : m.spouseAId;
+        spouse = state.characters.get(spouseId) ?? null;
+      }
+    }
+  }
+  const pairKey = makePairKey(PLAYER_HOUSE_ID, targetCharacterId);
+  const history = (state.conversationHistory.get(pairKey) ?? []).map((ex) => ({
+    speaker: ex.speaker,
+    text: ex.text,
+  }));
+  const request: OpenerRequest = {
+    characterStateSnapshot: {
+      target: {
+        ...target,
+        traits: getEffectiveTraits(state, targetCharacterId),
+        equippedArtifactIds: [...target.equippedArtifactIds],
+      },
+      targetMarriage,
+      spouse,
+      // Merge integration (P25 R6 x P26 Q14): a rival NPC's opener should carry
+      // the same house/faction/hostility context the ballroom persona gets.
+      targetHouse: resolveTargetHouseContext(state, target.houseId),
+    },
+    history,
+    approachContext,
+  };
+  try {
+    const text = await fetchOpener(request, AbortSignal.timeout(OPENER_TIMEOUT_MS));
+    readState().recordNpcOpener(sessionId, targetCharacterId, text);
+  } catch {
+    // Silent degrade — no opener line (spec §5 failure behavior).
+  }
 }
 
 // Apply a full GameState swap to the immer draft. Used by every store
@@ -684,6 +829,11 @@ function overwriteFromGameState(draft: GameState, next: GameState): void {
   // action silently CLEARS state.betrothals (so an arranged betrothal would
   // vanish on the next tick, and the auto-honor step would never fire).
   draft.betrothals = next.betrothals;
+  // P26 addition — calling-card registry. Without this line, every tick-
+  // advancing action silently CLEARS state.callingCards (so a minted card would
+  // vanish on the next tick and the accept/decline affordances would never see
+  // it). Slot-8 applyCallingCardPhase mutates this Map every tick.
+  draft.callingCards = next.callingCards;
 }
 
 export function createStore({ seed }: { seed: string }): SeasonStore {
@@ -748,9 +898,14 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // GlobalEventExpired). runYearPass omits this — year-pass STEPS doesn't
         // include applyGlobalEventPhase.
         publishGlobalEventTransitions(before, after);
+        // P25 R3 (duels) and P26 (calling cards) each added one publisher here
+        // in parallel worktrees; BOTH ride every tick-advancing wrapper except
+        // runYearPass. Merged count is 15/15/12, NOT the 14/14/12 either phase
+        // recorded on its own.
         publishDuelTransitions(before, after);
+        publishCallingCardTransitions(before, after);
         // P15: dynasty-perk awards (DynastyPerkAwarded) — rides every tick-
-        // advancing wrapper including runYearPass (12/12/10 set).
+        // advancing wrapper including runYearPass (15/15/12 set).
         publishDynastyPerkAwards(before, after);
       },
       runYearPass: () => {
@@ -763,9 +918,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           });
           return;
         }
-        // P9 Q4 — ElopementInProgress gate. Branch-5 of pruneOrphaned-
-        // ConversationKeys is therefore unreachable through runYearPass at
-        // v1 (a future v1.5+ relaxation would need re-evaluation).
+        // P9 Q4 gate, P24a-narrowed: only PLAYER-controlled sprints suspend
+        // year-pass. Non-player sprints keep running, so death-cascade
+        // Branch 5 IS reachable through runYearPass for them — the
+        // elopement-transition diff helper rides below to surface those.
         if (hasActivePlayerElopement(exileGate)) {
           elopementBus.publish({
             kind: "ElopementBlocked",
@@ -800,14 +956,18 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishSiblingRivalTransitions(before, after);
         publishInheritedSecretTransitions(before, after);
         publishBloodFeudTransitions(before, after);
-        // P25 R3: pay down the P24a close-out debt — death-cascade Branch 5 can
-        // flip an elopement sprint resolved/Lost during year-pass aging, and
-        // that transition went unpublished. runYearPass rides elopement now
-        // (12-publisher set); it still omits publishDuelTransitions (year-pass
-        // never mints/resolves a duel — those are tick-only rival actions).
+        // An aging-step death of a sprint participant flips a non-player sprint
+        // resolved/Lost via death-cascade Branch 5 — publish it. No double-
+        // publish risk: the interactive sprint actions direct-publish and never
+        // run inside year-pass (player sprints gate year-pass above).
+        // NOTE: P25 R3 and P26 EACH added this same call in parallel worktrees
+        // (both framed it as paying down the P24a close-out debt) — exactly ONE
+        // call survives the merge; two would double-publish every transition.
+        // runYearPass still omits publishDuelTransitions AND
+        // publishCallingCardTransitions (both are tick-only phases).
         publishElopementTransitions(before, after);
         // P15: dynasty-perk awards ride runYearPass too (the Patronage perk
-        // awards at the year-pass terminal STEPS slot 6).
+        // awards at the year-pass terminal STEPS slot 6) — 15/15/12 set.
         publishDynastyPerkAwards(before, after);
       },
       replaceState: (next: GameState) => {
@@ -872,14 +1032,15 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
         publishArtifactTransitions(stateBefore, afterTick);
-        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        // P11: 3 new publishers ride on this wrapper (14-publisher set).
         publishSiblingRivalTransitions(stateBefore, afterTick);
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
-        // P13: global-event transitions ride here too (every tick-advancing
-        // wrapper except runYearPass per the 11/11/9 publisher set).
+        // P13 global events + P26 calling cards ride here too — every tick-
+        // advancing wrapper EXCEPT runYearPass (15/15/12 publisher set).
         publishGlobalEventTransitions(stateBefore, afterTick);
         publishDuelTransitions(stateBefore, afterTick);
+        publishCallingCardTransitions(stateBefore, afterTick);
         publishDynastyPerkAwards(stateBefore, afterTick);
         return { ok: true };
       },
@@ -944,12 +1105,13 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishTemptationLatchTransitions(stateBefore, afterTick);
         publishElopementTransitions(stateBefore, afterTick);
         publishArtifactTransitions(stateBefore, afterTick);
-        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        // P11: 3 new publishers ride on this wrapper (14-publisher set).
         publishSiblingRivalTransitions(stateBefore, afterTick);
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
         publishGlobalEventTransitions(stateBefore, afterTick);
         publishDuelTransitions(stateBefore, afterTick);
+        publishCallingCardTransitions(stateBefore, afterTick);
         publishDynastyPerkAwards(stateBefore, afterTick);
         return { outcome };
       },
@@ -996,14 +1158,15 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
         publishArtifactTransitions(stateBefore, afterTick);
-        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        // P11: 3 new publishers ride on this wrapper (14-publisher set).
         publishSiblingRivalTransitions(stateBefore, afterTick);
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
-        // P13: global-event transitions ride here too (every tick-advancing
-        // wrapper except runYearPass per the 11/11/9 publisher set).
+        // P13 global events + P26 calling cards ride here too — every tick-
+        // advancing wrapper EXCEPT runYearPass (15/15/12 publisher set).
         publishGlobalEventTransitions(stateBefore, afterTick);
         publishDuelTransitions(stateBefore, afterTick);
+        publishCallingCardTransitions(stateBefore, afterTick);
         publishDynastyPerkAwards(stateBefore, afterTick);
         return { ok: true };
       },
@@ -1050,14 +1213,15 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // discovered Seduction during this wrapper's advanceTickPure chain.
         publishElopementTransitions(stateBefore, afterTick);
         publishArtifactTransitions(stateBefore, afterTick);
-        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        // P11: 3 new publishers ride on this wrapper (14-publisher set).
         publishSiblingRivalTransitions(stateBefore, afterTick);
         publishInheritedSecretTransitions(stateBefore, afterTick);
         publishBloodFeudTransitions(stateBefore, afterTick);
-        // P13: global-event transitions ride here too (every tick-advancing
-        // wrapper except runYearPass per the 11/11/9 publisher set).
+        // P13 global events + P26 calling cards ride here too — every tick-
+        // advancing wrapper EXCEPT runYearPass (15/15/12 publisher set).
         publishGlobalEventTransitions(stateBefore, afterTick);
         publishDuelTransitions(stateBefore, afterTick);
+        publishCallingCardTransitions(stateBefore, afterTick);
         publishDynastyPerkAwards(stateBefore, afterTick);
         return { ok: true };
       },
@@ -1070,11 +1234,12 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         if (hasActivePlayerElopement(stateBefore)) {
           return { ok: false, reason: { kind: "ElopementInProgress" as const } };
         }
-        // P12: cross-mode mutual exclusion. Reject if a Promenade session is
-        // already open. The orchestrator throws on misuse as defense-in-depth,
-        // but the store-action layer gates first so the UI sees a typed
-        // rejection rather than an exception.
-        if (conversationOrchestrator.currentMode() === "Promenade") {
+        // P12/P26: cross-mode mutual exclusion. Reject if a Promenade OR Visit
+        // session is already open. The orchestrator throws on misuse as
+        // defense-in-depth, but the store-action layer gates first so the UI
+        // sees a typed rejection rather than an exception.
+        const openMode = conversationOrchestrator.currentMode();
+        if (openMode === "Promenade" || openMode === "Visit") {
           return { ok: false, reason: { kind: "SessionAlreadyOpen" as const } };
         }
         const player = stateBefore.houses.get(PLAYER_HOUSE_ID);
@@ -1087,13 +1252,28 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             } as const,
           };
         }
+        // P26: the ballroom-approach roll fires only on a NEW session (not a
+        // same-tick idempotent re-entry). Capture BEFORE beginSession, which
+        // returns an id in both cases — keying the draw on its return would
+        // double-draw on re-entry and desync the hash.
+        const wasNoSession = conversationOrchestrator.currentSessionId() === null;
         // P10: apply pre-ball composure penalty for out-of-season equipped
         // artifacts BEFORE beginSession. Snapshot semantics: deduction
         // persists; mid-ball equip/unequip does NOT re-trigger.
         const stateAfterPenalty = applyPreBallComposurePenaltyPure(stateBefore);
-        if (stateAfterPenalty !== stateBefore) {
+        // P26: on a new session, roll whether an NPC approaches first (Q14).
+        // The advanced player-rng MUST commit unconditionally (enterBallroom
+        // otherwise commits only conditionally) so the draw isn't replayed.
+        let committedState = stateAfterPenalty;
+        let approachingCharacterId: CharacterId | null = null;
+        if (wasNoSession) {
+          const approach = rollBallroomApproach(stateAfterPenalty);
+          committedState = approach.nextState;
+          approachingCharacterId = approach.approachingCharacterId;
+        }
+        if (committedState !== stateBefore) {
           set((draft) => {
-            overwriteFromGameState(draft, stateAfterPenalty);
+            overwriteFromGameState(draft, committedState);
           });
         }
         const sessionId = conversationOrchestrator.beginSession(get().tick);
@@ -1102,8 +1282,13 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           tick: stateBefore.tick,
           houseId: PLAYER_HOUSE_ID,
           sessionId,
+          approachingCharacterId,
         });
-        return { ok: true, sessionId };
+        // P26: if an NPC approached first, fire the opener round-trip.
+        if (approachingCharacterId !== null) {
+          void fireNpcOpener(get, approachingCharacterId, sessionId, "Ballroom");
+        }
+        return { ok: true, sessionId, approachingCharacterId };
       },
       exitBallroom: (playerComposureAtExit: number) => {
         // P12: cross-mode union — currentSessionId() returns BallSessionId |
@@ -1195,7 +1380,6 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
               traits: getEffectiveTraits(stateBefore, target.id),
               equippedArtifactIds: [...target.equippedArtifactIds],
             },
-            otherCharactersInScene,
             targetMarriage,
             spouse,
             targetHouse: resolveTargetHouseContext(stateBefore, target.houseId),
@@ -1205,6 +1389,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           // pre-parse construction-vs-parse asymmetry.
           mode: "Ballroom" as const,
           semanticContext,
+          keyMoment: computeKeyMoment(stateBefore, target.id),
         };
 
         // Publish ConversationSent BEFORE awaiting the LLM (per
@@ -1217,7 +1402,14 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           stance: input.stance,
         });
 
-        const result = await conversationOrchestrator.send(request, input.pinnedTactic);
+        const result =
+          input.onDelta !== undefined
+            ? await conversationOrchestrator.sendStreamed(
+                request,
+                input.pinnedTactic,
+                input.onDelta,
+              )
+            : await conversationOrchestrator.send(request, input.pinnedTactic);
         if (result.kind === "Failed") {
           conversationBus.publish({
             kind: "ConversationFailed",
@@ -1237,6 +1429,11 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           targetMood: target.mood,
           targetTraits: target.traits,
           isAgainstPinnedTarget: input.pinnedTactic !== null,
+          // P26 (H4): gate the ComplimentMount tactic on the target's mount.
+          targetHasMountFamilyEquipped: characterEquipsMountFamily(
+            stateBefore,
+            target.equippedArtifactIds,
+          ),
         });
 
         // Build the two Exchange records.
@@ -1305,6 +1502,35 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           };
         }
 
+        // P26 (G6): generateGrievance toolCall — the player's remark gave real
+        // offence. Mint a Conversation-source grievance against the player, held
+        // by the target's house. Max ONE per exchange; skipped when the target
+        // house is the player's own. Built pre-set (id-walk on stateBefore) like
+        // fauxPasGrievance so the post-set publish has a stable id.
+        let conversationGrievance: Grievance | null = null;
+        if (
+          response.toolCalls.some((tc) => tc.name === "generateGrievance") &&
+          target.houseId !== PLAYER_HOUSE_ID
+        ) {
+          let cgIndex = 0;
+          for (const hid of [...stateBefore.houses.keys()].sort()) {
+            for (const g of stateBefore.houses.get(hid)?.grievances ?? []) {
+              if (g.source === "Conversation" && g.recordedAtTick === stateBefore.tick)
+                cgIndex += 1;
+            }
+          }
+          conversationGrievance = {
+            id: `${PLAYER_HOUSE_ID}:Conversation:${stateBefore.tick}:${cgIndex}` as GrievanceId,
+            perpetratorHouseId: PLAYER_HOUSE_ID,
+            defendantCharacterId:
+              stateBefore.houses.get(PLAYER_HOUSE_ID)?.headOfHouseCharacterId ?? null,
+            source: "Conversation",
+            schemeId: null,
+            recordedAtTick: stateBefore.tick,
+            resolved: false,
+          };
+        }
+
         // Apply combat delta atomically in one set body. enableMapSet()
         // precondition already satisfied at this module's top.
         set((state) => {
@@ -1338,6 +1564,11 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             if (targetHouse !== undefined) {
               targetHouse.grievances.push(fauxPasGrievance);
             }
+          }
+          // P26 (G6): append the Conversation-source grievance to the target's
+          // house (draft mutation, matches the fauxPas append above).
+          if (conversationGrievance !== null) {
+            state.houses.get(target.houseId)?.grievances.push(conversationGrievance);
           }
 
           // ─── P6: whisper-creation inline block ─────────────────────────
@@ -1446,6 +1677,18 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
               source: "FauxPas",
             });
           }
+        }
+        // P26 (G6): publish GrievanceRecorded for the Conversation grievance so
+        // the G4 semantic index picks it up. Independent of the faux-pas branch.
+        if (conversationGrievance !== null) {
+          schemeBus.publish({
+            kind: "GrievanceRecorded",
+            tick: stateBefore.tick,
+            grievanceId: conversationGrievance.id,
+            perpetratorHouseId: PLAYER_HOUSE_ID,
+            victimHouseId: target.houseId,
+            source: "Conversation",
+          });
         }
         // P6: publish WhisperCreated for any synergy / wallflower-bonus /
         // LLM-additive whispers emitted inside the set body's whisper-
@@ -1776,12 +2019,13 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishWhisperTransitions(stateBefore, tickAdvanced);
         publishElopementTransitions(stateBefore, tickAdvanced);
         publishArtifactTransitions(stateBefore, tickAdvanced);
-        // P11: 3 new publishers ride on this wrapper (10-publisher set).
+        // P11: 3 new publishers ride on this wrapper (14-publisher set).
         publishSiblingRivalTransitions(stateBefore, tickAdvanced);
         publishInheritedSecretTransitions(stateBefore, tickAdvanced);
         publishBloodFeudTransitions(stateBefore, tickAdvanced);
         publishGlobalEventTransitions(stateBefore, tickAdvanced);
         publishDuelTransitions(stateBefore, tickAdvanced);
+        publishCallingCardTransitions(stateBefore, tickAdvanced);
         publishDynastyPerkAwards(stateBefore, tickAdvanced);
         return outcome;
       },
@@ -2168,6 +2412,38 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           character,
         });
       },
+      authorFlavorText: (id, kind, text) => {
+        const trimmed = text.trim();
+        // Reject empty: an empty entry would persist as "authored" and
+        // permanently suppress the designer stub with nothing in its place.
+        if (trimmed === "") return;
+        set((state) => {
+          state.flavorText.set(id, { id, kind, text: trimmed, generatedAtTick: state.tick });
+        });
+      },
+      overwriteFlavorText: (entry) => {
+        set((state) => {
+          state.flavorText.set(entry.id, entry);
+        });
+      },
+      regenerateNpcBio: (characterId) => {
+        const character = get().characters.get(characterId);
+        if (character === undefined) return;
+        regenerateFlavor(`bio:${characterId}` as FlavorContentId, {
+          kind: "NpcBio",
+          character,
+        });
+      },
+      regenerateArtifactBackstory: (definitionId) => {
+        const def = resolveArtifactDefinition(get(), definitionId);
+        if (def === undefined) return;
+        regenerateFlavor(`artifact:${definitionId}` as FlavorContentId, {
+          kind: "ArtifactBackstory",
+          definitionId,
+          displayName: def.displayName,
+          family: def.family,
+        });
+      },
       unequipArtifact: (characterId, artifactInstanceId) => {
         const stateBefore = get();
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
@@ -2325,7 +2601,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         set((state) => {
           overwriteFromGameState(state, after);
         });
-        // 10-publisher set ride.
+        // 14-publisher set ride.
         publishCharacterDeaths(before, after);
         publishSchemeTransitions(before, after);
         publishWhisperTransitions(before, after);
@@ -2343,6 +2619,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishBloodFeudTransitions(before, after);
         publishGlobalEventTransitions(before, after);
         publishDuelTransitions(before, after);
+        publishCallingCardTransitions(before, after);
         publishDynastyPerkAwards(before, after);
         if (outcome.kind === "Success") {
           siblingRivalBus.publish({
@@ -2382,9 +2659,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           });
           return { ok: false, reason };
         }
-        // Pick the partner (1 player-RNG draw on non-empty pool, 0 on empty).
-        const picked = pickPromenadePartner(stateBefore);
-        if (picked.partnerId === null) {
+        // P26 (H3): pick up to PROMENADE_PARTNER_COUNT_MAX partners
+        // (k player-RNG draws without replacement; 0 on an empty pool).
+        const picked = pickPromenadePartners(stateBefore);
+        if (picked.partnerIds.length === 0) {
           const reason: PromenadeEntryRejection = { kind: "NoEligiblePartner" };
           locationBus.publish({
             kind: "PromenadeEntryRejected",
@@ -2401,16 +2679,16 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         });
         const sessionId = conversationOrchestrator.beginPromenadeSession(
           get().tick,
-          picked.partnerId,
+          picked.partnerIds,
         );
         conversationBus.publish({
           kind: "PromenadeEntered",
           tick: stateBefore.tick,
           houseId: PLAYER_HOUSE_ID,
           sessionId,
-          partnerCharacterId: picked.partnerId,
+          partnerCharacterIds: picked.partnerIds,
         });
-        return { ok: true, sessionId, partnerCharacterId: picked.partnerId };
+        return { ok: true, sessionId, partnerCharacterIds: picked.partnerIds };
       },
       exitPromenade: () => {
         // Defensive — UI should never invoke this against a non-Promenade
@@ -2418,18 +2696,33 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // clears the session, then UI calls exit before re-render). No-op.
         if (conversationOrchestrator.currentMode() !== "Promenade") return;
         const sessionId = conversationOrchestrator.currentSessionId() as PromenadeSessionId;
-        const partnerCharacterId = conversationOrchestrator.currentPromenadePartner();
+        const partnerCharacterIds = conversationOrchestrator.currentPromenadePartners();
         // Abort any in-flight per-turn request BEFORE the tick advance.
         conversationOrchestrator.abortCurrent();
         const stateBefore = get();
+        // P26 (H5): close the deliberate P12 modal-gate divergence. If exile or
+        // an elopement mounted during the session (via a parallel store action
+        // in the in-flight window), close it WITHOUT advancing the tick or
+        // firing publishers — elopement suspends time; the commit-on-leave
+        // 1-tick cost is not charged to a modal-aborted session. Per-turn
+        // history/affection writes already landed; skipping the tick is safe.
+        if (
+          stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true ||
+          hasActivePlayerElopement(stateBefore)
+        ) {
+          conversationOrchestrator.endSession();
+          conversationBus.publish({
+            kind: "PromenadeExited",
+            tick: stateBefore.tick,
+            houseId: PLAYER_HOUSE_ID,
+            sessionId,
+            partnerCharacterIds,
+          });
+          return;
+        }
         // The 1-tick cost per spec line 446 is the contract. History +
         // affection mutations from sendPromenadeMessage already landed
-        // per-turn; the tick advance is the only commit on exit. No
-        // elopement gate needed because the view-routing precedence
-        // (Elopement > Promenade) means a mid-promenade elopement mount
-        // requires a parallel store action — which would have to land
-        // within an in-flight sendPromenadeMessage's window. Out-of-scope
-        // race per the plan's edge-case section.
+        // per-turn; the tick advance is the only commit on exit.
         const afterTick = advanceTickPure(stateBefore);
         set((draft) => {
           overwriteFromGameState(draft, afterTick);
@@ -2440,9 +2733,9 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           tick: afterTick.tick,
           houseId: PLAYER_HOUSE_ID,
           sessionId,
-          partnerCharacterId,
+          partnerCharacterIds,
         });
-        // 10-publisher set per CLAUDE.md (matches travel/requestAudience/...).
+        // 14-publisher set per CLAUDE.md (matches travel/requestAudience/...).
         publishCharacterDeaths(stateBefore, afterTick);
         publishSchemeTransitions(stateBefore, afterTick);
         publishWhisperTransitions(stateBefore, afterTick);
@@ -2456,6 +2749,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         publishBloodFeudTransitions(stateBefore, afterTick);
         publishGlobalEventTransitions(stateBefore, afterTick);
         publishDuelTransitions(stateBefore, afterTick);
+        publishCallingCardTransitions(stateBefore, afterTick);
         publishDynastyPerkAwards(stateBefore, afterTick);
       },
       sendPromenadeMessage: async (input: PromenadeMessageInput) => {
@@ -2466,8 +2760,15 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         ) {
           return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
         }
-        const partnerId = conversationOrchestrator.currentPromenadePartner();
-        if (partnerId === null) {
+        // P26 (H3): resolve the addressed partner. An explicit target must be a
+        // member of the open session's set; with none supplied, default to the
+        // first partner (preserves the single-partner call shape).
+        const sessionPartners = conversationOrchestrator.currentPromenadePartners();
+        const partnerId =
+          input.targetCharacterId !== undefined
+            ? sessionPartners.find((id) => id === input.targetCharacterId)
+            : sessionPartners[0];
+        if (partnerId === undefined) {
           return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
         }
         const target = stateBefore.characters.get(partnerId);
@@ -2478,9 +2779,12 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         const pairKey = makePairKey(PLAYER_HOUSE_ID, target.id);
         const history = stateBefore.conversationHistory.get(pairKey) ?? [];
 
-        // P12: 1-on-1 scene. Persona prompt sees only the partner.
-        // Wire-format type is mutable array; we declare a fresh empty one.
-        const otherCharactersInScene: Character[] = [];
+        // P26 (H3): the scene is the OTHER partners on the walk (was [] at P12's
+        // 1-on-1 promenade). Renders as buildContents' [Also present:] line.
+        const otherCharactersInScene: Character[] = sessionPartners
+          .filter((id) => id !== target.id)
+          .map((id) => stateBefore.characters.get(id))
+          .filter((c): c is Character => c !== undefined);
 
         // Marriage state snapshot — same shape as sendBallroomMessage.
         let targetMarriage: MarriageRecord | null = null;
@@ -2511,23 +2815,38 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
               traits: getEffectiveTraits(stateBefore, target.id),
               equippedArtifactIds: [...target.equippedArtifactIds],
             },
-            otherCharactersInScene,
             targetMarriage,
             spouse,
             targetHouse: resolveTargetHouseContext(stateBefore, target.houseId),
           },
           mode: "Promenade" as const,
           semanticContext,
+          keyMoment: computeKeyMoment(stateBefore, target.id),
         };
 
         // Pin-priority resolver. UI always pins a promenade tactic.
-        const outcome = await conversationOrchestrator.send(request, input.pinnedTactic);
+        const outcome =
+          input.onDelta !== undefined
+            ? await conversationOrchestrator.sendStreamed(
+                request,
+                input.pinnedTactic,
+                input.onDelta,
+              )
+            : await conversationOrchestrator.send(request, input.pinnedTactic);
         if (outcome.kind === "Failed") {
           return { ok: false, reason: outcome.failure };
         }
         // Read mount-equip predicates at resolve time (defense-in-depth
         // against state drift between request build and post-await).
         const stateAtResolve = get();
+        // P26 (H5): close the P12 divergence — drop the exchange (no history/
+        // affection write) if exile/elopement mounted mid-flight.
+        if (
+          stateAtResolve.houses.get(PLAYER_HOUSE_ID)?.exiled === true ||
+          hasActivePlayerElopement(stateAtResolve)
+        ) {
+          return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
+        }
         const playerMount = playerHeadEquipsMountFamily(stateAtResolve);
         const partnerAtResolve = stateAtResolve.characters.get(target.id);
         const targetMount =
@@ -2540,9 +2859,12 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         const promenadeTactic = narrowToPromenadeTactic(outcome.response.classifiedTactic);
         const promenadeOutcome = resolvePromenadeCombat({
           tactic: promenadeTactic,
+          stance: input.stance,
           qualityMultiplier: outcome.response.qualityMultiplier,
           targetHasMountFamilyEquipped: targetMount,
           playerHasMountFamilyEquipped: playerMount,
+          targetMood: target.mood,
+          targetTraits: getEffectiveTraits(stateAtResolve, target.id),
         });
 
         // Commit history + affection. Tick is NOT advanced here — only on
@@ -2566,6 +2888,272 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
       abortPromenadeRequest: () => {
         if (conversationOrchestrator.currentMode() !== "Promenade") return;
         conversationOrchestrator.abortCurrent();
+      },
+      // ── P26 NPC-initiated calling cards ─────────────────────────────────
+      acceptCallingCard: (cardId: CallingCardId) => {
+        const before = get();
+        if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (hasActivePlayerElopement(before)) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        if (conversationOrchestrator.currentSessionId() !== null) {
+          return { ok: false, reason: { kind: "SessionAlreadyOpen" as const } };
+        }
+        const card = before.callingCards.get(cardId);
+        if (card === undefined || card.status !== "Pending") {
+          return { ok: false, reason: { kind: "CardNotPending" as const } };
+        }
+        const caller = before.characters.get(card.callerCharacterId);
+        if (caller === undefined || !caller.alive) {
+          return { ok: false, reason: { kind: "CallerDead" as const } };
+        }
+        set((draft) => {
+          const c = draft.callingCards.get(cardId);
+          if (c !== undefined) draft.callingCards.set(cardId, { ...c, status: "Accepted" });
+        });
+        const sessionId = conversationOrchestrator.beginVisitSession(
+          get().tick,
+          card.callerCharacterId,
+        );
+        conversationBus.publish({
+          kind: "CallingCardAccepted",
+          tick: before.tick,
+          cardId,
+          callerCharacterId: card.callerCharacterId,
+          sessionId,
+        });
+        conversationBus.publish({
+          kind: "VisitEntered",
+          tick: before.tick,
+          houseId: PLAYER_HOUSE_ID,
+          sessionId,
+          callerCharacterId: card.callerCharacterId,
+        });
+        // P26: NPC speaks first — fire-and-forget opener round-trip.
+        void fireNpcOpener(get, card.callerCharacterId, sessionId, "Visit");
+        return { ok: true, sessionId };
+      },
+      declineCallingCard: (cardId: CallingCardId) => {
+        const before = get();
+        if (before.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
+          return { ok: false, reason: { kind: "PlayerExiled" as const } };
+        }
+        if (hasActivePlayerElopement(before)) {
+          return { ok: false, reason: { kind: "ElopementInProgress" as const } };
+        }
+        const card = before.callingCards.get(cardId);
+        if (card === undefined || card.status !== "Pending") {
+          return { ok: false, reason: { kind: "CardNotPending" as const } };
+        }
+        const pairKey = makePairKey(PLAYER_HOUSE_ID, card.callerCharacterId);
+        set((draft) => {
+          const c = draft.callingCards.get(cardId);
+          if (c !== undefined) draft.callingCards.set(cardId, { ...c, status: "Declined" });
+          const prev = draft.affectionMap.get(pairKey) ?? 0;
+          draft.affectionMap.set(
+            pairKey,
+            clamp(prev - CALLING_CARD_DECLINE_AFFECTION_PENALTY, 0, 100),
+          );
+        });
+        conversationBus.publish({
+          kind: "CallingCardDeclined",
+          tick: before.tick,
+          cardId,
+          callerCharacterId: card.callerCharacterId,
+        });
+        return { ok: true };
+      },
+      exitVisit: () => {
+        if (conversationOrchestrator.currentMode() !== "Visit") return;
+        const sessionId = conversationOrchestrator.currentSessionId() as VisitSessionId;
+        const callerCharacterId = conversationOrchestrator.currentVisitCaller();
+        conversationOrchestrator.abortCurrent();
+        const stateBefore = get();
+        // P26 (H5): post-await modal-gate — if exile/elopement mounted during
+        // the session, close it WITHOUT advancing the tick (elopement suspends
+        // time; the commit-on-leave 1-tick cost is not charged to a modal-
+        // aborted session). The Visit history/affection writes already landed
+        // per-turn; skipping the tick + publishers is safe.
+        if (
+          stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true ||
+          hasActivePlayerElopement(stateBefore)
+        ) {
+          conversationOrchestrator.endSession();
+          conversationBus.publish({
+            kind: "VisitExited",
+            tick: stateBefore.tick,
+            houseId: PLAYER_HOUSE_ID,
+            sessionId,
+            callerCharacterId,
+          });
+          return;
+        }
+        const afterTick = advanceTickPure(stateBefore);
+        set((draft) => {
+          overwriteFromGameState(draft, afterTick);
+        });
+        conversationOrchestrator.endSession();
+        conversationBus.publish({
+          kind: "VisitExited",
+          tick: afterTick.tick,
+          houseId: PLAYER_HOUSE_ID,
+          sessionId,
+          callerCharacterId,
+        });
+        // 15-publisher set (commit-on-leave, matches exitPromenade). NOTE: the
+        // publishDuelTransitions ride was added at the P25<-P26 merge — exitVisit
+        // is a P26 wrapper and P25's duel publisher did not exist when it was
+        // written, but exitVisit calls advanceTickPure, so the rival phase (where
+        // DemandSatisfaction duels are minted AND resolved) runs here too. Without
+        // it a rival duel landing on a visit-exit tick would never reach the UI.
+        publishCharacterDeaths(stateBefore, afterTick);
+        publishSchemeTransitions(stateBefore, afterTick);
+        publishWhisperTransitions(stateBefore, afterTick);
+        publishMarriageTransitions(stateBefore, afterTick);
+        publishBetrothalTransitions(stateBefore, afterTick);
+        publishTemptationLatchTransitions(stateBefore, afterTick);
+        publishElopementTransitions(stateBefore, afterTick);
+        publishArtifactTransitions(stateBefore, afterTick);
+        publishSiblingRivalTransitions(stateBefore, afterTick);
+        publishInheritedSecretTransitions(stateBefore, afterTick);
+        publishBloodFeudTransitions(stateBefore, afterTick);
+        publishGlobalEventTransitions(stateBefore, afterTick);
+        publishDuelTransitions(stateBefore, afterTick);
+        publishCallingCardTransitions(stateBefore, afterTick);
+        publishDynastyPerkAwards(stateBefore, afterTick);
+      },
+      sendVisitMessage: async (input: PromenadeMessageInput) => {
+        const stateBefore = get();
+        if (
+          conversationOrchestrator.currentSessionId() === null ||
+          conversationOrchestrator.currentMode() !== "Visit"
+        ) {
+          return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
+        }
+        const callerId = conversationOrchestrator.currentVisitCaller();
+        if (callerId === null) {
+          return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
+        }
+        const target = stateBefore.characters.get(callerId);
+        const playerHead = stateBefore.houses.get(PLAYER_HOUSE_ID);
+        if (target === undefined || !target.alive || playerHead === undefined) {
+          return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
+        }
+        const pairKey = makePairKey(PLAYER_HOUSE_ID, target.id);
+        const history = stateBefore.conversationHistory.get(pairKey) ?? [];
+        const otherCharactersInScene: Character[] = [];
+        let targetMarriage: MarriageRecord | null = null;
+        let spouse: Character | null = null;
+        if (target.marriageId !== null) {
+          const m = stateBefore.marriages.get(target.marriageId);
+          if (m !== undefined) {
+            targetMarriage = m;
+            if (!m.dissolved) {
+              const spouseId = m.spouseAId === target.id ? m.spouseBId : m.spouseAId;
+              spouse = stateBefore.characters.get(spouseId) ?? null;
+            }
+          }
+        }
+        const semanticContext = await retrieveSemanticHits(target.id, input.freeformMessage);
+        const request = {
+          targetCharacterId: target.id,
+          playerHouseId: PLAYER_HOUSE_ID,
+          freeformMessage: input.freeformMessage,
+          history,
+          otherCharactersInScene,
+          characterStateSnapshot: {
+            target: {
+              ...target,
+              traits: getEffectiveTraits(stateBefore, target.id),
+              equippedArtifactIds: [...target.equippedArtifactIds],
+            },
+            targetMarriage,
+            spouse,
+            // Merge integration (P25 R6 x P26): a Visit with a rival NPC carries
+            // the same rival house context the ballroom persona gets.
+            targetHouse: resolveTargetHouseContext(stateBefore, target.houseId),
+          },
+          mode: "Visit" as const,
+          semanticContext,
+          keyMoment: computeKeyMoment(stateBefore, target.id),
+        };
+        const outcome =
+          input.onDelta !== undefined
+            ? await conversationOrchestrator.sendStreamed(
+                request,
+                input.pinnedTactic,
+                input.onDelta,
+              )
+            : await conversationOrchestrator.send(request, input.pinnedTactic);
+        if (outcome.kind === "Failed") {
+          return { ok: false, reason: outcome.failure };
+        }
+        const stateAtResolve = get();
+        // P26 (H5): post-await modal-gate short-circuit — drop the exchange
+        // (no history/affection write) if exile/elopement mounted mid-flight.
+        if (
+          stateAtResolve.houses.get(PLAYER_HOUSE_ID)?.exiled === true ||
+          hasActivePlayerElopement(stateAtResolve)
+        ) {
+          return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
+        }
+        const playerMount = playerHeadEquipsMountFamily(stateAtResolve);
+        const partnerAtResolve = stateAtResolve.characters.get(target.id);
+        const targetMount =
+          partnerAtResolve !== undefined &&
+          characterEquipsMountFamily(stateAtResolve, partnerAtResolve.equippedArtifactIds);
+        const promenadeTactic = narrowToPromenadeTactic(outcome.response.classifiedTactic);
+        const promenadeOutcome = resolvePromenadeCombat({
+          tactic: promenadeTactic,
+          stance: input.stance,
+          qualityMultiplier: outcome.response.qualityMultiplier,
+          targetHasMountFamilyEquipped: targetMount,
+          playerHasMountFamilyEquipped: playerMount,
+          targetMood: target.mood,
+          targetTraits: getEffectiveTraits(stateAtResolve, target.id),
+        });
+        set((draft) => {
+          overwriteFromGameState(
+            draft,
+            appendPromenadeExchange(
+              stateAtResolve,
+              target.id,
+              { text: input.freeformMessage, classifiedTactic: promenadeTactic },
+              { text: outcome.response.dialogue },
+              promenadeOutcome.affectionDelta,
+              stateAtResolve.tick,
+            ),
+          );
+        });
+        return { ok: true, outcome: outcome.response };
+      },
+      abortVisitRequest: () => {
+        if (conversationOrchestrator.currentMode() !== "Visit") return;
+        conversationOrchestrator.abortCurrent();
+      },
+      recordNpcOpener: (sessionId, targetCharacterId, text) => {
+        // Staleness guard (CLAUDE.md rule #7): if the player exited the ballroom/
+        // Visit (or opened a different session) while the opener was in flight,
+        // drop it — do NOT append a stale orphan exchange.
+        if (conversationOrchestrator.currentSessionId() !== sessionId) return;
+        const trimmed = text.trim();
+        if (trimmed === "") return;
+        const pairKey = makePairKey(PLAYER_HOUSE_ID, targetCharacterId);
+        set((state) => {
+          const hist = state.conversationHistory.get(pairKey) ?? [];
+          const opener: Exchange = {
+            speaker: "other",
+            text: trimmed,
+            classifiedTactic: null,
+            tick: state.tick,
+          };
+          state.conversationHistory.set(
+            pairKey,
+            [...hist, opener].slice(-CONVERSATION_HISTORY_LIMIT_PER_PAIR),
+          );
+        });
       },
     })),
   );
@@ -2635,5 +3223,7 @@ export function selectGameState(state: StoreState): GameState {
     flavorText: state.flavorText,
     // P23 addition — betrothal registry. Quad-sync 3rd surface (selector).
     betrothals: state.betrothals,
+    // P26 addition — calling-card registry. Quint-sync 3rd surface (selector).
+    callingCards: state.callingCards,
   };
 }

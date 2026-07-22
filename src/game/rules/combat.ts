@@ -35,6 +35,10 @@ export type CombatInput = {
   targetTraits: ReadonlyArray<TraitId>;
   // For TargetedPursuit's "explicitly selected target" branch.
   isAgainstPinnedTarget: boolean;
+  // P26 (H4): gates the ComplimentMount ballroom tactic. A ComplimentMount
+  // against a target with no mount-family artifact is a ZeroYield (nothing to
+  // compliment) — parallels the promenade 0-base degrade.
+  targetHasMountFamilyEquipped: boolean;
 };
 
 export type CombatOutcome =
@@ -67,6 +71,13 @@ export function resolveCombat(input: CombatInput): CombatOutcome {
   }
   // WittyBanter vs Distracted: zero-yield (no faux-pas).
   if (input.tactic === "WittyBanter" && input.targetMood === "Distracted") {
+    return { kind: "ZeroYield", affectionDelta: 0, composureDelta: 0, synergy: false };
+  }
+  // P26 (H4): ComplimentMount against a target with no mount-family artifact —
+  // there is nothing to compliment, so zero-yield (parallels the promenade
+  // 0-base degrade). Gated BEFORE synergy so a mountless target never accrues
+  // ComplimentMount trait/mood bonuses.
+  if (input.tactic === "ComplimentMount" && !input.targetHasMountFamilyEquipped) {
     return { kind: "ZeroYield", affectionDelta: 0, composureDelta: 0, synergy: false };
   }
 

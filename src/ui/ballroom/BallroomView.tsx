@@ -17,8 +17,8 @@ import { type ConversationFailure, makePairKey } from "../../game/conversation/t
 import type { Character } from "../../game/entities";
 import { flavorStubFor } from "../../game/fixtures/flavorStubs";
 import type { Mood } from "../../game/fixtures/moods";
-import { RIVAL_HOUSE_IDS_SET, isSocietyHouse } from "../../game/fixtures/rivals";
 import { type CharacterId, type FlavorContentId, PLAYER_HOUSE_ID } from "../../game/rng.seeds";
+import { ballroomRoster, characterEquipsMountFamily } from "../../game/rules/promenade";
 import type { ProposalOutcome } from "../../game/rules/proposal";
 import type { SeasonStore } from "../../game/store";
 import { conversationBus } from "../../runtime/events/conversation";
@@ -36,9 +36,13 @@ import { ThinkingIndicator } from "./ThinkingIndicator";
 type Props = {
   store: SeasonStore;
   onExit: () => void;
+  // P26 (Q14): the NPC who approached the player first this entry (from
+  // enterBallroom's return), pre-selected as the initial target. null = no
+  // approach; the ring defaults to its first member.
+  approachingCharacterId?: CharacterId | null;
 };
 
-export function BallroomView({ store, onExit }: Props) {
+export function BallroomView({ store, onExit, approachingCharacterId = null }: Props) {
   // Game state via store hooks
   const characters = store((s) => s.characters);
   const conversationHistory = store((s) => s.conversationHistory);
@@ -56,22 +60,32 @@ export function BallroomView({ store, onExit }: Props) {
   };
   const revealNpcBio = store((s) => s.revealNpcBio);
 
-  // P25 R6: the ballroom roster is every alive SOCIETY-house NPC (INDEPENDENT +
-  // minted soc-house-<n>) PLUS every alive rival-house character — rivals are now
-  // conversable + scheme-targetable (this widening is also the scheme-target
+  // P23/P26: the ballroom roster is every alive SOCIETY-house NPC (INDEPENDENT +
+  // minted soc-house-<n> dynasties) so society members who married into a
+  // sub-house stay conversable, PLUS every alive rival-house character (P25 R6 —
+  // rivals are conversable + scheme-targetable, which is also the scheme-target
   // surface that makes player→rival Sabotage reachable). The player's own house
-  // is excluded (isSocietyHouse is already false for it).
-  const npcs = [...characters.values()].filter(
-    (c) => (isSocietyHouse(c.houseId) || RIVAL_HOUSE_IDS_SET.has(c.houseId)) && c.alive,
-  );
+  // is excluded. Consumes the pure lex-sorted `ballroomRoster` projection so the
+  // visible ring is the SAME set (and order) as the ballroom-approach draw pool
+  // by construction — the rival widening lives in THAT projection, not here.
+  const npcs = ballroomRoster(store.getState())
+    .map((id) => characters.get(id))
+    .filter((c): c is Character => c !== undefined);
 
-  // Session-local React state
-  const [selectedTargetId, setSelectedTargetId] = useState(npcs[0]?.id ?? null);
+  // Session-local React state. P26: pre-select the approaching NPC when the
+  // entry rolled one (and it's on the roster), else the first ring member.
+  const [selectedTargetId, setSelectedTargetId] = useState<CharacterId | null>(
+    approachingCharacterId !== null && npcs.some((c) => c.id === approachingCharacterId)
+      ? approachingCharacterId
+      : (npcs[0]?.id ?? null),
+  );
   const [pinnedTactic, setPinnedTactic] = useState<Tactic | null>(null);
   const [stance, setStance] = useState<Stance>("Mingle");
   const [draftMessage, setDraftMessage] = useState("");
   const [inFlight, setInFlight] = useState(false);
   const [failure, setFailure] = useState<ConversationFailure | null>(null);
+  // P26 (G1): partial streamed tokens for progressive render (never persisted).
+  const [streamingText, setStreamingText] = useState("");
   // P20: proposal outcome (rendered via the shared banner), per-turn combat
   // result, and faux-pas blunder notice. All session-local.
   const [proposalOutcome, setProposalOutcome] = useState<ProposalOutcome | null>(null);
@@ -120,6 +134,11 @@ export function BallroomView({ store, onExit }: Props) {
   }, [maxComposure]);
 
   const selectedTarget = selectedTargetId !== null ? characters.get(selectedTargetId) : undefined;
+  // P26 (H4): does the selected target own a mount-family artifact? Gates the
+  // ComplimentMount tactic's tooltip (a mountless target ZeroYields).
+  const targetEquipsMount =
+    selectedTarget !== undefined &&
+    characterEquipsMountFamily(store.getState(), selectedTarget.equippedArtifactIds);
   const pairKey = selectedTargetId !== null ? makePairKey(PLAYER_HOUSE_ID, selectedTargetId) : null;
   const exchanges = pairKey !== null ? (conversationHistory.get(pairKey) ?? []) : [];
 
@@ -154,16 +173,22 @@ export function BallroomView({ store, onExit }: Props) {
     setFailure(null);
     setTurnResult(null);
     setFauxPas(null);
+    // P26 (G1): stream the reply. `streamingText` is UI-ephemeral — the
+    // committed exchange comes from the store after both legs resolve, so a
+    // failed turn leaves no trace.
+    setStreamingText("");
     try {
       await store.getState().sendBallroomMessage({
         targetCharacterId: selectedTargetId,
         pinnedTactic,
         stance,
         freeformMessage: draftMessage,
+        onDelta: (chunk) => setStreamingText((prev) => prev + chunk),
       });
       setDraftMessage("");
     } finally {
       setInFlight(false);
+      setStreamingText("");
     }
   };
 
@@ -198,6 +223,10 @@ export function BallroomView({ store, onExit }: Props) {
         selectedTargetId={selectedTargetId}
         bioFor={bioFor}
         onRevealBio={revealNpcBio}
+        onAuthorBio={(id, text) =>
+          store.getState().authorFlavorText(`bio:${id}` as FlavorContentId, "NpcBio", text)
+        }
+        onRegenerateBio={(id) => store.getState().regenerateNpcBio(id)}
         onSelect={(id) => {
           setSelectedTargetId(id);
           setPinnedTactic(null);
@@ -258,6 +287,7 @@ export function BallroomView({ store, onExit }: Props) {
           <TacticButtons
             pinned={pinnedTactic}
             disabled={inFlight}
+            targetEquipsMount={targetEquipsMount}
             onPin={(t, prefill) => {
               setPinnedTactic(t);
               setDraftMessage(prefill);
@@ -303,7 +333,19 @@ export function BallroomView({ store, onExit }: Props) {
           </div>
           {inFlight ? (
             <>
-              <ThinkingIndicator />
+              {/* P26 (G1): progressive render — partial tokens until the first
+                  delta arrives, then the streamed prose in place. */}
+              {streamingText === "" ? (
+                <ThinkingIndicator />
+              ) : (
+                <p
+                  className="rounded border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800"
+                  aria-live="polite"
+                  data-testid="ballroom-streaming-text"
+                >
+                  {streamingText}
+                </p>
+              )}
               <button
                 type="button"
                 onClick={onAbort}

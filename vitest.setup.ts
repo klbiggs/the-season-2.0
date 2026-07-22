@@ -108,6 +108,14 @@ vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit): Pro
   if (path === "/api/llm/persona/invalidate") {
     return new Response(null, { status: 204 });
   }
+  if (path === "/api/llm/opener") {
+    // P26: deterministic NPC opener line derived from the request-body hash.
+    const hash = createHashFromString(canonicalJSON(rawBody));
+    return new Response(JSON.stringify({ text: `A word with you [${hash}].` }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
   throw new Error(
     `vitest.setup.ts: unexpected fetch path ${path} — extend the stub if intentional`,
   );

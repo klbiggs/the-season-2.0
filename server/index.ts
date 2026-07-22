@@ -5,11 +5,15 @@
 // on a network, the proxy is unreachable except from itself.
 
 import { createServer } from "node:http";
+import { handleClassify } from "./classify";
 import { handleConversation } from "./conversation";
+import { handleConversationStream } from "./conversationStream";
 import { handleEmbed } from "./embeddings";
 import { validateEnv } from "./env";
 import { handleFlavor } from "./flavor";
+import { handleFlavorStream } from "./flavorStream";
 import { handleInvalidate } from "./invalidate";
+import { handleOpener } from "./opener";
 
 const PORT = 8787;
 const HOST = "127.0.0.1";
@@ -26,6 +30,27 @@ const server = createServer(async (req, res) => {
       await handleConversation(req, res);
     } catch (err) {
       console.error("[server] conversation handler error:", err);
+      if (!res.headersSent) res.writeHead(500).end();
+    }
+    return;
+  }
+  // P26 (G1): two-phase streaming. The stream route is checked BEFORE the
+  // exact-match conversation route (distinct paths, but keep them adjacent).
+  if (req.url === "/api/llm/conversation/stream" && req.method === "POST") {
+    try {
+      await handleConversationStream(req, res);
+    } catch (err) {
+      console.error("[server] conversation-stream handler error:", err);
+      if (!res.headersSent) res.writeHead(500).end();
+      else res.end();
+    }
+    return;
+  }
+  if (req.url === "/api/llm/classify" && req.method === "POST") {
+    try {
+      await handleClassify(req, res);
+    } catch (err) {
+      console.error("[server] classify handler error:", err);
       if (!res.headersSent) res.writeHead(500).end();
     }
     return;
@@ -48,11 +73,30 @@ const server = createServer(async (req, res) => {
     }
     return;
   }
+  if (req.url === "/api/llm/flavor/stream" && req.method === "POST") {
+    try {
+      await handleFlavorStream(req, res);
+    } catch (err) {
+      console.error("[server] flavor-stream handler error:", err);
+      if (!res.headersSent) res.writeHead(500).end();
+      else res.end();
+    }
+    return;
+  }
   if (req.url === "/api/llm/persona/invalidate" && req.method === "POST") {
     try {
       await handleInvalidate(req, res);
     } catch (err) {
       console.error("[server] invalidate handler error:", err);
+      if (!res.headersSent) res.writeHead(500).end();
+    }
+    return;
+  }
+  if (req.url === "/api/llm/opener" && req.method === "POST") {
+    try {
+      await handleOpener(req, res);
+    } catch (err) {
+      console.error("[server] opener handler error:", err);
       if (!res.headersSent) res.writeHead(500).end();
     }
     return;

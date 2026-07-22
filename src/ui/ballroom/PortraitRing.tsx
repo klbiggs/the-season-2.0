@@ -12,6 +12,9 @@ type Props = {
   bioFor: (character: Character) => string;
   // P18: triggers bio generation when a card's "Who is this?" expander opens.
   onRevealBio: (id: CharacterId) => void;
+  // P26 (G8): author-over / regenerate a card's bio.
+  onAuthorBio: (id: CharacterId, text: string) => void;
+  onRegenerateBio: (id: CharacterId) => void;
   // P20: current tick, threaded to each card for the faux-pas mood-lock badge.
   tick: number;
 };
@@ -22,6 +25,8 @@ export function PortraitRing({
   onSelect,
   bioFor,
   onRevealBio,
+  onAuthorBio,
+  onRegenerateBio,
   tick,
 }: Props) {
   return (
@@ -39,6 +44,8 @@ export function PortraitRing({
           onSelect={() => onSelect(npc.id)}
           bio={bioFor(npc)}
           onRevealBio={() => onRevealBio(npc.id)}
+          onAuthorBio={(text) => onAuthorBio(npc.id, text)}
+          onRegenerateBio={() => onRegenerateBio(npc.id)}
           tick={tick}
         />
       ))}

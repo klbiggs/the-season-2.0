@@ -36,6 +36,7 @@ import {
   ArtifactInstanceIdSchema,
   BetrothalIdSchema,
   BloodFeudIdSchema,
+  CallingCardIdSchema,
   CharacterIdSchema,
   CourierPayloadIdSchema,
   DuelIdSchema,
@@ -346,6 +347,19 @@ export const BetrothalSchema = z.object({
 });
 export type Betrothal = z.infer<typeof BetrothalSchema>;
 
+// P26: NPC-initiated calling card. Minted by applyCallingCardPhase (deterministic
+// per-tick roll); accepting opens a 1-on-1 Visit session. Never-delete — status
+// flips only (Pending → Accepted | Declined | Expired). `expiresAtTick` is an
+// ABSOLUTE end-tick (spec §2 tick-clock discipline), NOT a relative duration.
+export const CallingCardSchema = z.object({
+  id: CallingCardIdSchema,
+  callerCharacterId: CharacterIdSchema,
+  issuedAtTick: z.number().int().nonnegative(),
+  expiresAtTick: z.number().int().nonnegative(), // absolute end-tick
+  status: z.enum(["Pending", "Accepted", "Declined", "Expired"]),
+});
+export type CallingCard = z.infer<typeof CallingCardSchema>;
+
 // P5: Scheme entity. Spec §4 line 543 + §6 line 567 — references BOTH the
 // aggressor character AND the aggressor's owning house. accumulatedAffection
 // is hash-relevant but dead data at v1 (one-shot discovery per OQ #6
@@ -628,8 +642,10 @@ export const GlobalEventSchema = z.discriminatedUnion("kind", [
 export type GlobalEvent = z.infer<typeof GlobalEventSchema>;
 
 // P18: a single generated flavor-content entry (artifact backstory, NPC bio,
-// or scandal-sheet column). LLM-authored, persisted-once, read-back-verbatim
-// (spec §3 line 270). Keyed in state.flavorText by FlavorContentId
+// or scandal-sheet column). LLM-authored, read-back-verbatim (spec §3 line 270).
+// P26 (G8) relaxed "persisted-once" to "at most once per player election" —
+// the player can now edit or regenerate a bio/backstory, which overwrites the
+// entry in place. Keyed in state.flavorText by FlavorContentId
 // ("artifact:<definitionId>" | "bio:<CharacterId>" | "scandal:<generationCount>").
 // Only SUCCESSFULLY generated text is stored; the designer stub is a display-
 // time fallback, never a persisted entry.
@@ -742,5 +758,12 @@ export const GameStateSchema = z.object({
   // overwriteFromGameState (store.ts), + createInitialState (store.ts). Per
   // CLAUDE.md non-negotiable.
   betrothals: z.map(BetrothalIdSchema, BetrothalSchema),
+  // P26 addition — NPC-initiated calling cards, keyed by CallingCardId.
+  // Gameplay state (not LLM text); fresh state empty; minted by
+  // applyCallingCardPhase's deterministic per-tick roll. Quint-sync surfaces:
+  // GameStateSchema (here), hashableState (hash.ts), selectGameState
+  // (store.ts), overwriteFromGameState (store.ts), + createInitialState
+  // (store.ts). Per CLAUDE.md non-negotiable.
+  callingCards: z.map(CallingCardIdSchema, CallingCardSchema),
 });
 export type GameState = z.infer<typeof GameStateSchema>;

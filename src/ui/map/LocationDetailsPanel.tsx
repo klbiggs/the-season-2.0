@@ -5,7 +5,7 @@ import {
   LOCATION_LABELS,
   type LocationId,
 } from "../../game/fixtures/locations";
-import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
+import { type CharacterId, PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import { hasActivePlayerElopement } from "../../game/rules/elopement";
 import { getLocationDelta } from "../../game/rules/locationEffects";
 import { eligiblePromenadePartners } from "../../game/rules/promenade";
@@ -27,7 +27,9 @@ import { ActionRejectionToast } from "./ActionRejectionToast";
 type Props = {
   store: SeasonStore;
   location: LocationId;
-  onEnterBallroom?: (() => void) | undefined;
+  // P26: the approaching NPC id (from enterBallroom's return) is threaded to
+  // the App so BallroomView can pre-select the approacher.
+  onEnterBallroom?: ((approachingCharacterId: CharacterId | null) => void) | undefined;
   onEnterPromenade?: (() => void) | undefined;
 };
 
@@ -177,7 +179,7 @@ export function LocationDetailsPanel({
             type="button"
             onClick={() => {
               const result = store.getState().enterBallroom();
-              if (result.ok) onEnterBallroom();
+              if (result.ok) onEnterBallroom(result.approachingCharacterId);
               // P21: surface the rejection (was swallowed). Realistic reachable
               // case is the SessionAlreadyOpen race.
               else setToast(`Cannot enter the ballroom: ${result.reason.kind}.`);

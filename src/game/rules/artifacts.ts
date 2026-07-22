@@ -104,6 +104,7 @@ export type CommissionRejection =
 export type ThwartRejection =
   | { kind: "AttemptNotFound" }
   | { kind: "AttemptAlreadyResolved" }
+  | { kind: "NotPlayerOwnedTarget" }
   | { kind: "MissingSpymaster" }
   | { kind: "InsufficientWealth"; have: number; need: number }
   | { kind: "NoInFlightCourier" }
@@ -580,6 +581,14 @@ export function applyThwartTheftPure(
   if (!attempt) return { ok: false, reason: { kind: "AttemptNotFound" } };
   if (attempt.thwarted !== null) {
     return { ok: false, reason: { kind: "AttemptAlreadyResolved" } };
+  }
+  // P24b (E4): thwart is player-house-only — non-player thefts auto-resolve in
+  // the sweep. A rival/society attempt stays in-flight for one tick (strict-<
+  // sweep predicate), so without this gate the player could burn wealth + a
+  // courier on it and a failed roll would delete the OTHER house's artifact.
+  const targetedInst = state.artifactInstances.get(attempt.targetedArtifactInstanceId);
+  if (targetedInst === undefined || targetedInst.ownerHouseId !== PLAYER_HOUSE_ID) {
+    return { ok: false, reason: { kind: "NotPlayerOwnedTarget" } };
   }
   // Spymaster gate — at least one alive player-house BohemianRake-or-Spymaster
   // family member. Per spec §3 line 441 — "spymaster-archetype family member."

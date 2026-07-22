@@ -79,11 +79,15 @@ describe("publishGlobalEventTransitions diff (matrix #18)", () => {
 
 // ── Verification matrix #19: publisher-set count invariants ─────────────
 
-describe("Publisher set 14/14/12 (matrix #19)", () => {
+describe("Publisher set 15/15/12 (matrix #19)", () => {
   // Spy on each diff helper module to count invocations per wrapper. The
-  // wrapper-call counts validate the CLAUDE.md "14/14/12" pin (P25 R3 added
-  // publishDuelTransitions to the tick group and publishElopementTransitions
-  // to runYearPass).
+  // wrapper-call counts validate the CLAUDE.md "15/15/12" pin. P25 R3 and P26
+  // were built in parallel worktrees and EACH widened the 13/13/11 baseline to
+  // "14/14/12" — P25 by adding publishDuelTransitions, P26 by adding
+  // publishCallingCardTransitions, and BOTH by adding publishElopementTransitions
+  // to runYearPass. Merged, the tick group carries both new publishers (15) while
+  // runYearPass gains elopement only once (12) — so the real post-merge set is
+  // 15/15/12 and neither phase's 14/14/12 is correct on its own.
   //
   // The diff helpers are imported by store.ts via ES module bindings; vi.spyOn
   // can intercept calls on the module object. We import the module objects
@@ -93,7 +97,7 @@ describe("Publisher set 14/14/12 (matrix #19)", () => {
   // each helper emits. Some helpers emit zero events when before === after
   // (e.g., on a fresh state where nothing changes). The wrapper invokes the
   // helper regardless — that's what the publisher-set count measures.
-  it("advanceTick invokes all 14 diff publishers (no direct-publishes)", async () => {
+  it("advanceTick invokes all 15 diff publishers (no direct-publishes)", async () => {
     const conversationModule = await import("../runtime/events/conversation");
     const schemeModule = await import("../runtime/events/scheme");
     const whisperModule = await import("../runtime/events/whispers");
@@ -106,6 +110,10 @@ describe("Publisher set 14/14/12 (matrix #19)", () => {
     const dynastyModule = await import("../runtime/events/dynastyLegacy");
     const duelModule = await import("../runtime/events/duels");
 
+    // One entry per DISTINCT publisher. (The pre-merge list carried
+    // publishBetrothalTransitions twice — both phases added it independently and
+    // auto-merge kept both copies — which inflated the asserted count while
+    // covering one fewer real publisher. Deduped here.)
     const spies = [
       vi.spyOn(conversationModule, "publishCharacterDeaths"),
       vi.spyOn(schemeModule, "publishSchemeTransitions"),
@@ -121,8 +129,9 @@ describe("Publisher set 14/14/12 (matrix #19)", () => {
       vi.spyOn(globalModule, "publishGlobalEventTransitions"),
       vi.spyOn(dynastyModule, "publishDynastyPerkAwards"),
       vi.spyOn(duelModule, "publishDuelTransitions"),
+      vi.spyOn(conversationModule, "publishCallingCardTransitions"),
     ];
-    expect(spies.length).toBe(14);
+    expect(spies.length).toBe(15);
 
     const store = createStore({ seed: "p13-publisher-count" });
     store.getState().advanceTick();
@@ -133,29 +142,35 @@ describe("Publisher set 14/14/12 (matrix #19)", () => {
     }
   });
 
-  it("runYearPass invokes 12 diff publishers — rides publishElopementTransitions (P25 R3 paydown) but NOT publishGlobalEventTransitions / publishSchemeTransitions / publishArtifactTransitions / publishDuelTransitions", async () => {
+  it("runYearPass invokes 12 diff publishers — rides publishElopementTransitions but NOT publishGlobalEventTransitions / publishSchemeTransitions / publishArtifactTransitions / publishDuelTransitions / publishCallingCardTransitions", async () => {
     const globalModule = await import("../runtime/events/globalEvent");
     const schemeModule = await import("../runtime/events/scheme");
     const elopementModule = await import("../runtime/events/elopement");
     const artifactModule = await import("../runtime/events/artifacts");
     const duelModule = await import("../runtime/events/duels");
 
+    const conversationModule = await import("../runtime/events/conversation");
     const globalSpy = vi.spyOn(globalModule, "publishGlobalEventTransitions");
     const schemeSpy = vi.spyOn(schemeModule, "publishSchemeTransitions");
     const elopementSpy = vi.spyOn(elopementModule, "publishElopementTransitions");
     const artifactSpy = vi.spyOn(artifactModule, "publishArtifactTransitions");
     const duelSpy = vi.spyOn(duelModule, "publishDuelTransitions");
+    const callingCardSpy = vi.spyOn(conversationModule, "publishCallingCardTransitions");
 
     const store = createStore({ seed: "p13-yearpass-count" });
     store.getState().runYearPass();
 
-    // Year-pass STEPS does not include global-event phase, scheme resolution,
-    // artifact phases, or rival duels — so these are NOT invoked. Elopement DOES
-    // ride now (P25 R3: death-cascade Branch 5 can flip a sprint in year-pass).
+    // Year-pass STEPS does not include the global-event phase, scheme
+    // resolution, artifact phases, rival duels (P25), or the calling-card phase
+    // (P26) — so these 5 are NOT invoked (15/15/12 set: runYearPass fires 12).
     expect(globalSpy).not.toHaveBeenCalled();
     expect(schemeSpy).not.toHaveBeenCalled();
     expect(artifactSpy).not.toHaveBeenCalled();
     expect(duelSpy).not.toHaveBeenCalled();
+    expect(callingCardSpy).not.toHaveBeenCalled();
+    // The aging-step death cascade (Branch 5) can resolve a non-player sprint
+    // during year-pass, so the elopement diff helper DOES ride here. Exactly
+    // ONE call — P25 and P26 each added this ride independently.
     expect(elopementSpy).toHaveBeenCalledTimes(1);
 
     globalSpy.mockRestore();
@@ -163,6 +178,7 @@ describe("Publisher set 14/14/12 (matrix #19)", () => {
     elopementSpy.mockRestore();
     artifactSpy.mockRestore();
     duelSpy.mockRestore();
+    callingCardSpy.mockRestore();
   });
 });
 

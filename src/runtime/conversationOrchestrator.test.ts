@@ -19,13 +19,13 @@ const baseRequest = (): ProxyConversationRequest => {
     otherCharactersInScene: [],
     characterStateSnapshot: {
       target,
-      otherCharactersInScene: [],
       targetMarriage: null,
       spouse: null,
       targetHouse: null,
     },
     mode: "Ballroom",
     semanticContext: [],
+    keyMoment: null,
   };
 };
 

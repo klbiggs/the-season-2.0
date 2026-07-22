@@ -27,6 +27,7 @@ import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import type { ProposalOutcome } from "../../game/rules/proposal";
 import type { SeasonStore } from "../../game/store";
 import { houseDisplayName } from "../ledger/houseName";
+import { FlavorEditor } from "../shared/FlavorEditor";
 import { ProposalOutcomeBanner } from "../shared/ProposalOutcomeBanner";
 import { monogramLetter, monogramStyle } from "../shared/monogram";
 import type { SocialGraphData, SocialLink, SocialNode } from "../socialWeb/SocialWebView";
@@ -101,6 +102,8 @@ function SocietyRow({
   factionId,
   bio,
   onRevealBio,
+  onAuthorBio,
+  onRegenerateBio,
   onPropose,
   onBetroth,
 }: {
@@ -108,6 +111,8 @@ function SocietyRow({
   factionId: House["factionId"] | undefined;
   bio: string;
   onRevealBio: () => void;
+  onAuthorBio: (text: string) => void;
+  onRegenerateBio: () => void;
   onPropose: () => void;
   onBetroth: (() => void) | null;
 }) {
@@ -177,7 +182,13 @@ function SocietyRow({
         <summary className="cursor-pointer select-none text-stone-400 hover:text-stone-600">
           Who is this?
         </summary>
-        <p className="mt-1 italic leading-relaxed text-stone-600">{bio}</p>
+        <FlavorEditor
+          text={bio}
+          flavorId={`bio:${c.id}` as FlavorContentId}
+          onSave={onAuthorBio}
+          onRegenerate={onRegenerateBio}
+          testIdPrefix={`society-bio-${c.id}`}
+        />
       </details>
     </li>
   );
@@ -390,6 +401,12 @@ export function SocietyView({ store }: Props) {
                     factionId={house.factionId}
                     bio={bioFor(c)}
                     onRevealBio={() => revealNpcBio(c.id)}
+                    onAuthorBio={(text) =>
+                      store
+                        .getState()
+                        .authorFlavorText(`bio:${c.id}` as FlavorContentId, "NpcBio", text)
+                    }
+                    onRegenerateBio={() => store.getState().regenerateNpcBio(c.id)}
                     onPropose={() => setProposal({ outcome: proposeMarriage(c.id), name: c.name })}
                     onBetroth={c.age < ADULTHOOD_AGE_IN_YEARS ? () => onBetroth(c) : null}
                   />

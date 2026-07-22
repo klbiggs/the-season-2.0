@@ -53,6 +53,7 @@ function makeState(overrides: Partial<GameState>): GameState {
     globalEvents: new Map(),
     flavorText: new Map(),
     betrothals: new Map(),
+    callingCards: new Map(),
     ...overrides,
   };
 }
@@ -346,6 +347,7 @@ describe("applyConceptionStep — multi-marriage RNG isolation (synthetic fixtur
         globalEvents: new Map(),
         flavorText: new Map(),
         betrothals: new Map(),
+        callingCards: new Map(),
       };
       const next1 = applyConceptionStep(state);
       const next2 = applyConceptionStep(state);

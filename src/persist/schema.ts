@@ -4,6 +4,7 @@ import { ConversationPairKeySchema, ExchangeSchema } from "../game/conversation/
 import {
   ArtifactInstanceSchema,
   BetrothalSchema,
+  CallingCardSchema,
   CharacterSchema,
   CourierPayloadSchema,
   DuelSchema,
@@ -30,6 +31,7 @@ import {
   ArtifactDefinitionIdSchema,
   ArtifactInstanceIdSchema,
   BetrothalIdSchema,
+  CallingCardIdSchema,
   CharacterIdSchema,
   CourierPayloadIdSchema,
   DuelIdSchema,
@@ -94,6 +96,12 @@ export const SaveV1Schema = z.object({
   // P23: betrothal registry. Save-format z.array(z.tuple) mirror of the
   // in-memory z.map (same bridge as marriages/flavorText).
   betrothals: z.array(z.tuple([BetrothalIdSchema, BetrothalSchema])),
+  // P26: calling-card registry. Bare z.array(z.tuple) with NO .default (the
+  // betrothals/elopements/proceduralArtifactDefinitions precedent) — so
+  // SaveV1Schema.parse THROWS on pre-P26 dev saves missing the key. That is the
+  // accepted pre-release dev-save-reset posture (Settings "Reset Save"), not a
+  // bug.
+  callingCards: z.array(z.tuple([CallingCardIdSchema, CallingCardSchema])),
 });
 export type SaveV1 = z.infer<typeof SaveV1Schema>;
 
@@ -130,6 +138,7 @@ export function toSaveV1(state: GameState): SaveV1 {
     globalEvents: serializeRegistry(state.globalEvents),
     flavorText: serializeRegistry(state.flavorText),
     betrothals: serializeRegistry(state.betrothals),
+    callingCards: serializeRegistry(state.callingCards),
   });
 }
 
@@ -175,6 +184,7 @@ export function fromSaveV1Bare(save: SaveV1): GameState {
     globalEvents: deserializeRegistry(save.globalEvents) as GameState["globalEvents"],
     flavorText: deserializeRegistry(save.flavorText) as GameState["flavorText"],
     betrothals: deserializeRegistry(save.betrothals) as GameState["betrothals"],
+    callingCards: deserializeRegistry(save.callingCards) as GameState["callingCards"],
   };
 }
 

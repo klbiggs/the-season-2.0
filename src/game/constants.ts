@@ -165,6 +165,9 @@ export const TACTIC_BONUS_MOOD: ReadonlyMap<Tactic, Mood> = new Map<Tactic, Mood
   ["WittyBanter", "Receptive"],
   ["SlyGossip", "Jealous"],
   ["DeepEmpathy", "Grieving"],
+  // P26 (H4): ComplimentMount is now a ballroom tactic (was promenade-only at
+  // P12). A Receptive target warms to a compliment on their horse/carriage.
+  ["ComplimentMount", "Receptive"],
 ]);
 
 // Tactic ↔ trait bonus/penalty maps. Designer baseline; playtest may shift
@@ -182,9 +185,12 @@ export const CONVERSATION_TRAIT_BONUSES: ReadonlyMap<TraitId, ReadonlyArray<Tact
   ["Intellectual" as TraitId, ["WittyBanter"]],
   ["Sophisticated" as TraitId, ["Flattery", "WittyBanter"]],
   ["Polyglot" as TraitId, ["WittyBanter"]],
-  ["Rustic" as TraitId, ["DeepEmpathy"]],
-  ["Vain" as TraitId, ["Flattery"]],
-  ["Frivolous" as TraitId, ["WittyBanter"]],
+  // P26 (H4): Rustic warms to horse/mount talk.
+  ["Rustic" as TraitId, ["DeepEmpathy", "ComplimentMount"]],
+  // P26 (H4): the Vain love their finery flattered.
+  ["Vain" as TraitId, ["Flattery", "ComplimentMount"]],
+  // P26 (H4): the Frivolous enjoy light mount chatter.
+  ["Frivolous" as TraitId, ["WittyBanter", "ComplimentMount"]],
   ["Romantic" as TraitId, ["Flattery", "DeepEmpathy"]],
   ["Jaded" as TraitId, ["SlyGossip"]],
   ["Melancholic" as TraitId, ["DeepEmpathy"]],
@@ -200,7 +206,8 @@ export const CONVERSATION_TRAIT_BONUSES: ReadonlyMap<TraitId, ReadonlyArray<Tact
   // Suspicious has no bonus tactic
   ["Loyal" as TraitId, ["DeepEmpathy"]],
   ["Treacherous" as TraitId, ["SlyGossip"]],
-  ["Bold" as TraitId, ["WittyBanter"]],
+  // P26 (H4): the Bold admire a fine mount handled well.
+  ["Bold" as TraitId, ["WittyBanter", "ComplimentMount"]],
   // Cautious has no bonus tactic
   ["Eloquent" as TraitId, ["Flattery", "WittyBanter"]],
   // Reclusive has no bonus tactic
@@ -231,7 +238,8 @@ export const CONVERSATION_TRAIT_PENALTIES: ReadonlyMap<TraitId, ReadonlyArray<Ta
   ["Devout" as TraitId, ["SlyGossip"]],
   ["Pious" as TraitId, ["Flattery"]],
   ["Brash" as TraitId, ["DeepEmpathy"]],
-  ["Reserved" as TraitId, ["Flattery"]],
+  // P26 (H4): the Reserved recoil from showy mount-praise.
+  ["Reserved" as TraitId, ["Flattery", "ComplimentMount"]],
   ["Ambitious" as TraitId, ["DeepEmpathy"]],
   // ImpoverishedNobility has no penalty tactic
   ["Generous" as TraitId, ["SlyGossip"]],
@@ -243,7 +251,8 @@ export const CONVERSATION_TRAIT_PENALTIES: ReadonlyMap<TraitId, ReadonlyArray<Ta
   // Eloquent has no penalty tactic
   ["Reclusive" as TraitId, ["Flattery", "WittyBanter"]],
   ["Hedonistic" as TraitId, ["DeepEmpathy"]],
-  ["Ascetic" as TraitId, ["Flattery"]],
+  // P26 (H4): the Ascetic disdain conspicuous horseflesh.
+  ["Ascetic" as TraitId, ["Flattery", "ComplimentMount"]],
 ]);
 
 // Conversation history bounded per pair to 3 most-recent exchanges. Spec
@@ -296,7 +305,15 @@ export const EMBEDDING_DIMENSIONS = 768;
 // Sidecar entry-count cap with FIFO eviction by tick (spec §8 line 687). The
 // fixed-dim vector makes this cap the byte bound: ~3.6 KB/entry × 500 ≈ 1.8 MB
 // per slot — large but bounded. Raise only with that product re-checked.
-export const VECTOR_INDEX_MAX_ENTRIES = 500;
+// P26 (G4): raised 500 → 1500. Cross-house retrieval now indexes ALL houses'
+// whispers/schemes/grievances/successions, but the player-anchored retrieve
+// filter surfaces only a subset — a flat 500-entry FIFO would let non-
+// retrievable cross-house bulk evict useful player-perspective memory in a
+// mature campaign (25+ society NPCs). ~5.5 MB/slot, under the bounded-save NFR.
+export const VECTOR_INDEX_MAX_ENTRIES = 1500;
+// P26 (G5): re-embed batch size when the embedding model/dimensions change —
+// the sourceTexts are re-embedded in chunks (replacing the P17 silent discard).
+export const EMBED_REEMBED_BATCH_SIZE = 32;
 // Retrieval: top-K hits above the cosine threshold added to the prompt.
 export const SEMANTIC_RETRIEVAL_TOP_K = 4;
 export const SEMANTIC_SIMILARITY_THRESHOLD = 0.55;
@@ -362,7 +379,13 @@ export type SchemeFailureReasonKind = (typeof SCHEME_FAILURE_REASONS)[number];
 
 // P11 widens GRIEVANCE_SOURCES with "BloodFeud" — the casus belli minted alongside
 // each BloodFeud entity at inherited-secret surfacing (plans/phases/11-sibling-rivals-secrets.md).
-export const GRIEVANCE_SOURCES = ["Sabotage", "FauxPas", "BloodFeud"] as const;
+// P26 (G6): "Conversation" is the generateGrievance-tool source. The minted
+// grievance is player-perpetrated and held by a non-rival society house, so it
+// is DUEL-INERT at v1.5 (demandSatisfaction actions only player-held grievances,
+// and society houses never autonomously demand satisfaction) — same inert state
+// as a player-perpetrated FauxPas grievance. Its live value is the record + the
+// G4 semantic-index entry + a latent casus belli for a future phase.
+export const GRIEVANCE_SOURCES = ["Sabotage", "FauxPas", "BloodFeud", "Conversation"] as const;
 export type GrievanceSource = (typeof GRIEVANCE_SOURCES)[number];
 
 // Spec §3 "Scheme Costs, Durations & Requirements" — pinned per the spec
@@ -601,9 +624,14 @@ if (PROMOTED_STAFF_AGE_MIN < 18 || PROMOTED_STAFF_AGE_MIN > PROMOTED_STAFF_AGE_M
 // + Happiness state paragraphs.
 // v4 at P10 — characterStateSnapshot.target.traits now ships the effective-traits
 // union (persistent + equipped-artifact grants via getEffectiveTraits).
-// v5 at P25 R6 — rival targets carry a targetHouse context block (house name /
-// faction / hostility-band attitude line) in the persona prompt.
-export const PERSONA_CACHE_VERSION = "v5" as const;
+// v6 at the P25<-P26 merge. P25 R6 (rival targetHouse context block) and P26 G7
+// (scene composition MOVED out of the cached persona into per-turn contents)
+// were developed in parallel worktrees and BOTH independently bumped to "v5".
+// The merged persona format is a THIRD distinct format, so neither v5 is a
+// correct cache key for it — a returning player holding either phase's v5 entry
+// would be served a persona that no longer matches. Bumped to v6 to invalidate
+// both. (LLM-cache discipline: any buildPersonaPrompt format change bumps this.)
+export const PERSONA_CACHE_VERSION = "v6" as const;
 
 // P25 R6: persona hostility-band upper boundary ("at daggers drawn"). The lower
 // boundary reuses RIVAL_HOSTILITY_ACTIVATION_THRESHOLD (25, "openly hostile").
@@ -1123,6 +1151,42 @@ export const PROMENADE_BASE_AFFECTION_WITTY_BANTER = 8;
 export const PROMENADE_BASE_AFFECTION_DEEP_EMPATHY = 8;
 export const PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT = 12; // gated on target mount-family ownership
 export const PROMENADE_PLAYER_MOUNT_MINGLE_BONUS = 5; // per-action; player head equips a mount-family artifact
+// P26 (H3): max distinct partners drawn into a multi-NPC promenade scene.
+// enterPromenade draws k = min(this, pool.length) WITHOUT replacement, so the
+// draw count is exactly k (the store test pins it).
+export const PROMENADE_PARTNER_COUNT_MAX = 3;
+
+// ── Conversation / LLM / Memory depth (P26) ───────────────────────────────
+// NPC-initiated conversations (Q14). Trigger rolls consume the gameplay PRNG;
+// the LLM only authors the opener text (determinism boundary intact).
+// Calling-card per-tick roll: 3%/tick (rarer than the P13 global-event 5%/tick
+// because a card persists CALLING_CARD_EXPIRY_TICKS before expiring).
+export const CALLING_CARD_PROBABILITY_BASIS_POINTS = 300;
+// Absolute-end-tick offset: a Pending card expires this many ticks after issue.
+export const CALLING_CARD_EXPIRY_TICKS = 5;
+// Flat affection penalty applied to the (player, caller) pair on decline.
+export const CALLING_CARD_DECLINE_AFFECTION_PENALTY = 5;
+// P26 (G1): two-phase streaming — stream-leg sub-budget inside the 15s
+// composite, reserving >=4s for the classify leg so a Pro-routed stream can
+// not starve it.
+export const STREAM_LEG_TIMEOUT_MS = 11_000;
+// P26 (G1): output cap for a THINKING-mode streamed leg. `gemini-3.1-pro-preview`
+// cannot disable thinking, and thinking tokens are deducted from
+// maxOutputTokens (the P18 flavor lesson) — so the 600-token conversation
+// budget is consumed by reasoning and the visible prose truncates mid-sentence.
+// Verified in-browser: at 600 the Pro reply cut off ("It is truly marvelous");
+// this larger ceiling lets thinking AND a short reply both fit. Flash (thinking
+// disabled) keeps LLM_OUTPUT_TOKEN_BUDGET.
+export const STREAM_THINKING_OUTPUT_TOKEN_BUDGET = 2_500;
+
+// Ballroom-approach per-entry roll: 25% (flavorful, not constant). Fires ONLY
+// on a NEW session (gated on currentSessionId() === null before beginSession).
+export const BALLROOM_APPROACH_PROBABILITY_BASIS_POINTS = 2500;
+// Opener round-trip (NPC speaks first). Client fire-and-forget timeout + server
+// composite budget + a small output cap (the opener is one short line).
+export const OPENER_TIMEOUT_MS = 10_000;
+export const OPENER_SERVER_TIMEOUT_MS = 8_000;
+export const OPENER_OUTPUT_TOKEN_BUDGET = 200;
 
 // ── Global Events & Era (P13) ─────────────────────────────────────────────
 // Spec §3 "Global Events" (lines 386-392) + "Era Progression" (lines 394-398)

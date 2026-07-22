@@ -22,6 +22,9 @@ import {
   __setFlavorContentEnabledForTests,
   aggregateScandalEvents,
   ensureFlavor,
+  regenerateFlavor,
+  streamingFlavorTextFor,
+  subscribeStreamingFlavor,
 } from "./flavorOrchestrator";
 
 const ARTIFACT_CTX = {
@@ -130,6 +133,166 @@ describe("ensureFlavor", () => {
     ensureFlavor(id, { ...ARTIFACT_CTX, definitionId: "mount" });
     await new Promise((r) => setTimeout(r, 10));
     expect(store.getState().flavorText.has(id)).toBe(false);
+  });
+});
+
+// ── P26 (G8) regenerate + author ─────────────────────────────────────────
+
+describe("regenerateFlavor (G8)", () => {
+  let store: SeasonStore;
+  beforeEach(() => {
+    store = createStore({ seed: "flavor-regen-test" });
+  });
+
+  it("is inert when the flag is disabled", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    __setFlavorContentEnabledForTests(false);
+    regenerateFlavor("artifact:sapphires" as FlavorContentId, ARTIFACT_CTX);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("OVERWRITES an already-persisted entry (the ensureFlavor short-circuit is bypassed)", async () => {
+    __setFlavorContentEnabledForTests(true);
+    const id = "artifact:sapphires" as FlavorContentId;
+    store
+      .getState()
+      .recordFlavorText({ id, kind: "ArtifactBackstory", text: "stale", generatedAtTick: 0 });
+    regenerateFlavor(id, ARTIFACT_CTX);
+    await vi.waitFor(() => expect(store.getState().flavorText.get(id)?.text).not.toBe("stale"));
+    expect((store.getState().flavorText.get(id)?.text ?? "").length).toBeGreaterThan(0);
+  });
+
+  it("leaves the existing entry standing when generation fails", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("network down"));
+    __setFlavorContentEnabledForTests(true);
+    const id = "artifact:tiara" as FlavorContentId;
+    store
+      .getState()
+      .recordFlavorText({ id, kind: "ArtifactBackstory", text: "kept", generatedAtTick: 0 });
+    regenerateFlavor(id, { ...ARTIFACT_CTX, definitionId: "tiara" });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(store.getState().flavorText.get(id)?.text).toBe("kept");
+  });
+});
+
+describe("flavor streaming (G1)", () => {
+  let store: SeasonStore;
+  beforeEach(() => {
+    store = createStore({ seed: "flavor-stream-test" });
+  });
+
+  function sseResponse(frames: ReadonlyArray<string>): Response {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const enc = new TextEncoder();
+        for (const f of frames) controller.enqueue(enc.encode(`data: ${f}\n\n`));
+        controller.close();
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }
+
+  it("buffers deltas mid-flight, persists ONLY the final text, and clears the buffer", async () => {
+    __setFlavorContentEnabledForTests(true);
+    const id = "artifact:sapphires" as FlavorContentId;
+    // The notifier fires on every delta — snapshot the buffer from there so we
+    // observe it MID-flight rather than after the reader has settled.
+    const seen: Array<string | undefined> = [];
+    const unsubscribe = subscribeStreamingFlavor(() => seen.push(streamingFlavorTextFor(id)));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      expect(String(input)).toBe("/api/llm/flavor/stream");
+      return sseResponse([
+        JSON.stringify({ kind: "delta", text: "A jewel " }),
+        JSON.stringify({ kind: "delta", text: "of ill repute." }),
+        JSON.stringify({ kind: "done", text: "A jewel of ill repute." }),
+      ]);
+    });
+
+    try {
+      ensureFlavor(id, ARTIFACT_CTX);
+      await vi.waitFor(() => expect(store.getState().flavorText.has(id)).toBe(true));
+    } finally {
+      unsubscribe();
+    }
+    expect(store.getState().flavorText.get(id)?.text).toBe("A jewel of ill repute.");
+    // Partials were buffered progressively, never persisted, cleared on settle.
+    expect(seen).toContain("A jewel ");
+    expect(streamingFlavorTextFor(id)).toBeUndefined();
+  });
+
+  it("falls back to the single-shot endpoint when the stream fails", async () => {
+    __setFlavorContentEnabledForTests(true);
+    const id = "artifact:tiara" as FlavorContentId;
+    const calls: string[] = [];
+    const realFetch = globalThis.fetch;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.endsWith("/stream")) throw new TypeError("stream route down");
+      // Defer to the suite's stubbed single-shot flavor endpoint.
+      return realFetch(input, init);
+    });
+
+    ensureFlavor(id, { ...ARTIFACT_CTX, definitionId: "tiara" });
+    await vi.waitFor(() => expect(store.getState().flavorText.has(id)).toBe(true));
+    expect(calls).toEqual(["/api/llm/flavor/stream", "/api/llm/flavor"]);
+    expect(streamingFlavorTextFor(id)).toBeUndefined();
+  });
+
+  it("drops the partial when the stream fails mid-flight (no truncated persist)", async () => {
+    __setFlavorContentEnabledForTests(true);
+    const id = "artifact:mount" as FlavorContentId;
+    const realFetch = globalThis.fetch;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/stream")) {
+        return sseResponse([
+          JSON.stringify({ kind: "delta", text: "Half a sen" }),
+          JSON.stringify({ kind: "error", reason: "internal" }),
+        ]);
+      }
+      return realFetch(input, init);
+    });
+
+    ensureFlavor(id, { ...ARTIFACT_CTX, definitionId: "mount" });
+    await vi.waitFor(() => expect(store.getState().flavorText.has(id)).toBe(true));
+    // The truncated fragment never reached the save — the fallback text did.
+    expect(store.getState().flavorText.get(id)?.text).not.toBe("Half a sen");
+    expect(streamingFlavorTextFor(id)).toBeUndefined();
+  });
+});
+
+describe("authorFlavorText (G8)", () => {
+  let store: SeasonStore;
+  beforeEach(() => {
+    store = createStore({ seed: "flavor-author-test" });
+  });
+
+  it("creates an entry when none exists, stamped with the current tick", () => {
+    const id = "bio:someone" as FlavorContentId;
+    store.getState().authorFlavorText(id, "NpcBio", "A person of no small consequence.");
+    const entry = store.getState().flavorText.get(id);
+    expect(entry?.text).toBe("A person of no small consequence.");
+    expect(entry?.kind).toBe("NpcBio");
+    expect(entry?.generatedAtTick).toBe(store.getState().tick);
+  });
+
+  it("OVERWRITES an existing entry (unlike recordFlavorText's once-only write)", () => {
+    const id = "bio:someone" as FlavorContentId;
+    store.getState().recordFlavorText({ id, kind: "NpcBio", text: "old", generatedAtTick: 0 });
+    store.getState().recordFlavorText({ id, kind: "NpcBio", text: "ignored", generatedAtTick: 0 });
+    expect(store.getState().flavorText.get(id)?.text).toBe("old");
+    store.getState().authorFlavorText(id, "NpcBio", "new");
+    expect(store.getState().flavorText.get(id)?.text).toBe("new");
+  });
+
+  it("trims, and rejects whitespace-only text as a no-op", () => {
+    const id = "bio:someone" as FlavorContentId;
+    store.getState().authorFlavorText(id, "NpcBio", "   \n  ");
+    expect(store.getState().flavorText.has(id)).toBe(false);
+    store.getState().authorFlavorText(id, "NpcBio", "  padded  ");
+    expect(store.getState().flavorText.get(id)?.text).toBe("padded");
   });
 });
 

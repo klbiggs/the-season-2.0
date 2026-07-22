@@ -77,7 +77,10 @@ export type Model = typeof MODEL_DEFAULT | typeof MODEL_FIRST_MEETING;
 //     → "married to NAME"
 export const CharacterStateSnapshotSchema = z.object({
   target: CharacterSchema,
-  otherCharactersInScene: z.array(CharacterSchema),
+  // P26 (G7): the duplicated scene composition is DROPPED from the persona
+  // snapshot — scene now rides per-turn `contents` (buildContents' [Also
+  // present:] line), not the cached persona systemInstruction. The top-level
+  // ProxyConversationRequest.otherCharactersInScene is the single source.
   targetMarriage: MarriageRecordSchema.nullable(),
   spouse: CharacterSchema.nullable(),
   // P25 R6: rival-house context (null for non-rival targets). Lets the persona
@@ -123,12 +126,16 @@ export const ProxyConversationRequestSchema = z.object({
   // "Ballroom"). Mode-framing prefix lives in server/conversation.ts's
   // buildContents (NOT systemInstruction — cachedContent + systemInstruction
   // are mutually exclusive per the Gemini SDK contract).
-  mode: z.enum(["Ballroom", "Promenade"]).default("Ballroom"),
+  mode: z.enum(["Ballroom", "Promenade", "Visit"]).default("Ballroom"),
   // P17: semantic-memory hits retrieved client-side at conversation start and
   // rendered as a separate `[Relevant past events:]` section in buildContents
   // (on per-turn `contents`, NOT systemInstruction — P12 cache mutual-exclusion).
   // `.default([])` is the backward-compat shortcut — pre-P17 clients omit it.
   semanticContext: z.array(z.string()).default([]),
+  // P26 (G3): key-moment routing. A non-null keyMoment routes to the Pro model
+  // (spec §5 — pre-wired at v1, activated here). Computed client-side via
+  // computeKeyMoment; "audience" is wired but never emitted at v1.5.
+  keyMoment: z.enum(["proposal", "scheme", "duel", "audience"]).nullable().default(null),
 });
 export type ProxyConversationRequest = z.infer<typeof ProxyConversationRequestSchema>;
 
@@ -183,6 +190,27 @@ export const FlavorResponseSchema = z.object({
   text: z.string().min(1),
 });
 
+// P26: NPC-initiated opener (Q14). The NPC authors a short opening line; the
+// server grounds it in the character persona (systemInstruction) + a
+// contents-borne "you approach first" framing. Plain prose, no function calls
+// (mirrors the flavor endpoint). approachContext distinguishes the ballroom
+// approach from the drawing-room Visit for the framing.
+export const OpenerRequestSchema = z.object({
+  characterStateSnapshot: CharacterStateSnapshotSchema,
+  history: z.array(
+    z.object({
+      speaker: z.enum(["house-head", "other"]),
+      text: z.string(),
+    }),
+  ),
+  approachContext: z.enum(["Ballroom", "Visit"]),
+});
+export type OpenerRequest = z.infer<typeof OpenerRequestSchema>;
+
+export const OpenerResponseSchema = z.object({
+  text: z.string().min(1),
+});
+
 // Widen-and-validate: enum fields parsed as z.string() so unknown values
 // don't trigger SchemaError. Post-parse resolvers (resolveTactic /
 // resolveMoodHint) apply the enum check + fallback per spec §7 line 664
@@ -194,15 +222,62 @@ const GenerateWhisperToolCallSchema = z.object({
     text: z.string(),
   }),
 });
-export type GenerateWhisperToolCall = z.infer<typeof GenerateWhisperToolCallSchema>;
+
+// P26 (G6): generateGrievance toolCall. Records that the player gave offence —
+// the store mints a Conversation-source grievance against the player. `severity`
+// is an optional free-text reason (unused mechanically at v1.5).
+const GenerateGrievanceToolCallSchema = z.object({
+  name: z.literal("generateGrievance"),
+  args: z.object({
+    severity: z.string().optional(),
+  }),
+});
+
+// The toolCall union — the two tools the server declares (server/tools.ts).
+const ToolCallSchema = z.union([GenerateWhisperToolCallSchema, GenerateGrievanceToolCallSchema]);
+export type ToolCall = z.infer<typeof ToolCallSchema>;
 
 export const ConversationResponseSchema = z.object({
   dialogue: z.string().min(1),
   classifiedTactic: z.string(),
   qualityMultiplier: z.number(),
   moodHint: z.string().optional(),
-  toolCalls: z.array(GenerateWhisperToolCallSchema).default([]),
+  toolCalls: z.array(ToolCallSchema).default([]),
 });
+
+// ── P26 (G1) two-phase streaming: the classify leg ────────────────────────
+// Call #1 streams the dialogue prose (no tools). Call #2 — this one — is a
+// non-streaming forced-function-call that classifies the exchange. Always
+// routed to MODEL_DEFAULT (Flash): classification is cheap and the Pro budget
+// belongs to the streamed prose. `targetPersonaLine` is a compact client-built
+// persona summary so the toolCalls surface (whisper/grievance), which two-phase
+// moves OFF the persona-cached call, keeps minimal character context.
+export const ClassifyRequestSchema = z.object({
+  freeformMessage: z.string(),
+  dialogue: z.string(),
+  targetCharacterId: CharacterIdSchema,
+  targetPersonaLine: z.string(),
+  sceneCharacters: z.array(z.object({ id: z.string(), name: z.string() })).default([]),
+  mode: z.enum(["Ballroom", "Promenade", "Visit"]).default("Ballroom"),
+});
+export type ClassifyRequest = z.infer<typeof ClassifyRequestSchema>;
+
+// ConversationResponseSchema minus `dialogue` (the streamed leg supplies it).
+export const ClassifyResponseSchema = z.object({
+  classifiedTactic: z.string(),
+  qualityMultiplier: z.number(),
+  moodHint: z.string().optional(),
+  toolCalls: z.array(ToolCallSchema).default([]),
+});
+export type ClassifyResponseRaw = z.infer<typeof ClassifyResponseSchema>;
+
+// SSE event frames emitted by the streaming endpoints (conversation + flavor).
+export const StreamEventSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("delta"), text: z.string() }),
+  z.object({ kind: z.literal("done"), text: z.string() }),
+  z.object({ kind: z.literal("error"), reason: z.enum(["timeout", "network", "internal"]) }),
+]);
+
 export type ConversationResponseRaw = z.infer<typeof ConversationResponseSchema>;
 
 // Narrowed form — what the orchestrator returns after resolver application.
@@ -211,7 +286,7 @@ export type ConversationResponse = {
   classifiedTactic: Tactic;
   qualityMultiplier: number; // clamped to [0.5, 1.5]
   moodHint: Mood | null;
-  toolCalls: ReadonlyArray<GenerateWhisperToolCall>;
+  toolCalls: ReadonlyArray<ToolCall>;
 };
 
 // P12: widened to 5 in lockstep with TACTICS at src/game/constants.ts:140.

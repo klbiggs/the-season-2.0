@@ -26,7 +26,7 @@ import { resolveArtifactDefinition } from "../game/fixtures/artifacts";
 import { PLAYER_HOUSE_ID } from "../game/rng";
 import type { FlavorContentId } from "../game/rng";
 import type { StoreState } from "../game/store";
-import { fetchFlavorText } from "../llm/flavor";
+import { fetchFlavorText, fetchFlavorTextStream } from "../llm/flavor";
 import type { FlavorContext } from "../llm/types";
 import { familyBus } from "./events/family";
 
@@ -74,26 +74,93 @@ export function ensureFlavor(id: FlavorContentId, context: FlavorContext): void 
   if (state.flavorText.has(id)) return;
   if (inFlight.has(id)) return;
   inFlight.add(id);
-  void generate(id, context);
+  void generate(id, context, false);
 }
 
-async function generate(id: FlavorContentId, context: FlavorContext): Promise<void> {
+// P26 (G8): player-elected regeneration. Identical to ensureFlavor EXCEPT it
+// skips the already-persisted check (regenerating an absent entry is the same
+// as generating it, so the caller need not branch) and lands via
+// overwriteFlavorText. Still flag-gated + in-flight-deduped — a second click
+// while the first request is outstanding is dropped, not queued.
+export function regenerateFlavor(id: FlavorContentId, context: FlavorContext): void {
+  if (!flavorContentEnabled) return;
+  if (typeof fetch !== "function") return;
+  if (readState?.() === undefined) return;
+  if (inFlight.has(id)) return;
+  inFlight.add(id);
+  void generate(id, context, true);
+}
+
+async function generate(
+  id: FlavorContentId,
+  context: FlavorContext,
+  overwrite: boolean,
+): Promise<void> {
   try {
-    const text = await fetchFlavorText(context, AbortSignal.timeout(FLAVOR_REQUEST_TIMEOUT_MS));
+    const text = await generateText(id, context);
     const store = readState?.();
     if (store === undefined) return;
-    store.recordFlavorText({
-      id,
-      kind: context.kind,
-      text,
-      generatedAtTick: store.tick,
-    });
+    const entry = { id, kind: context.kind, text, generatedAtTick: store.tick };
+    if (overwrite) store.overwriteFlavorText(entry);
+    else store.recordFlavorText(entry);
   } catch {
-    // Spec §3 line 269: a failed generation falls back to the designer stub.
-    // Nothing is persisted; a later encounter retries.
+    // Spec §3 line 269: a failed generation falls back to the designer stub
+    // (or, on a regenerate, leaves the existing entry standing). Nothing is
+    // persisted; a later encounter retries.
   } finally {
+    // Clear the transient buffer whether we persisted or failed — a partial
+    // stream must never outlive its request (the expander would render the
+    // truncated fragment indefinitely).
+    streamingBuffer.delete(id);
     inFlight.delete(id);
+    notifyStreaming();
   }
+}
+
+// P26 (G1): stream first (progressive render), single-shot as the fallback.
+// Only the FINAL full text is ever persisted — partial deltas live in the
+// transient buffer and are discarded on settle.
+async function generateText(id: FlavorContentId, context: FlavorContext): Promise<string> {
+  try {
+    return await fetchFlavorTextStream(
+      context,
+      AbortSignal.timeout(FLAVOR_REQUEST_TIMEOUT_MS),
+      (delta) => {
+        streamingBuffer.set(id, (streamingBuffer.get(id) ?? "") + delta);
+        notifyStreaming();
+      },
+    );
+  } catch {
+    // Stream failed (route down, mid-stream fault, malformed frames). Drop the
+    // partial and retry once single-shot — the endpoints share a prompt, so the
+    // fallback yields equivalent prose.
+    streamingBuffer.delete(id);
+    notifyStreaming();
+    return fetchFlavorText(context, AbortSignal.timeout(FLAVOR_REQUEST_TIMEOUT_MS));
+  }
+}
+
+// ── Transient streaming buffer (UI-ephemeral, never persisted) ────────────
+
+const streamingBuffer = new Map<FlavorContentId, string>();
+const streamingSubscribers = new Set<() => void>();
+
+function notifyStreaming(): void {
+  for (const cb of streamingSubscribers) cb();
+}
+
+// useSyncExternalStore pair. streamingTextFor returns a stable `undefined`
+// (not "") when nothing is buffered, so the getSnapshot identity check does
+// not loop.
+export function subscribeStreamingFlavor(cb: () => void): () => void {
+  streamingSubscribers.add(cb);
+  return () => {
+    streamingSubscribers.delete(cb);
+  };
+}
+
+export function streamingFlavorTextFor(id: FlavorContentId): string | undefined {
+  return streamingBuffer.get(id);
 }
 
 // ── Scandal-event aggregation (pure) ──────────────────────────────────────

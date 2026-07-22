@@ -19,6 +19,7 @@
 // the tick phase chain). Year-pass and tick-advance are distinct triggers.
 
 import { applyForgerySurfacingPhase, applyThiefNoticePhase } from "../game/rules/artifacts";
+import { applyCallingCardPhase } from "../game/rules/callingCards";
 import { applyCourierAndStaffPhase } from "../game/rules/courier";
 import { evaluateDynastyPerks } from "../game/rules/dynastyLegacies";
 import { applyEconomyPhase } from "../game/rules/economy";
@@ -52,10 +53,16 @@ export type TickPhase = (state: GameState) => GameState;
 // perturb the seeded draw stream.
 // P24a: applyElopementAutoResolvePhase inserted at slot 6 (after scheme
 // resolution — discovered Seductions mount sprints there; auto-resolve advances
-// EXISTING non-player sprints). PHASES count is 16. It is RNG-CONSUMING (one
-// draw per unresolved non-player sprint per tick on the initiator-house stream)
-// so it sits BEFORE the rival phase; its slot is fixed relative to mood drift
-// (slot 8) which also draws per-house — the order is the determinism contract.
+// EXISTING non-player sprints). It is RNG-CONSUMING (one draw per unresolved
+// non-player sprint per tick on the initiator-house stream) so it sits BEFORE
+// the rival phase; its slot is fixed relative to mood drift which also draws
+// per-house — the order is the determinism contract.
+// P26: applyCallingCardPhase inserted at slot 8 (immediately AFTER
+// applyGlobalEventPhase, before mood drift + rivals). PHASES count is 17. It is
+// RNG-CONSUMING (one unconditional player-stream trigger draw per tick, plus
+// one caller-pick draw on a live spawn) so it precedes the rival phase; its
+// fixed position relative to the global-event roll (also a player-stream draw)
+// is the determinism contract.
 const PHASES: readonly TickPhase[] = [
   advanceTickPhase, // 1. time advance
   applyEconomyPhase, // 2. economy
@@ -64,15 +71,16 @@ const PHASES: readonly TickPhase[] = [
   applySchemeResolutionPhase, // 5. scheme resolution (P5)
   applyElopementAutoResolvePhase, // 6. elopement auto-resolve — non-player sprints (NEW at P24a)
   applyGlobalEventPhase, // 7. global-event roll + era transition (NEW at P13; replaced P1 identityPhase stub)
-  applyMoodDriftPhase, // 8. mood drift
-  applyHappinessPhase, // 9. happiness drift (NEW at P7)
-  applyPatronessErosionPhase, // 10. patroness erosion (NEW at P8)
-  applyForgerySurfacingPhase, // 11. forgery surfacing roll (NEW at P10)
-  applyThiefNoticePhase, // 12. thief notice + auto-resolve (NEW at P10)
-  applySiblingRivalActionPhase, // 13. sibling-rival action roll (NEW at P11)
-  applyInheritedSecretSurfacingPhase, // 14. inherited-secret surfacing + blood-feud decay (NEW at P11)
-  applyRivalActionPhase, // 15. rival-house action roll (NEW at P8 — last among RNG-consuming phases)
-  evaluateDynastyPerks, // 16. dynasty-perk evaluation (NEW at P15 — RNG-free, so permitted after rivals)
+  applyCallingCardPhase, // 8. calling-card roll — NPC-initiated (NEW at P26)
+  applyMoodDriftPhase, // 9. mood drift
+  applyHappinessPhase, // 10. happiness drift (NEW at P7)
+  applyPatronessErosionPhase, // 11. patroness erosion (NEW at P8)
+  applyForgerySurfacingPhase, // 12. forgery surfacing roll (NEW at P10)
+  applyThiefNoticePhase, // 13. thief notice + auto-resolve (NEW at P10)
+  applySiblingRivalActionPhase, // 14. sibling-rival action roll (NEW at P11)
+  applyInheritedSecretSurfacingPhase, // 15. inherited-secret surfacing + blood-feud decay (NEW at P11)
+  applyRivalActionPhase, // 16. rival-house action roll (NEW at P8 — last among RNG-consuming phases)
+  evaluateDynastyPerks, // 17. dynasty-perk evaluation (NEW at P15 — RNG-free, so permitted after rivals)
 ] as const;
 
 export function advanceTickPure(state: GameState): GameState {

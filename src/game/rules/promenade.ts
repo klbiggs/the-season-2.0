@@ -4,7 +4,7 @@
 //
 // Five exported entry points:
 //   eligiblePromenadePartners — lex-sorted partner pool projection
-//   pickPromenadePartner       — deterministic 1-RNG-draw partner pick
+//   pickPromenadePartners      — deterministic k-draw multi-partner scene pick
 //   canEnterPromenade          — pure entry-gate validator
 //   resolvePromenadeCombat     — pure combat resolver (NO faux-pas, NO composure)
 //   appendPromenadeExchange    — pure history + affection-map writer
@@ -15,12 +15,18 @@
 //   narrowToPromenadeTactic     — narrowing helper for store-side cast safety
 
 import {
+  BALLROOM_APPROACH_PROBABILITY_BASIS_POINTS,
+  COMBAT_BONUS_VALUE,
+  CONVERSATION_TRAIT_BONUSES,
   PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT,
   PROMENADE_BASE_AFFECTION_DEEP_EMPATHY,
   PROMENADE_BASE_AFFECTION_WITTY_BANTER,
+  PROMENADE_PARTNER_COUNT_MAX,
   PROMENADE_PLAYER_MOUNT_MINGLE_BONUS,
   QUALITY_MULTIPLIER_CEIL,
   QUALITY_MULTIPLIER_FLOOR,
+  type Stance,
+  TACTIC_BONUS_MOOD,
 } from "../constants";
 import { makePairKey } from "../conversation/types";
 import type { GameState } from "../entities";
@@ -29,12 +35,15 @@ import type { GameState } from "../entities";
 // bootstrapNpcMountFamily helper (which imports MOUNT_FAMILY from here).
 import { type ArtifactFamily, resolveArtifactDefinition } from "../fixtures/artifacts";
 import type { LocationId } from "../fixtures/locations";
-import { RIVAL_CHARACTER_IDS_SET } from "../fixtures/rivals";
+import type { Mood } from "../fixtures/moods";
+import { RIVAL_CHARACTER_IDS_SET, RIVAL_HOUSE_IDS_SET, isSocietyHouse } from "../fixtures/rivals";
 import {
   type ArtifactInstanceId,
   type CharacterId,
   PLAYER_HOUSE_ID,
+  type TraitId,
   drawInt,
+  drawNext,
   getOrThrow,
 } from "../rng";
 import { clamp } from "../util/clamp";
@@ -72,25 +81,82 @@ export function eligiblePromenadePartners(state: GameState): ReadonlyArray<Chara
     .sort((a, b) => a.localeCompare(b));
 }
 
-// Single-draw partner pick. ALWAYS advances state.rng[PLAYER_HOUSE_ID] by
-// exactly 1 callCount on non-empty pools; ZERO advance on empty pool.
-// Caller (store action) commits the new rng map to GameState.
-export function pickPromenadePartner(state: GameState): {
-  partnerId: CharacterId | null;
+// P26: the ballroom roster as a PURE, lex-sorted CharacterId projection — the
+// valid draw pool for the NPC ballroom-approach roll (Q14). Alive society-house
+// NPCs (INDEPENDENT + minted soc-house-<n>) PLUS alive rival-house characters,
+// excluded by house class (mirrors BallroomView's visible ring). Deliberately
+// DIFFERS from the calling-card caller pool (eligiblePromenadePartners —
+// character-id rival exclusion, adults only): the ballroom approach draws from
+// who is physically at the ball; the calling card is a social call. The UI ring
+// (BallroomView) consumes THIS projection so the visible ring and the draw pool
+// are the same set by construction. NOTE the ballroom itself has no location
+// filter here — entry is already gated to Capital by enterBallroom.
+//
+// RIVALS ADDED at the P25<-P26 merge. P26 wrote this projection excluding rivals
+// ("non-conversable until P25") while P25 shipped exactly that widening in a
+// parallel worktree. Widening HERE rather than in the view is load-bearing: the
+// ring and the draw pool must stay the same set, or rivals would render on
+// screen yet never be drawn to approach. This CHANGES the drawInt range for
+// rollBallroomApproach → replay re-baseline (pre-release, deliberate).
+export function ballroomRoster(state: GameState): ReadonlyArray<CharacterId> {
+  return [...state.characters.values()]
+    .filter((c) => c.alive && (isSocietyHouse(c.houseId) || RIVAL_HOUSE_IDS_SET.has(c.houseId)))
+    .map((c) => c.id)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+// P26 (H3): multi-NPC promenade scene. Draws up to PROMENADE_PARTNER_COUNT_MAX
+// DISTINCT partners WITHOUT replacement: for i in 0..k-1, drawInt over the
+// SHRINKING range [0, pool.length - i) then splice the pick out of the working
+// pool. Exactly k draws on the player stream (k = min(MAX, pool.length)); ZERO
+// draws on an empty pool. The shrinking per-draw range is what fixes the rng
+// trajectory — the store test pins the exact draw count.
+export function pickPromenadePartners(state: GameState): {
+  partnerIds: ReadonlyArray<CharacterId>;
   nextState: GameState;
 } {
-  const pool = eligiblePromenadePartners(state);
+  const pool = [...eligiblePromenadePartners(state)];
   if (pool.length === 0) {
-    // Empty pool: surface rejection without burning RNG (matches
-    // "denial paths cost nothing" semantics from applyAudience).
-    return { partnerId: null, nextState: state };
+    // Empty pool: surface rejection without burning RNG.
+    return { partnerIds: [], nextState: state };
   }
-  const playerRng = getOrThrow(state.rng, PLAYER_HOUSE_ID);
-  const { next: idx, rngState: nextRng } = drawInt(playerRng, pool.length);
+  const k = Math.min(PROMENADE_PARTNER_COUNT_MAX, pool.length);
+  let rng = getOrThrow(state.rng, PLAYER_HOUSE_ID);
+  const picked: CharacterId[] = [];
+  for (let i = 0; i < k; i += 1) {
+    const { next: idx, rngState } = drawInt(rng, pool.length);
+    rng = rngState;
+    const [id] = pool.splice(idx, 1);
+    if (id !== undefined) picked.push(id);
+  }
   const newRng = new Map(state.rng);
-  newRng.set(PLAYER_HOUSE_ID, nextRng);
-  const partnerId = pool[idx] ?? null; // unreachable per drawInt range; required by noUncheckedIndexedAccess
-  return { partnerId, nextState: { ...state, rng: newRng } };
+  newRng.set(PLAYER_HOUSE_ID, rng);
+  return { partnerIds: picked, nextState: { ...state, rng: newRng } };
+}
+
+// P26 (Q14 ballroom-approach shape): on a NEW ballroom entry, roll whether an
+// NPC approaches the player first + which one. Consumes ONE player-rng trigger
+// draw ALWAYS (committed), plus one approacher-pick draw ONLY on a hit with a
+// non-empty roster. Pure — the caller (enterBallroom) commits nextState.rng.
+export function rollBallroomApproach(state: GameState): {
+  nextState: GameState;
+  approachingCharacterId: CharacterId | null;
+} {
+  const playerRng = getOrThrow(state.rng, PLAYER_HOUSE_ID);
+  const { next: triggerRoll, rngState: r1 } = drawNext(playerRng);
+  const commit = (rng: typeof r1): GameState => ({
+    ...state,
+    rng: new Map(state.rng).set(PLAYER_HOUSE_ID, rng),
+  });
+  if (Math.floor(triggerRoll * 10000) >= BALLROOM_APPROACH_PROBABILITY_BASIS_POINTS) {
+    return { nextState: commit(r1), approachingCharacterId: null };
+  }
+  const roster = ballroomRoster(state);
+  if (roster.length === 0) {
+    return { nextState: commit(r1), approachingCharacterId: null };
+  }
+  const { next: idx, rngState: r2 } = drawInt(r1, roster.length);
+  return { nextState: commit(r2), approachingCharacterId: roster[idx] ?? null };
 }
 
 // ── Entry gate (validation only — caller advances rng + opens session) ──
@@ -140,9 +206,17 @@ export function narrowToPromenadeTactic(tactic: string): PromenadeTactic {
 
 export type PromenadeCombatInput = {
   tactic: PromenadeTactic;
+  // P26 (H1): the promenade stance. Only "Mingle" enables the mount bonus (spec
+  // §3 L450); Wallflower/TargetedPursuit are otherwise inert in promenade (no
+  // multipliers — the low-risk envelope holds).
+  stance: Stance;
   qualityMultiplier: number; // clamped to [0.5, 1.5] inside resolver
   targetHasMountFamilyEquipped: boolean; // gates ComplimentMount fixed bonus
   playerHasMountFamilyEquipped: boolean; // gates the per-action Mingle stack
+  // P26 (H2): mood/trait synergy inputs — the SAME maps the ballroom resolver
+  // consults (TACTIC_BONUS_MOOD / CONVERSATION_TRAIT_BONUSES).
+  targetMood: Mood;
+  targetTraits: ReadonlyArray<TraitId>;
 };
 
 export type PromenadeCombatOutcome = {
@@ -153,14 +227,20 @@ export type PromenadeCombatOutcome = {
 
 // Pure combat resolver. NO state reads; NO PRNG draws.
 //
-// Distinct from src/game/rules/combat.ts:resolveCombat because:
-//  - Faux-pas branch (Flattery-vs-Defensive InstantFail) is unreachable —
-//    Flattery isn't a PromenadeTactic. WittyBanter-vs-Distracted ZeroYield
-//    is also unreachable: spec line 449 reads as the WHOLE penalty envelope.
-//  - Composure delta is ALWAYS 0 (zero composure damage across all 3 actions).
-//  - ComplimentMount is target-gated, not trait/mood-modulated.
-//  - Mount+Mingle bonus stacks per-action (not per-session).
+// P26 (H1/H2) widened from the P12 base-only form:
+//  - Composure delta is STILL ALWAYS 0 (zero composure damage across all 3
+//    actions; penalty traits stay inert — the low-risk envelope).
+//  - Mount+Mingle bonus now gates on stance === "Mingle" (spec §3 L450).
+//  - Mood/trait synergy now applies (same maps as the ballroom resolver).
+//  - Mountless ComplimentMount is a hard 0 (parity with the H4 ballroom
+//    ZeroYield): zero-gated BEFORE synergy so it never accrues trait/mood bonus.
 export function resolvePromenadeCombat(input: PromenadeCombatInput): PromenadeCombatOutcome {
+  // H2 parity gate: a ComplimentMount against a mountless target yields nothing
+  // (no base, no synergy, no mount bonus).
+  if (input.tactic === "ComplimentMount" && !input.targetHasMountFamilyEquipped) {
+    return { kind: "Normal", affectionDelta: 0, composureDelta: 0 };
+  }
+
   let baseAffection: number;
   switch (input.tactic) {
     case "WittyBanter":
@@ -170,26 +250,33 @@ export function resolvePromenadeCombat(input: PromenadeCombatInput): PromenadeCo
       baseAffection = PROMENADE_BASE_AFFECTION_DEEP_EMPATHY;
       break;
     case "ComplimentMount":
-      // Gated bonus: 0 affection if target doesn't equip a mount-family.
-      // UI suppresses the button in this state, but defense-in-depth: a
-      // stale classification (model classifies into ComplimentMount when
-      // the target has since unequipped) silently degrades rather than
-      // fabricating affection.
-      baseAffection = input.targetHasMountFamilyEquipped
-        ? PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT
-        : 0;
+      baseAffection = PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT;
       break;
   }
-  // Mount+Mingle bonus is additive (NOT multiplicative). Applied BEFORE
-  // quality modulation so the LLM phrasing-quality factor scales the
-  // composed (base + bonus) affection.
+
+  // H2: mood/trait synergy (same maps as the ballroom resolver).
+  const bonusCount = input.targetTraits.filter((t) =>
+    CONVERSATION_TRAIT_BONUSES.get(t)?.includes(input.tactic),
+  ).length;
+  const moodMatches = TACTIC_BONUS_MOOD.get(input.tactic) === input.targetMood;
+
+  // H1: mount+Mingle bonus, additive (NOT multiplicative), gated on Mingle.
+  const mountBonus =
+    input.stance === "Mingle" && input.playerHasMountFamilyEquipped
+      ? PROMENADE_PLAYER_MOUNT_MINGLE_BONUS
+      : 0;
+
+  // Applied BEFORE quality modulation so the LLM phrasing-quality factor scales
+  // the composed (base + synergy + bonus) affection.
   const composedBase =
-    baseAffection + (input.playerHasMountFamilyEquipped ? PROMENADE_PLAYER_MOUNT_MINGLE_BONUS : 0);
+    baseAffection +
+    bonusCount * COMBAT_BONUS_VALUE +
+    (moodMatches ? COMBAT_BONUS_VALUE : 0) +
+    mountBonus;
   const quality = clamp(input.qualityMultiplier, QUALITY_MULTIPLIER_FLOOR, QUALITY_MULTIPLIER_CEIL);
-  const affectionDelta = Math.round(composedBase * quality);
   return {
     kind: "Normal",
-    affectionDelta,
+    affectionDelta: Math.round(composedBase * quality),
     composureDelta: 0,
   };
 }
