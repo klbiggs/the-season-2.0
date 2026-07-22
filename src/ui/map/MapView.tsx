@@ -11,6 +11,7 @@ import type { GlobalEventKind } from "../../game/rules/globalEvents";
 import { canTravel } from "../../game/rules/travel";
 import type { SeasonStore } from "../../game/store";
 import { duelBus } from "../../runtime/events/duels";
+import { globalEventBus } from "../../runtime/events/globalEvent";
 import { locationBus } from "../../runtime/events/location";
 import { useBusEvent } from "../../runtime/events/useBusEvent";
 import { ActionRejectionToast } from "./ActionRejectionToast";
@@ -66,6 +67,8 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
   // P25 R3: rival-initiated duel notifications. duelBus has no other subscriber,
   // so a rival killing a player character mid-tick would otherwise be silent.
   const [duelNotice, setDuelNotice] = useState<string | null>(null);
+  // P25 R12: era-flip banner (dismissible; non-blocking per spec L31).
+  const [eraBanner, setEraBanner] = useState<string | null>(null);
   const isExiled = house?.exiled === true;
 
   const onPassYear = () => {
@@ -153,6 +156,13 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
     );
   });
 
+  // P25 R12: era transition surfacing. EraTransitioned had zero subscribers.
+  useBusEvent(globalEventBus, "EraTransitioned", () => {
+    setEraBanner("The war is over — the Industrial Era begins.");
+  });
+
+  const eraLabel = state.era === "Earlier" ? "Wartime Era" : "Industrial Era";
+
   // P14: the exile terminal-state banner was HOISTED to App.tsx persistent
   // chrome so it surfaces across all four views (Map / Ballroom / Promenade /
   // Ledger), not just the map. MapView no longer renders it.
@@ -185,7 +195,29 @@ export function MapView({ store, onEnterBallroom, onEnterPromenade }: Props) {
             {yearSummary}
           </output>
         )}
+        <span
+          data-testid="era-chip"
+          className="ml-auto rounded bg-stone-800 px-3 py-1 text-xs font-medium text-stone-100"
+        >
+          {eraLabel}
+        </span>
       </div>
+      {eraBanner !== null && (
+        <output
+          className="flex items-center justify-between gap-3 px-6 py-2 bg-sky-900 text-sky-50 text-sm"
+          data-testid="era-transition-banner"
+          aria-live="polite"
+        >
+          <span>{eraBanner}</span>
+          <button
+            type="button"
+            onClick={() => setEraBanner(null)}
+            className="rounded border border-sky-300/40 px-2 py-0.5 text-xs hover:bg-sky-800"
+          >
+            Dismiss
+          </button>
+        </output>
+      )}
       {duelNotice !== null && (
         <div
           className="flex items-center justify-between gap-3 px-6 py-2 bg-rose-900 text-rose-50 text-sm"
