@@ -612,8 +612,10 @@ export const GlobalEventSchema = z.discriminatedUnion("kind", [
 export type GlobalEvent = z.infer<typeof GlobalEventSchema>;
 
 // P18: a single generated flavor-content entry (artifact backstory, NPC bio,
-// or scandal-sheet column). LLM-authored, persisted-once, read-back-verbatim
-// (spec §3 line 270). Keyed in state.flavorText by FlavorContentId
+// or scandal-sheet column). LLM-authored, read-back-verbatim (spec §3 line 270).
+// P26 (G8) relaxed "persisted-once" to "at most once per player election" —
+// the player can now edit or regenerate a bio/backstory, which overwrites the
+// entry in place. Keyed in state.flavorText by FlavorContentId
 // ("artifact:<definitionId>" | "bio:<CharacterId>" | "scandal:<generationCount>").
 // Only SUCCESSFULLY generated text is stored; the designer stub is a display-
 // time fallback, never a persisted entry.

@@ -4,7 +4,7 @@
 //
 // Five exported entry points:
 //   eligiblePromenadePartners — lex-sorted partner pool projection
-//   pickPromenadePartner       — deterministic 1-RNG-draw partner pick
+//   pickPromenadePartners      — deterministic k-draw multi-partner scene pick
 //   canEnterPromenade          — pure entry-gate validator
 //   resolvePromenadeCombat     — pure combat resolver (NO faux-pas, NO composure)
 //   appendPromenadeExchange    — pure history + affection-map writer
@@ -21,6 +21,7 @@ import {
   PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT,
   PROMENADE_BASE_AFFECTION_DEEP_EMPATHY,
   PROMENADE_BASE_AFFECTION_WITTY_BANTER,
+  PROMENADE_PARTNER_COUNT_MAX,
   PROMENADE_PLAYER_MOUNT_MINGLE_BONUS,
   QUALITY_MULTIPLIER_CEIL,
   QUALITY_MULTIPLIER_FLOOR,
@@ -97,25 +98,33 @@ export function ballroomRoster(state: GameState): ReadonlyArray<CharacterId> {
     .sort((a, b) => a.localeCompare(b));
 }
 
-// Single-draw partner pick. ALWAYS advances state.rng[PLAYER_HOUSE_ID] by
-// exactly 1 callCount on non-empty pools; ZERO advance on empty pool.
-// Caller (store action) commits the new rng map to GameState.
-export function pickPromenadePartner(state: GameState): {
-  partnerId: CharacterId | null;
+// P26 (H3): multi-NPC promenade scene. Draws up to PROMENADE_PARTNER_COUNT_MAX
+// DISTINCT partners WITHOUT replacement: for i in 0..k-1, drawInt over the
+// SHRINKING range [0, pool.length - i) then splice the pick out of the working
+// pool. Exactly k draws on the player stream (k = min(MAX, pool.length)); ZERO
+// draws on an empty pool. The shrinking per-draw range is what fixes the rng
+// trajectory — the store test pins the exact draw count.
+export function pickPromenadePartners(state: GameState): {
+  partnerIds: ReadonlyArray<CharacterId>;
   nextState: GameState;
 } {
-  const pool = eligiblePromenadePartners(state);
+  const pool = [...eligiblePromenadePartners(state)];
   if (pool.length === 0) {
-    // Empty pool: surface rejection without burning RNG (matches
-    // "denial paths cost nothing" semantics from applyAudience).
-    return { partnerId: null, nextState: state };
+    // Empty pool: surface rejection without burning RNG.
+    return { partnerIds: [], nextState: state };
   }
-  const playerRng = getOrThrow(state.rng, PLAYER_HOUSE_ID);
-  const { next: idx, rngState: nextRng } = drawInt(playerRng, pool.length);
+  const k = Math.min(PROMENADE_PARTNER_COUNT_MAX, pool.length);
+  let rng = getOrThrow(state.rng, PLAYER_HOUSE_ID);
+  const picked: CharacterId[] = [];
+  for (let i = 0; i < k; i += 1) {
+    const { next: idx, rngState } = drawInt(rng, pool.length);
+    rng = rngState;
+    const [id] = pool.splice(idx, 1);
+    if (id !== undefined) picked.push(id);
+  }
   const newRng = new Map(state.rng);
-  newRng.set(PLAYER_HOUSE_ID, nextRng);
-  const partnerId = pool[idx] ?? null; // unreachable per drawInt range; required by noUncheckedIndexedAccess
-  return { partnerId, nextState: { ...state, rng: newRng } };
+  newRng.set(PLAYER_HOUSE_ID, rng);
+  return { partnerIds: picked, nextState: { ...state, rng: newRng } };
 }
 
 // P26 (Q14 ballroom-approach shape): on a NEW ballroom entry, roll whether an

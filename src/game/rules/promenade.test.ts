@@ -12,6 +12,7 @@ import {
   PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT,
   PROMENADE_BASE_AFFECTION_DEEP_EMPATHY,
   PROMENADE_BASE_AFFECTION_WITTY_BANTER,
+  PROMENADE_PARTNER_COUNT_MAX,
   PROMENADE_PLAYER_MOUNT_MINGLE_BONUS,
 } from "../constants";
 import { makePairKey } from "../conversation/types";
@@ -33,7 +34,7 @@ import {
   characterEquipsMountFamily,
   eligiblePromenadePartners,
   narrowToPromenadeTactic,
-  pickPromenadePartner,
+  pickPromenadePartners,
   playerHeadEquipsMountFamily,
   resolvePromenadeCombat,
   rollBallroomApproach,
@@ -141,39 +142,58 @@ describe("eligiblePromenadePartners", () => {
   });
 });
 
-// ── pickPromenadePartner ────────────────────────────────────────────────
+// ── pickPromenadePartners ───────────────────────────────────────────────
 
-describe("pickPromenadePartner", () => {
+describe("pickPromenadePartners (H3)", () => {
   it("is deterministic given the same RNG state", () => {
     const state = buildStateWithNpcs({
-      npcIds: ["npc-a", "npc-b", "npc-c"] as CharacterId[],
+      npcIds: ["npc-a", "npc-b", "npc-c", "npc-d"] as CharacterId[],
     });
-    const r1 = pickPromenadePartner(state);
-    const r2 = pickPromenadePartner(state);
-    expect(r1.partnerId).toBe(r2.partnerId);
+    const r1 = pickPromenadePartners(state);
+    const r2 = pickPromenadePartners(state);
+    expect(r1.partnerIds).toEqual(r2.partnerIds);
   });
 
-  it("advances player RNG by exactly 1 callCount on success", () => {
+  it("draws PROMENADE_PARTNER_COUNT_MAX DISTINCT partners when the pool is larger", () => {
     const state = buildStateWithNpcs({
-      npcIds: ["npc-a", "npc-b"] as CharacterId[],
+      npcIds: ["npc-a", "npc-b", "npc-c", "npc-d", "npc-e"] as CharacterId[],
     });
     const before = state.rng.get(PLAYER_HOUSE_ID);
-    expect(before).toBeDefined();
-    const result = pickPromenadePartner(state);
-    expect(result.partnerId).not.toBeNull();
-    const after = result.nextState.rng.get(PLAYER_HOUSE_ID);
-    expect(after).toBeDefined();
-    expect(after?.callCount).toBe((before?.callCount ?? 0) + 1);
+    const { partnerIds, nextState } = pickPromenadePartners(state);
+    expect(partnerIds).toHaveLength(PROMENADE_PARTNER_COUNT_MAX);
+    expect(new Set(partnerIds).size).toBe(PROMENADE_PARTNER_COUNT_MAX);
+    // Exactly k draws on the player stream — one per partner, no more.
+    expect(nextState.rng.get(PLAYER_HOUSE_ID)?.callCount).toBe(
+      (before?.callCount ?? 0) + PROMENADE_PARTNER_COUNT_MAX,
+    );
   });
 
-  it("returns partnerId null + RNG unchanged when the pool is empty", () => {
+  it("clamps k to the pool size when the pool is smaller than the max", () => {
+    const state = buildStateWithNpcs({ npcIds: ["npc-a", "npc-b"] as CharacterId[] });
+    const before = state.rng.get(PLAYER_HOUSE_ID);
+    const { partnerIds, nextState } = pickPromenadePartners(state);
+    expect(partnerIds).toHaveLength(2);
+    expect(new Set(partnerIds).size).toBe(2);
+    expect(nextState.rng.get(PLAYER_HOUSE_ID)?.callCount).toBe((before?.callCount ?? 0) + 2);
+  });
+
+  it("returns an empty set + RNG unchanged when the pool is empty", () => {
     const state = buildStateWithNpcs({ npcIds: [] });
     const before = state.rng.get(PLAYER_HOUSE_ID);
-    const result = pickPromenadePartner(state);
-    expect(result.partnerId).toBeNull();
-    const after = result.nextState.rng.get(PLAYER_HOUSE_ID);
+    const result = pickPromenadePartners(state);
+    expect(result.partnerIds).toEqual([]);
     // RNG callCount NOT advanced on empty-pool rejection.
-    expect(after?.callCount).toBe(before?.callCount);
+    expect(result.nextState.rng.get(PLAYER_HOUSE_ID)?.callCount).toBe(before?.callCount);
+  });
+
+  it("only picks from the eligible (society-house, alive) pool", () => {
+    const state = buildStateWithNpcs({
+      npcIds: ["npc-a", "npc-b", "npc-c", "npc-d"] as CharacterId[],
+    });
+    const eligible = new Set(eligiblePromenadePartners(state));
+    for (const id of pickPromenadePartners(state).partnerIds) {
+      expect(eligible.has(id)).toBe(true);
+    }
   });
 });
 

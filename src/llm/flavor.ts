@@ -8,9 +8,11 @@
 // no persist, no runtime.
 
 import { CancelledError, NetworkError, SchemaError, zodIssuesFrom } from "./errors";
+import { readSseStream } from "./sse";
 import { type FlavorContext, type FlavorRequest, FlavorResponseSchema } from "./types";
 
 const FLAVOR_ENDPOINT = "/api/llm/flavor";
+const FLAVOR_STREAM_ENDPOINT = "/api/llm/flavor/stream";
 
 // Generates one flavor passage for the given context via the proxy. Throws
 // typed llm/errors (CancelledError / NetworkError / SchemaError) mirroring
@@ -51,4 +53,42 @@ export async function fetchFlavorText(
     throw new SchemaError(zodIssuesFrom(cause));
   }
   return parsed.text;
+}
+
+// P26 (G1): the streamed sibling of fetchFlavorText. Same request body, same
+// generation — only the delivery differs, so the caller (flavorOrchestrator)
+// can fall back to fetchFlavorText on any throw and get equivalent prose.
+// Throws the same typed llm/errors.
+export async function fetchFlavorTextStream(
+  context: FlavorContext,
+  signal: AbortSignal,
+  onDelta: (text: string) => void,
+): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch(FLAVOR_STREAM_ENDPOINT, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ context } satisfies FlavorRequest),
+      signal,
+    });
+  } catch (cause) {
+    if (cause instanceof Error && cause.name === "AbortError") throw new CancelledError();
+    throw new NetworkError(cause);
+  }
+
+  if (response.status === 408) throw new CancelledError();
+  if (response.status >= 500) throw new NetworkError(`server ${response.status}`);
+  if (response.status === 422) {
+    const body = (await response.json().catch(() => null)) as {
+      issues?: ReadonlyArray<{ path: string; message: string }>;
+    } | null;
+    throw new SchemaError(
+      body?.issues ?? [{ path: "(unknown)", message: "flavor stream schema error" }],
+    );
+  }
+  if (!response.ok) throw new NetworkError(`unexpected status ${response.status}`);
+  if (response.body === null) throw new NetworkError("stream body missing");
+
+  return readSseStream(response.body, onDelta);
 }

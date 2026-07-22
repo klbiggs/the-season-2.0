@@ -96,21 +96,22 @@ export type ConversationEvent =
     }
   // P12: promenade session lifecycle events. Reuses conversationBus
   // (no dedicated promenadeBus) matching the BallroomEntered/Exited precedent.
+  // P26 (H3): the promenade is a multi-NPC scene — payloads carry the full
+  // partner set (empty only on the orchestrator-cleared edge case where the
+  // session ended before exitPromenade read it).
   | {
       kind: "PromenadeEntered";
       tick: number;
       houseId: HouseId;
       sessionId: PromenadeSessionId;
-      partnerCharacterId: CharacterId;
+      partnerCharacterIds: ReadonlyArray<CharacterId>;
     }
   | {
       kind: "PromenadeExited";
       tick: number;
       houseId: HouseId;
       sessionId: PromenadeSessionId;
-      // null only on the orchestrator-cleared edge case where the session was
-      // ended before exitPromenade reads the partner id.
-      partnerCharacterId: CharacterId | null;
+      partnerCharacterIds: ReadonlyArray<CharacterId>;
     }
   // P26: NPC-initiated calling cards (Q14). CallingCardIssued / CallingCardExpired
   // are diff-published by publishCallingCardTransitions from every tick-advancing

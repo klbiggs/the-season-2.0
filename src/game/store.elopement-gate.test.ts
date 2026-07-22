@@ -286,7 +286,7 @@ describe("Promenade modal-gate closure (H5)", () => {
     const store = createStore({ seed: "h5-promenade" });
     const partner = [...store.getState().characters.values()].find((c) => c.alive);
     if (partner === undefined) throw new Error("no partner");
-    conversationOrchestrator.beginPromenadeSession(store.getState().tick, partner.id);
+    conversationOrchestrator.beginPromenadeSession(store.getState().tick, [partner.id]);
     return store;
   }
 

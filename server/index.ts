@@ -11,6 +11,7 @@ import { handleConversationStream } from "./conversationStream";
 import { handleEmbed } from "./embeddings";
 import { validateEnv } from "./env";
 import { handleFlavor } from "./flavor";
+import { handleFlavorStream } from "./flavorStream";
 import { handleInvalidate } from "./invalidate";
 import { handleOpener } from "./opener";
 
@@ -69,6 +70,16 @@ const server = createServer(async (req, res) => {
     } catch (err) {
       console.error("[server] flavor handler error:", err);
       if (!res.headersSent) res.writeHead(500).end();
+    }
+    return;
+  }
+  if (req.url === "/api/llm/flavor/stream" && req.method === "POST") {
+    try {
+      await handleFlavorStream(req, res);
+    } catch (err) {
+      console.error("[server] flavor-stream handler error:", err);
+      if (!res.headersSent) res.writeHead(500).end();
+      else res.end();
     }
     return;
   }

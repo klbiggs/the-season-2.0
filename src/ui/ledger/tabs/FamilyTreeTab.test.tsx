@@ -13,6 +13,7 @@ import {
 import type { SiblingRivalState } from "../../../game/entities";
 import {
   type CharacterId,
+  type FlavorContentId,
   INDEPENDENT_HOUSE_ID,
   type MarriageId,
   PLAYER_HOUSE_ID,
@@ -260,5 +261,32 @@ describe("FamilyTreeTab", () => {
     details.open = true;
     fireEvent(details, new Event("toggle"));
     expect(spy).toHaveBeenCalledWith(HEAD);
+  });
+
+  it("editing a bio persists via authorFlavorText, and Regenerate calls regenerateNpcBio (P26 G8)", () => {
+    const store = createStore({ seed: "f" });
+    store.getState().replaceState(
+      makeGameState({
+        houses: new Map([
+          [PLAYER_HOUSE_ID, makeHouse({ id: PLAYER_HOUSE_ID, headOfHouseCharacterId: HEAD })],
+        ]),
+        characters: new Map([[HEAD, makeCharacter({ id: HEAD, role: "HeadOfHouse" })]]),
+      }),
+    );
+    const regenSpy = vi.spyOn(store.getState(), "regenerateNpcBio");
+    render(<FamilyTreeTab store={store} />);
+
+    fireEvent.click(screen.getByTestId(`family-bio-${HEAD}-edit`));
+    const textarea = screen.getByTestId(`family-bio-${HEAD}-textarea`);
+    fireEvent.change(textarea, { target: { value: "A most singular person." } });
+    fireEvent.click(screen.getByTestId(`family-bio-${HEAD}-save`));
+    expect(store.getState().flavorText.get(`bio:${HEAD}` as FlavorContentId)?.text).toBe(
+      "A most singular person.",
+    );
+    // The editor returns to read mode showing the authored text.
+    expect(screen.getByText("A most singular person.")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId(`family-bio-${HEAD}-regenerate`));
+    expect(regenSpy).toHaveBeenCalledWith(HEAD);
   });
 });

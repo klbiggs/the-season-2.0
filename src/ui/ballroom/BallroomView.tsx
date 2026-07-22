@@ -221,6 +221,10 @@ export function BallroomView({ store, onExit, approachingCharacterId = null }: P
         selectedTargetId={selectedTargetId}
         bioFor={bioFor}
         onRevealBio={revealNpcBio}
+        onAuthorBio={(id, text) =>
+          store.getState().authorFlavorText(`bio:${id}` as FlavorContentId, "NpcBio", text)
+        }
+        onRegenerateBio={(id) => store.getState().regenerateNpcBio(id)}
         onSelect={(id) => {
           setSelectedTargetId(id);
           setPinnedTactic(null);

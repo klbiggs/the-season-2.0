@@ -50,11 +50,14 @@ export type ConversationOutcome =
 // cross-mode SessionAlreadyOpen gate on subsequent enterBallroom/enterPromenade).
 type SessionState =
   | { mode: "Ballroom"; sessionId: BallSessionId; tickAtEntry: number }
+  // P26 (H3): multi-NPC scene — the promenade carries up to
+  // PROMENADE_PARTNER_COUNT_MAX partners; the player picks the per-message
+  // target among them.
   | {
       mode: "Promenade";
       sessionId: PromenadeSessionId;
       tickAtEntry: number;
-      partnerCharacterId: CharacterId;
+      partnerCharacterIds: ReadonlyArray<CharacterId>;
     }
   // P26: NPC-initiated Visit (drawing-room call). Carries the caller id + the
   // originating card so exitVisit / the VisitExited event can reference them.
@@ -98,7 +101,10 @@ class ConversationOrchestrator {
 
   // P12: open a Promenade-mode session. Symmetric with beginSession but
   // carries the deterministically-picked partner.
-  beginPromenadeSession(tick: number, partnerCharacterId: CharacterId): PromenadeSessionId {
+  beginPromenadeSession(
+    tick: number,
+    partnerCharacterIds: ReadonlyArray<CharacterId>,
+  ): PromenadeSessionId {
     if (this.currentSession !== null && this.currentSession.mode !== "Promenade") {
       throw new Error(
         `conversationOrchestrator.beginPromenadeSession: a ${this.currentSession.mode} session is already open`,
@@ -108,9 +114,10 @@ class ConversationOrchestrator {
       this.currentSession !== null &&
       this.currentSession.mode === "Promenade" &&
       this.currentSession.tickAtEntry === tick &&
-      this.currentSession.partnerCharacterId === partnerCharacterId
+      this.currentSession.partnerCharacterIds.length === partnerCharacterIds.length &&
+      this.currentSession.partnerCharacterIds.every((id, i) => id === partnerCharacterIds[i])
     ) {
-      // Idempotent re-entry — same (tick, partner). Mirrors beginSession's
+      // Idempotent re-entry — same (tick, partner set). Mirrors beginSession's
       // same-tick idempotence so a UI mount effect can't double-open.
       return this.currentSession.sessionId;
     }
@@ -119,7 +126,7 @@ class ConversationOrchestrator {
       mode: "Promenade",
       sessionId,
       tickAtEntry: tick,
-      partnerCharacterId,
+      partnerCharacterIds,
     };
     return sessionId;
   }
@@ -160,13 +167,11 @@ class ConversationOrchestrator {
     return this.currentSession?.mode ?? null;
   }
 
-  // P12: partner id for the current Promenade session (or null if not in
-  // Promenade mode). Used by sendPromenadeMessage to read the partner at
-  // send time + by exitPromenade for the PromenadeExited event payload.
-  currentPromenadePartner(): CharacterId | null {
-    return this.currentSession?.mode === "Promenade"
-      ? this.currentSession.partnerCharacterId
-      : null;
+  // P12/P26 (H3): partner ids for the current Promenade session ([] if not in
+  // Promenade mode). Used by sendPromenadeMessage to validate the per-message
+  // target + by exitPromenade for the PromenadeExited event payload.
+  currentPromenadePartners(): ReadonlyArray<CharacterId> {
+    return this.currentSession?.mode === "Promenade" ? this.currentSession.partnerCharacterIds : [];
   }
 
   // P26: caller id for the current Visit session (or null if not in Visit mode).

@@ -109,6 +109,10 @@ export async function handleConversationStream(
     writeEvent(res, { kind: "done", text: full });
     res.end();
   } catch (err) {
+    // Logged HERE, not in index.ts: this handler catches every failure itself
+    // (it must, to decide in-band-SSE vs headers-not-yet-sent), so index.ts's
+    // per-route catch never observes a stream error. Without this line a failed
+    // stream leg is invisible — the client just silently falls back to send().
     console.error("[server] conversation-stream failure:", err);
     const reason = mapSdkErrorToKind(err);
     if (res.headersSent) {

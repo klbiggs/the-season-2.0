@@ -26,6 +26,7 @@ import {
 } from "../../../game/rng.seeds";
 import { hasActivePlayerElopement } from "../../../game/rules/elopement";
 import type { SeasonStore } from "../../../game/store";
+import { FlavorEditor } from "../../shared/FlavorEditor";
 import { monogramLetter, monogramStyle } from "../../shared/monogram";
 import { SocialWebView } from "../../socialWeb/SocialWebView";
 import { SocietyView } from "../../society/SocietyView";
@@ -43,11 +44,15 @@ function CharacterRow({
   factionId,
   bio,
   onRevealBio,
+  onAuthorBio,
+  onRegenerateBio,
 }: {
   c: Character;
   factionId: House["factionId"] | undefined;
   bio: string;
   onRevealBio: () => void;
+  onAuthorBio: (text: string) => void;
+  onRegenerateBio: () => void;
 }) {
   const traits = c.traits.slice(0, MAX_INLINE_TRAITS);
   const overflow = c.traits.length - traits.length;
@@ -123,7 +128,13 @@ function CharacterRow({
         <summary className="cursor-pointer select-none text-stone-400 hover:text-stone-600">
           Who is this?
         </summary>
-        <p className="mt-1 italic leading-relaxed text-stone-600">{bio}</p>
+        <FlavorEditor
+          text={bio}
+          flavorId={`bio:${c.id}` as FlavorContentId}
+          onSave={onAuthorBio}
+          onRegenerate={onRegenerateBio}
+          testIdPrefix={`family-bio-${c.id}`}
+        />
       </details>
     </li>
   );
@@ -268,6 +279,12 @@ export function FamilyTreeTab({ store }: Props) {
                 factionId={playerFactionId}
                 bio={bioFor(c)}
                 onRevealBio={() => revealNpcBio(c.id)}
+                onAuthorBio={(text) =>
+                  store
+                    .getState()
+                    .authorFlavorText(`bio:${c.id}` as FlavorContentId, "NpcBio", text)
+                }
+                onRegenerateBio={() => store.getState().regenerateNpcBio(c.id)}
               />
             ))}
           </ul>

@@ -1102,6 +1102,10 @@ export const PROMENADE_BASE_AFFECTION_WITTY_BANTER = 8;
 export const PROMENADE_BASE_AFFECTION_DEEP_EMPATHY = 8;
 export const PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT = 12; // gated on target mount-family ownership
 export const PROMENADE_PLAYER_MOUNT_MINGLE_BONUS = 5; // per-action; player head equips a mount-family artifact
+// P26 (H3): max distinct partners drawn into a multi-NPC promenade scene.
+// enterPromenade draws k = min(this, pool.length) WITHOUT replacement, so the
+// draw count is exactly k (the store test pins it).
+export const PROMENADE_PARTNER_COUNT_MAX = 3;
 
 // ── Conversation / LLM / Memory depth (P26) ───────────────────────────────
 // NPC-initiated conversations (Q14). Trigger rolls consume the gameplay PRNG;

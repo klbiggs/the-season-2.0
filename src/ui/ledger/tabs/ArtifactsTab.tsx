@@ -24,6 +24,7 @@ import { PLAYER_HOUSE_ID } from "../../../game/rng.seeds";
 import { hasActivePlayerElopement } from "../../../game/rules/elopement";
 import type { SeasonStore } from "../../../game/store";
 import { ActionRejectionToast } from "../../map/ActionRejectionToast";
+import { FlavorEditor } from "../../shared/FlavorEditor";
 
 type Props = {
   store: SeasonStore;
@@ -312,7 +313,19 @@ export function ArtifactsTab({ store }: Props) {
                           <summary className="cursor-pointer select-none text-stone-400 hover:text-stone-600">
                             Backstory
                           </summary>
-                          <p className="mt-1 italic leading-relaxed text-stone-600">{backstory}</p>
+                          <FlavorEditor
+                            text={backstory}
+                            flavorId={backstoryId}
+                            onSave={(text) =>
+                              store
+                                .getState()
+                                .authorFlavorText(backstoryId, "ArtifactBackstory", text)
+                            }
+                            onRegenerate={() =>
+                              store.getState().regenerateArtifactBackstory(inst.definitionId)
+                            }
+                            testIdPrefix={`artifact-backstory-${inst.id}`}
+                          />
                         </details>
                       </li>
                     );

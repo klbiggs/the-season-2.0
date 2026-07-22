@@ -446,7 +446,9 @@ export type StoreActions = {
     | {
         ok: true;
         sessionId: import("./rng").PromenadeSessionId;
-        partnerCharacterId: CharacterId;
+        // P26 (H3): the multi-NPC scene's partner set (up to
+        // PROMENADE_PARTNER_COUNT_MAX).
+        partnerCharacterIds: ReadonlyArray<CharacterId>;
       }
     | { ok: false; reason: import("./rules/promenade").PromenadeEntryRejection };
   exitPromenade: () => void;
@@ -500,6 +502,22 @@ export type StoreActions = {
   // idempotent (no-op if already persisted / in flight). Skips player-house
   // characters (bios are for ballroom NPCs).
   revealNpcBio: (characterId: CharacterId) => void;
+  // P26 (G8): player-authored flavor. Create-or-OVERWRITE (unlike
+  // recordFlavorText's once-only semantics) with generatedAtTick = current tick.
+  // Free + ungated, same rationale as recordFlavorText (additive keyed prose,
+  // gameplay-inert). Empty/whitespace text is rejected as a no-op — an empty
+  // entry would persist as authored content and permanently suppress the
+  // designer stub with nothing in its place.
+  authorFlavorText: (id: FlavorContentId, kind: FlavorContentEntry["kind"], text: string) => void;
+  // P26 (G8): the regenerate landing path. Same overwrite semantics as
+  // authorFlavorText but takes the whole entry (flavorOrchestrator builds it).
+  overwriteFlavorText: (entry: FlavorContentEntry) => void;
+  // P26 (G8): player-elected regeneration of an already-persisted entry.
+  // Bypasses ensureFlavor's already-persisted check (still flag-gated +
+  // in-flight-deduped); success lands via overwriteFlavorText. Supersedes the
+  // P18 "produced at most once" pin → "at most once per player election".
+  regenerateNpcBio: (characterId: CharacterId) => void;
+  regenerateArtifactBackstory: (definitionId: ArtifactDefinitionId) => void;
 };
 
 // P12: input shape for sendPromenadeMessage. Differs from BallroomMessageInput
@@ -509,6 +527,10 @@ export type StoreActions = {
 export type PromenadeMessageInput = {
   freeformMessage: string;
   pinnedTactic: "WittyBanter" | "DeepEmpathy" | "ComplimentMount";
+  // P26 (H3): which partner in the multi-NPC scene this message addresses.
+  // Must be a member of the open session's partner set (else `cancelled`).
+  // Omitted by the Visit flow (single caller) — resolved from the session.
+  targetCharacterId?: CharacterId;
   // P26 (H1): the promenade stance. Only "Mingle" enables the mount bonus. The
   // Visit UI (no stance toggle) always passes "Mingle".
   stance: Stance;
@@ -600,7 +622,11 @@ import { publishWhisperTransitions, whisperBus } from "../runtime/events/whisper
 // P18: importing flavorOrchestrator registers its bus subscriptions (NPC bio +
 // scandal column) at module load; bindFlavorStore wires the state accessor;
 // ensureFlavor is called from equipArtifact (artifact backstory trigger).
-import { bindStore as bindFlavorStore, ensureFlavor } from "../runtime/flavorOrchestrator";
+import {
+  bindStore as bindFlavorStore,
+  ensureFlavor,
+  regenerateFlavor,
+} from "../runtime/flavorOrchestrator";
 // P17: importing semanticIndex registers its bus subscriptions (indexing) at
 // module load; bindStore wires the state accessor; retrieve runs the read path.
 import {
@@ -622,7 +648,7 @@ import {
   canEnterPromenade,
   characterEquipsMountFamily,
   narrowToPromenadeTactic,
-  pickPromenadePartner,
+  pickPromenadePartners,
   playerHeadEquipsMountFamily,
   resolvePromenadeCombat,
   rollBallroomApproach,
@@ -2322,6 +2348,38 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           character,
         });
       },
+      authorFlavorText: (id, kind, text) => {
+        const trimmed = text.trim();
+        // Reject empty: an empty entry would persist as "authored" and
+        // permanently suppress the designer stub with nothing in its place.
+        if (trimmed === "") return;
+        set((state) => {
+          state.flavorText.set(id, { id, kind, text: trimmed, generatedAtTick: state.tick });
+        });
+      },
+      overwriteFlavorText: (entry) => {
+        set((state) => {
+          state.flavorText.set(entry.id, entry);
+        });
+      },
+      regenerateNpcBio: (characterId) => {
+        const character = get().characters.get(characterId);
+        if (character === undefined) return;
+        regenerateFlavor(`bio:${characterId}` as FlavorContentId, {
+          kind: "NpcBio",
+          character,
+        });
+      },
+      regenerateArtifactBackstory: (definitionId) => {
+        const def = resolveArtifactDefinition(get(), definitionId);
+        if (def === undefined) return;
+        regenerateFlavor(`artifact:${definitionId}` as FlavorContentId, {
+          kind: "ArtifactBackstory",
+          definitionId,
+          displayName: def.displayName,
+          family: def.family,
+        });
+      },
       unequipArtifact: (characterId, artifactInstanceId) => {
         const stateBefore = get();
         if (stateBefore.houses.get(PLAYER_HOUSE_ID)?.exiled === true) {
@@ -2467,9 +2525,10 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           });
           return { ok: false, reason };
         }
-        // Pick the partner (1 player-RNG draw on non-empty pool, 0 on empty).
-        const picked = pickPromenadePartner(stateBefore);
-        if (picked.partnerId === null) {
+        // P26 (H3): pick up to PROMENADE_PARTNER_COUNT_MAX partners
+        // (k player-RNG draws without replacement; 0 on an empty pool).
+        const picked = pickPromenadePartners(stateBefore);
+        if (picked.partnerIds.length === 0) {
           const reason: PromenadeEntryRejection = { kind: "NoEligiblePartner" };
           locationBus.publish({
             kind: "PromenadeEntryRejected",
@@ -2486,16 +2545,16 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         });
         const sessionId = conversationOrchestrator.beginPromenadeSession(
           get().tick,
-          picked.partnerId,
+          picked.partnerIds,
         );
         conversationBus.publish({
           kind: "PromenadeEntered",
           tick: stateBefore.tick,
           houseId: PLAYER_HOUSE_ID,
           sessionId,
-          partnerCharacterId: picked.partnerId,
+          partnerCharacterIds: picked.partnerIds,
         });
-        return { ok: true, sessionId, partnerCharacterId: picked.partnerId };
+        return { ok: true, sessionId, partnerCharacterIds: picked.partnerIds };
       },
       exitPromenade: () => {
         // Defensive — UI should never invoke this against a non-Promenade
@@ -2503,7 +2562,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         // clears the session, then UI calls exit before re-render). No-op.
         if (conversationOrchestrator.currentMode() !== "Promenade") return;
         const sessionId = conversationOrchestrator.currentSessionId() as PromenadeSessionId;
-        const partnerCharacterId = conversationOrchestrator.currentPromenadePartner();
+        const partnerCharacterIds = conversationOrchestrator.currentPromenadePartners();
         // Abort any in-flight per-turn request BEFORE the tick advance.
         conversationOrchestrator.abortCurrent();
         const stateBefore = get();
@@ -2523,7 +2582,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
             tick: stateBefore.tick,
             houseId: PLAYER_HOUSE_ID,
             sessionId,
-            partnerCharacterId,
+            partnerCharacterIds,
           });
           return;
         }
@@ -2540,7 +2599,7 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
           tick: afterTick.tick,
           houseId: PLAYER_HOUSE_ID,
           sessionId,
-          partnerCharacterId,
+          partnerCharacterIds,
         });
         // 14-publisher set per CLAUDE.md (matches travel/requestAudience/...).
         publishCharacterDeaths(stateBefore, afterTick);
@@ -2566,8 +2625,15 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         ) {
           return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
         }
-        const partnerId = conversationOrchestrator.currentPromenadePartner();
-        if (partnerId === null) {
+        // P26 (H3): resolve the addressed partner. An explicit target must be a
+        // member of the open session's set; with none supplied, default to the
+        // first partner (preserves the single-partner call shape).
+        const sessionPartners = conversationOrchestrator.currentPromenadePartners();
+        const partnerId =
+          input.targetCharacterId !== undefined
+            ? sessionPartners.find((id) => id === input.targetCharacterId)
+            : sessionPartners[0];
+        if (partnerId === undefined) {
           return { ok: false, reason: { reason: "cancelled" } as ConversationFailure };
         }
         const target = stateBefore.characters.get(partnerId);
@@ -2578,9 +2644,12 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         const pairKey = makePairKey(PLAYER_HOUSE_ID, target.id);
         const history = stateBefore.conversationHistory.get(pairKey) ?? [];
 
-        // P12: 1-on-1 scene. Persona prompt sees only the partner.
-        // Wire-format type is mutable array; we declare a fresh empty one.
-        const otherCharactersInScene: Character[] = [];
+        // P26 (H3): the scene is the OTHER partners on the walk (was [] at P12's
+        // 1-on-1 promenade). Renders as buildContents' [Also present:] line.
+        const otherCharactersInScene: Character[] = sessionPartners
+          .filter((id) => id !== target.id)
+          .map((id) => stateBefore.characters.get(id))
+          .filter((c): c is Character => c !== undefined);
 
         // Marriage state snapshot — same shape as sendBallroomMessage.
         let targetMarriage: MarriageRecord | null = null;
