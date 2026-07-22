@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { COURIER_RESEARCH_WEALTH_COST } from "../../game/constants";
 import {
   LOCATION_DESCRIPTIONS,
   LOCATION_LABELS,
@@ -56,7 +57,7 @@ export function LocationDetailsPanel({
   // layer too; the UI gate is the friendlier surface.
   const showCourierResearch =
     location === "Capital" && fullState.era === "Later" && house?.courierResearchEarned === false;
-  const courierResearchAffordable = wealth >= 30; // COURIER_RESEARCH_WEALTH_COST
+  const courierResearchAffordable = wealth >= COURIER_RESEARCH_WEALTH_COST;
   // P12 promenade-button gating. Surface tooltips for each blocked branch
   // so the player sees WHY the button is disabled.
   const showPromenade = location === "Capital" && onEnterPromenade !== undefined;
@@ -165,7 +166,7 @@ export function LocationDetailsPanel({
             className="px-3 py-2 rounded bg-sky-700 text-white hover:bg-sky-800 disabled:bg-stone-200 disabled:text-stone-400 text-sm"
             data-testid="location-details-courier-research"
           >
-            Research Fast Couriers (−30 wealth, halves new transit)
+            Research Fast Couriers (−{COURIER_RESEARCH_WEALTH_COST} wealth, halves new transit)
           </button>
         )}
         {/* P4: Enter Ballroom action — only at Capital. Calls

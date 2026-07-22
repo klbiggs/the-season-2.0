@@ -128,15 +128,24 @@ export function applyGlobalEventPhase(state: GameState): GameState {
 
 function maybeFlipEra(state: GameState): GameState {
   if (state.era === "Earlier" && state.tick >= ERA_TRANSITION_TICK) {
-    // P24a (C7): the Later-era blockade gate is bypassed, so any unspent
-    // blockadeBypassEarned flag is dead state — clear it on every house as part
-    // of the one-shot era flip (folded INTO the early-return object; a separate
-    // post-flip branch would not run on the flip tick). RNG-free.
+    // Two per-house mutations fold into the one-shot flip (RNG-free):
+    //   - P24a (C7): clear any unspent blockadeBypassEarned (the Later-era
+    //     blockade gate is bypassed, so the flag is dead state).
+    //   - P25 R13: each rival house EARNS courierResearchEarned for free (no
+    //     wealth debit — the flag is armed-but-latent for rivals since no rival
+    //     courier source exists yet, so charging would be a zero-benefit sink;
+    //     the per-house transitTicks halving seam is now wired for rivals).
     let newHouses: Map<HouseId, House> | null = null;
     for (const [id, house] of state.houses) {
-      if (house.blockadeBypassEarned) {
+      const clearBlockade = house.blockadeBypassEarned;
+      const earnRivalResearch = RIVAL_HOUSE_IDS_SET.has(id) && !house.courierResearchEarned;
+      if (clearBlockade || earnRivalResearch) {
         newHouses ??= new Map(state.houses);
-        newHouses.set(id, { ...house, blockadeBypassEarned: false });
+        newHouses.set(id, {
+          ...house,
+          ...(clearBlockade ? { blockadeBypassEarned: false } : {}),
+          ...(earnRivalResearch ? { courierResearchEarned: true } : {}),
+        });
       }
     }
     return { ...state, era: "Later", ...(newHouses !== null ? { houses: newHouses } : {}) };

@@ -157,6 +157,23 @@ describe("maybeFlipEra", () => {
     const after = applyGlobalEventPhase(state);
     expect(after.era).toBe("Later");
   });
+
+  it("P25 R13: rival houses earn courierResearchEarned at the era flip (no wealth debit)", () => {
+    const rivalId = "rival-ashford" as HouseId;
+    const state = withPlayerRng({
+      tick: ERA_TRANSITION_TICK,
+      houses: new Map([
+        [PLAYER_HOUSE_ID, makeHouse({ courierResearchEarned: false })],
+        [rivalId, makeHouse({ id: rivalId, wealth: 180, courierResearchEarned: false })],
+      ]),
+    });
+    const after = applyGlobalEventPhase(state);
+    const rival = after.houses.get(rivalId);
+    expect(rival?.courierResearchEarned).toBe(true);
+    expect(rival?.wealth).toBe(180); // no debit
+    // The player does NOT auto-earn it (that stays the paid free action).
+    expect(after.houses.get(PLAYER_HOUSE_ID)?.courierResearchEarned).toBe(false);
+  });
 });
 
 // ── applyWarEffortTick (via applyActiveEventTickEffects) ────────────────
