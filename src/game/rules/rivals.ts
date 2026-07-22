@@ -35,7 +35,17 @@ import {
   type RivalActionKind,
   SCHEME_TUNING,
 } from "../constants";
-import type { Duel, GameState, Grievance, House, RivalActorState } from "../entities";
+import type {
+  ArtifactInstance,
+  Duel,
+  ForgeryRecord,
+  GameState,
+  Grievance,
+  House,
+  RivalActorState,
+} from "../entities";
+import type { ArtifactDefinition } from "../fixtures/artifacts";
+import { makeArtifactInstanceId, makeForgeryId } from "../fixtures/artifacts";
 import { makeDuelId } from "../fixtures/duelIdFactory";
 import {
   FACTION_IDS,
@@ -64,6 +74,25 @@ function findEligibleGrievanceForRival(state: GameState, rivalHouseId: HouseId):
     })
     .sort((a, b) => a.id.localeCompare(b.id));
   return eligible[0] ?? null;
+}
+
+// P25 R7: the forgeable procedural definition a rival would commission — the
+// lex-smallest by def id among forgeable procedural defs the rival can afford
+// AND has not already instantiated. The SAME def backs the affordability
+// pre-filter and the dispatch mint, so filter and pick never disagree.
+function pickRivalForgeryDef(
+  state: GameState,
+  rivalHouseId: HouseId,
+  wealth: number,
+): ArtifactDefinition | null {
+  const instantiated = new Set<string>();
+  for (const inst of state.artifactInstances.values()) {
+    if (inst.ownerHouseId === rivalHouseId) instantiated.add(inst.definitionId);
+  }
+  const candidates = [...state.proceduralArtifactDefinitions.values()]
+    .filter((d) => d.forgeable && d.forgeWealthCost <= wealth && !instantiated.has(d.id))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return candidates[0] ?? null;
 }
 
 type DispatchResult =
@@ -103,6 +132,10 @@ function computeEffectiveWeights(state: GameState, rival: RivalActorState): read
       // Eligible only if the rival holds an actionable grievance (else weight 0,
       // like the capped RaiseFactionTension pre-filter).
       return findEligibleGrievanceForRival(state, rival.houseId) === null ? 0 : baseScaled;
+    }
+    if (kind === "CommissionForgery") {
+      // Eligible only if there's an affordable, not-yet-instantiated forgeable def.
+      return pickRivalForgeryDef(state, rival.houseId, wealth) === null ? 0 : baseScaled;
     }
     if (kind !== "OpenSabotage") return baseScaled;
     // OpenSabotage dispatches a Sabotage scheme — gate on its cost.
@@ -323,6 +356,61 @@ function dispatchRivalAction(
         finalWorking = { ...finalWorking, houses: newHouses };
       }
       return { working: finalWorking, result: { kind: "Fired", action: "DemandSatisfaction" } };
+    }
+    case "CommissionForgery": {
+      // P25 R7: mint a forged procedural artifact instance owned by the rival
+      // house + its ForgeryRecord (forgedFlag ⇔ ForgeryRecord invariant,
+      // entities.ts), equipped on the rival head → a live surfacing/treason
+      // target. Gate-free (rival heads are archetype "None"); does NOT reuse the
+      // player-hardcoded applyCommissionForgeryPure. No extra RNG draw.
+      const def = pickRivalForgeryDef(working, rival.houseId, rivalHouse.wealth);
+      if (def === null) {
+        return { working, result: { kind: "Skipped", reason: "OtherRejection" } };
+      }
+      const rivalHeadId = rivalHouse.headOfHouseCharacterId;
+      const newHouses = new Map(working.houses);
+      newHouses.set(rival.houseId, {
+        ...rivalHouse,
+        wealth: rivalHouse.wealth - def.forgeWealthCost,
+      });
+      const instId = makeArtifactInstanceId(working, def.id);
+      const inst: ArtifactInstance = {
+        id: instId,
+        definitionId: def.id,
+        ownerHouseId: rival.houseId,
+        ownerCharacterId: rivalHeadId,
+        lastRefreshTick: tick,
+        forgedFlag: true,
+      };
+      const newInstances = new Map(working.artifactInstances).set(instId, inst);
+      const forgeryId = makeForgeryId({ ...working, artifactInstances: newInstances }, instId);
+      const forgery: ForgeryRecord = {
+        id: forgeryId,
+        forgedArtifactInstanceId: instId,
+        forgerCharacterId: rivalHeadId,
+        forgedAtTick: tick,
+        surfaced: false,
+        surfacedAtTick: null,
+      };
+      const newForgeries = new Map(working.forgeries).set(forgeryId, forgery);
+      const newChars = new Map(working.characters);
+      const rivalHead = newChars.get(rivalHeadId);
+      if (rivalHead !== undefined) {
+        newChars.set(rivalHeadId, {
+          ...rivalHead,
+          equippedArtifactIds: [...rivalHead.equippedArtifactIds, instId],
+        });
+      }
+      return {
+        working: {
+          ...working,
+          houses: newHouses,
+          artifactInstances: newInstances,
+          forgeries: newForgeries,
+          characters: newChars,
+        },
+        result: { kind: "Fired", action: "CommissionForgery" },
+      };
     }
   }
 }

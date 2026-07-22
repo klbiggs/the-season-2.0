@@ -11,7 +11,9 @@ import {
   makeHousesMap,
 } from "../__test-utils__/factories";
 import type { Character, GameState, Grievance, MarriageRecord } from "../entities";
+import type { ArtifactDefinition } from "../fixtures/artifacts";
 import {
+  type ArtifactDefinitionId,
   type CharacterId,
   type FactionId,
   type GrievanceId,
@@ -196,6 +198,99 @@ describe("P25 R3 — rival DemandSatisfaction (NPC-initiated duel)", () => {
         rng: new Map(base.rng).set(RIVAL, createRngState(`seed-${i}`)),
       };
       expect(applyRivalActionPhase(seeded).duels.size).toBe(0);
+    }
+  });
+});
+
+// P25 R7 — rival forgery commissioning (CommissionForgery rival action).
+function forgeDef(id: string, cost: number): ArtifactDefinition {
+  return {
+    id: id as ArtifactDefinitionId,
+    displayName: `Proc ${id}`,
+    family: "sapphires",
+    reputationBonusWhileEquipped: 5,
+    scandalRiskWhileEquipped: 1,
+    traitGrantsWhileEquipped: [],
+    forgeable: true,
+    forgeWealthCost: cost,
+  };
+}
+
+describe("P25 R7 — rival CommissionForgery", () => {
+  function commissionEligibleState(): GameState {
+    const rivalHead = makeCharacter({ id: RIVAL_HEAD, houseId: RIVAL, role: "HeadOfHouse" });
+    const rivalHouse = makeHouse({
+      id: RIVAL,
+      headOfHouseCharacterId: RIVAL_HEAD,
+      wealth: 50, // affords the 30-cost def; also leaves Sabotage/Seduction affordable
+      hostility: 40,
+    });
+    const playerHouse = makeHouse({ id: PLAYER_HOUSE_ID, headOfHouseCharacterId: PLAYER_CHAR });
+    const playerChar = makeCharacter({ id: PLAYER_CHAR, houseId: PLAYER_HOUSE_ID });
+    return makeState({
+      houses: makeHousesMap([rivalHouse, playerHouse]),
+      characters: makeCharactersMap([rivalHead, playerChar]),
+      proceduralArtifactDefinitions: new Map([
+        ["proc-1" as ArtifactDefinitionId, forgeDef("proc-1", 30)],
+      ]),
+      rivalActors: new Map([
+        [
+          RIVAL,
+          {
+            houseId: RIVAL,
+            factionId: "faction-court" as FactionId,
+            associatedCharacterIds: [RIVAL_HEAD],
+            lastActionTick: null,
+          },
+        ],
+      ]),
+    });
+  }
+
+  it("an eligible rival mints + equips a forged instance with a paired ForgeryRecord", () => {
+    const base = commissionEligibleState();
+    let fired: GameState | null = null;
+    for (let i = 0; i < 400; i++) {
+      const seeded: GameState = {
+        ...base,
+        rng: new Map(base.rng).set(RIVAL, createRngState(`f-${i}`)),
+      };
+      const after = applyRivalActionPhase(seeded);
+      if (after.artifactInstances.size > 0) {
+        fired = after;
+        break;
+      }
+    }
+    expect(fired).not.toBeNull();
+    const st = fired as GameState;
+    const inst = [...st.artifactInstances.values()][0];
+    expect(inst?.ownerHouseId).toBe(RIVAL);
+    expect(inst?.ownerCharacterId).toBe(RIVAL_HEAD);
+    expect(inst?.forgedFlag).toBe(true);
+    // forgedFlag ⇔ a ForgeryRecord references the instance (entities.ts invariant).
+    const forgery = [...st.forgeries.values()].find((f) => f.forgedArtifactInstanceId === inst?.id);
+    expect(forgery).toBeDefined();
+    expect(forgery?.forgerCharacterId).toBe(RIVAL_HEAD);
+    // Equipped on the rival head.
+    expect(st.characters.get(RIVAL_HEAD)?.equippedArtifactIds).toContain(inst?.id);
+    // Wealth deducted by the def's forgeWealthCost (50 - 30 = 20).
+    expect(st.houses.get(RIVAL)?.wealth).toBe(20);
+  });
+
+  it("a broke rival never commissions (no affordable def)", () => {
+    const base = commissionEligibleState();
+    const broke: GameState = {
+      ...base,
+      houses: new Map(base.houses).set(RIVAL, {
+        ...makeHouse({ id: RIVAL, headOfHouseCharacterId: RIVAL_HEAD, wealth: 5, hostility: 40 }),
+      }),
+    };
+    for (let i = 0; i < 300; i++) {
+      const seeded: GameState = {
+        ...broke,
+        rng: new Map(broke.rng).set(RIVAL, createRngState(`f-${i}`)),
+      };
+      expect(applyRivalActionPhase(seeded).artifactInstances.size).toBe(0);
     }
   });
 });
