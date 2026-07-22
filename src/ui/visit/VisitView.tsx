@@ -79,6 +79,8 @@ export function VisitView({ store, onExit }: Props) {
       const result = await store.getState().sendVisitMessage({
         freeformMessage: draftMessage,
         pinnedTactic,
+        // Visit has no stance toggle — always Mingle (enables the mount bonus).
+        stance: "Mingle",
       });
       if (!result.ok) {
         setFailure(result.reason);

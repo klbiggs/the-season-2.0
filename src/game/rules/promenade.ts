@@ -16,12 +16,16 @@
 
 import {
   BALLROOM_APPROACH_PROBABILITY_BASIS_POINTS,
+  COMBAT_BONUS_VALUE,
+  CONVERSATION_TRAIT_BONUSES,
   PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT,
   PROMENADE_BASE_AFFECTION_DEEP_EMPATHY,
   PROMENADE_BASE_AFFECTION_WITTY_BANTER,
   PROMENADE_PLAYER_MOUNT_MINGLE_BONUS,
   QUALITY_MULTIPLIER_CEIL,
   QUALITY_MULTIPLIER_FLOOR,
+  type Stance,
+  TACTIC_BONUS_MOOD,
 } from "../constants";
 import { makePairKey } from "../conversation/types";
 import type { GameState } from "../entities";
@@ -30,11 +34,13 @@ import type { GameState } from "../entities";
 // bootstrapNpcMountFamily helper (which imports MOUNT_FAMILY from here).
 import { type ArtifactFamily, resolveArtifactDefinition } from "../fixtures/artifacts";
 import type { LocationId } from "../fixtures/locations";
+import type { Mood } from "../fixtures/moods";
 import { RIVAL_CHARACTER_IDS_SET, isSocietyHouse } from "../fixtures/rivals";
 import {
   type ArtifactInstanceId,
   type CharacterId,
   PLAYER_HOUSE_ID,
+  type TraitId,
   drawInt,
   drawNext,
   getOrThrow,
@@ -184,9 +190,17 @@ export function narrowToPromenadeTactic(tactic: string): PromenadeTactic {
 
 export type PromenadeCombatInput = {
   tactic: PromenadeTactic;
+  // P26 (H1): the promenade stance. Only "Mingle" enables the mount bonus (spec
+  // §3 L450); Wallflower/TargetedPursuit are otherwise inert in promenade (no
+  // multipliers — the low-risk envelope holds).
+  stance: Stance;
   qualityMultiplier: number; // clamped to [0.5, 1.5] inside resolver
   targetHasMountFamilyEquipped: boolean; // gates ComplimentMount fixed bonus
   playerHasMountFamilyEquipped: boolean; // gates the per-action Mingle stack
+  // P26 (H2): mood/trait synergy inputs — the SAME maps the ballroom resolver
+  // consults (TACTIC_BONUS_MOOD / CONVERSATION_TRAIT_BONUSES).
+  targetMood: Mood;
+  targetTraits: ReadonlyArray<TraitId>;
 };
 
 export type PromenadeCombatOutcome = {
@@ -197,14 +211,20 @@ export type PromenadeCombatOutcome = {
 
 // Pure combat resolver. NO state reads; NO PRNG draws.
 //
-// Distinct from src/game/rules/combat.ts:resolveCombat because:
-//  - Faux-pas branch (Flattery-vs-Defensive InstantFail) is unreachable —
-//    Flattery isn't a PromenadeTactic. WittyBanter-vs-Distracted ZeroYield
-//    is also unreachable: spec line 449 reads as the WHOLE penalty envelope.
-//  - Composure delta is ALWAYS 0 (zero composure damage across all 3 actions).
-//  - ComplimentMount is target-gated, not trait/mood-modulated.
-//  - Mount+Mingle bonus stacks per-action (not per-session).
+// P26 (H1/H2) widened from the P12 base-only form:
+//  - Composure delta is STILL ALWAYS 0 (zero composure damage across all 3
+//    actions; penalty traits stay inert — the low-risk envelope).
+//  - Mount+Mingle bonus now gates on stance === "Mingle" (spec §3 L450).
+//  - Mood/trait synergy now applies (same maps as the ballroom resolver).
+//  - Mountless ComplimentMount is a hard 0 (parity with the H4 ballroom
+//    ZeroYield): zero-gated BEFORE synergy so it never accrues trait/mood bonus.
 export function resolvePromenadeCombat(input: PromenadeCombatInput): PromenadeCombatOutcome {
+  // H2 parity gate: a ComplimentMount against a mountless target yields nothing
+  // (no base, no synergy, no mount bonus).
+  if (input.tactic === "ComplimentMount" && !input.targetHasMountFamilyEquipped) {
+    return { kind: "Normal", affectionDelta: 0, composureDelta: 0 };
+  }
+
   let baseAffection: number;
   switch (input.tactic) {
     case "WittyBanter":
@@ -214,26 +234,33 @@ export function resolvePromenadeCombat(input: PromenadeCombatInput): PromenadeCo
       baseAffection = PROMENADE_BASE_AFFECTION_DEEP_EMPATHY;
       break;
     case "ComplimentMount":
-      // Gated bonus: 0 affection if target doesn't equip a mount-family.
-      // UI suppresses the button in this state, but defense-in-depth: a
-      // stale classification (model classifies into ComplimentMount when
-      // the target has since unequipped) silently degrades rather than
-      // fabricating affection.
-      baseAffection = input.targetHasMountFamilyEquipped
-        ? PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT
-        : 0;
+      baseAffection = PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT;
       break;
   }
-  // Mount+Mingle bonus is additive (NOT multiplicative). Applied BEFORE
-  // quality modulation so the LLM phrasing-quality factor scales the
-  // composed (base + bonus) affection.
+
+  // H2: mood/trait synergy (same maps as the ballroom resolver).
+  const bonusCount = input.targetTraits.filter((t) =>
+    CONVERSATION_TRAIT_BONUSES.get(t)?.includes(input.tactic),
+  ).length;
+  const moodMatches = TACTIC_BONUS_MOOD.get(input.tactic) === input.targetMood;
+
+  // H1: mount+Mingle bonus, additive (NOT multiplicative), gated on Mingle.
+  const mountBonus =
+    input.stance === "Mingle" && input.playerHasMountFamilyEquipped
+      ? PROMENADE_PLAYER_MOUNT_MINGLE_BONUS
+      : 0;
+
+  // Applied BEFORE quality modulation so the LLM phrasing-quality factor scales
+  // the composed (base + synergy + bonus) affection.
   const composedBase =
-    baseAffection + (input.playerHasMountFamilyEquipped ? PROMENADE_PLAYER_MOUNT_MINGLE_BONUS : 0);
+    baseAffection +
+    bonusCount * COMBAT_BONUS_VALUE +
+    (moodMatches ? COMBAT_BONUS_VALUE : 0) +
+    mountBonus;
   const quality = clamp(input.qualityMultiplier, QUALITY_MULTIPLIER_FLOOR, QUALITY_MULTIPLIER_CEIL);
-  const affectionDelta = Math.round(composedBase * quality);
   return {
     kind: "Normal",
-    affectionDelta,
+    affectionDelta: Math.round(composedBase * quality),
     composureDelta: 0,
   };
 }

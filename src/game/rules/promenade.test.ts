@@ -23,6 +23,7 @@ import {
   type CharacterId,
   type HouseId,
   PLAYER_HOUSE_ID,
+  type TraitId,
   createRngState,
 } from "../rng";
 import {
@@ -226,6 +227,9 @@ describe("resolvePromenadeCombat", () => {
       qualityMultiplier: 1.0,
       targetHasMountFamilyEquipped: false,
       playerHasMountFamilyEquipped: false,
+      stance: "Mingle",
+      targetMood: "Distracted",
+      targetTraits: [],
     });
     expect(out.affectionDelta).toBe(PROMENADE_BASE_AFFECTION_WITTY_BANTER);
     expect(out.composureDelta).toBe(0);
@@ -237,6 +241,9 @@ describe("resolvePromenadeCombat", () => {
       qualityMultiplier: 1.0,
       targetHasMountFamilyEquipped: false,
       playerHasMountFamilyEquipped: false,
+      stance: "Mingle",
+      targetMood: "Distracted",
+      targetTraits: [],
     });
     expect(out.affectionDelta).toBe(PROMENADE_BASE_AFFECTION_DEEP_EMPATHY);
   });
@@ -247,6 +254,9 @@ describe("resolvePromenadeCombat", () => {
       qualityMultiplier: 1.0,
       targetHasMountFamilyEquipped: true,
       playerHasMountFamilyEquipped: false,
+      stance: "Mingle",
+      targetMood: "Distracted",
+      targetTraits: [],
     });
     expect(out.affectionDelta).toBe(PROMENADE_BASE_AFFECTION_COMPLIMENT_MOUNT);
   });
@@ -257,6 +267,9 @@ describe("resolvePromenadeCombat", () => {
       qualityMultiplier: 1.0,
       targetHasMountFamilyEquipped: false,
       playerHasMountFamilyEquipped: false,
+      stance: "Mingle",
+      targetMood: "Distracted",
+      targetTraits: [],
     });
     expect(out.affectionDelta).toBe(0);
   });
@@ -267,6 +280,9 @@ describe("resolvePromenadeCombat", () => {
       qualityMultiplier: 1.0,
       targetHasMountFamilyEquipped: false,
       playerHasMountFamilyEquipped: true,
+      stance: "Mingle",
+      targetMood: "Distracted",
+      targetTraits: [],
     });
     expect(out.affectionDelta).toBe(
       PROMENADE_BASE_AFFECTION_WITTY_BANTER + PROMENADE_PLAYER_MOUNT_MINGLE_BONUS,
@@ -279,6 +295,9 @@ describe("resolvePromenadeCombat", () => {
       qualityMultiplier: 0.0, // below floor (0.5)
       targetHasMountFamilyEquipped: false,
       playerHasMountFamilyEquipped: false,
+      stance: "Mingle",
+      targetMood: "Distracted",
+      targetTraits: [],
     });
     expect(out.affectionDelta).toBe(Math.round(PROMENADE_BASE_AFFECTION_WITTY_BANTER * 0.5));
   });
@@ -289,6 +308,9 @@ describe("resolvePromenadeCombat", () => {
       qualityMultiplier: 2.0, // above ceil (1.5)
       targetHasMountFamilyEquipped: false,
       playerHasMountFamilyEquipped: false,
+      stance: "Mingle",
+      targetMood: "Distracted",
+      targetTraits: [],
     });
     expect(out.affectionDelta).toBe(Math.round(PROMENADE_BASE_AFFECTION_WITTY_BANTER * 1.5));
   });
@@ -306,6 +328,9 @@ describe("resolvePromenadeCombat", () => {
               qualityMultiplier: q,
               targetHasMountFamilyEquipped: targetMount,
               playerHasMountFamilyEquipped: playerMount,
+              stance: "Mingle",
+              targetMood: "Distracted",
+              targetTraits: [],
             });
             expect(out.composureDelta).toBe(0);
           }
@@ -462,5 +487,90 @@ describe("rollBallroomApproach", () => {
         expect(roster).toContain(approachingCharacterId);
       }
     }
+  });
+});
+
+// ── P26 (H1/H2): promenade stance gating + mood/trait synergy ──────────────
+describe("resolvePromenadeCombat — H1 stance + H2 synergy", () => {
+  const base = {
+    qualityMultiplier: 1.0,
+    targetHasMountFamilyEquipped: false,
+    playerHasMountFamilyEquipped: true,
+    targetMood: "Distracted" as const,
+    targetTraits: [],
+  };
+
+  it("H1: mount+Mingle bonus applies only in the Mingle stance", () => {
+    const mingle = resolvePromenadeCombat({
+      ...base,
+      tactic: "WittyBanter",
+      stance: "Mingle",
+    });
+    const wallflower = resolvePromenadeCombat({
+      ...base,
+      tactic: "WittyBanter",
+      stance: "Wallflower",
+    });
+    // Mingle = base 8 + mount bonus 5 = 13; Wallflower = base 8 (bonus gated off).
+    expect(mingle.affectionDelta).toBe(
+      PROMENADE_BASE_AFFECTION_WITTY_BANTER + PROMENADE_PLAYER_MOUNT_MINGLE_BONUS,
+    );
+    expect(wallflower.affectionDelta).toBe(PROMENADE_BASE_AFFECTION_WITTY_BANTER);
+  });
+
+  it("H1: TargetedPursuit does NOT multiply in promenade (inert)", () => {
+    const targeted = resolvePromenadeCombat({
+      tactic: "DeepEmpathy",
+      stance: "TargetedPursuit",
+      qualityMultiplier: 1.0,
+      targetHasMountFamilyEquipped: false,
+      playerHasMountFamilyEquipped: false,
+      targetMood: "Distracted",
+      targetTraits: [],
+    });
+    // Just the base — no ×1.25 (that's ballroom-only).
+    expect(targeted.affectionDelta).toBe(PROMENADE_BASE_AFFECTION_DEEP_EMPATHY);
+  });
+
+  it("H2: mood synergy applies (WittyBanter vs Receptive)", () => {
+    const out = resolvePromenadeCombat({
+      tactic: "WittyBanter",
+      stance: "Wallflower", // no mount bonus, isolate the mood synergy
+      qualityMultiplier: 1.0,
+      targetHasMountFamilyEquipped: false,
+      playerHasMountFamilyEquipped: false,
+      targetMood: "Receptive", // WittyBanter's bonus mood
+      targetTraits: [],
+    });
+    // base 8 + mood-match 15 = 23.
+    expect(out.affectionDelta).toBe(PROMENADE_BASE_AFFECTION_WITTY_BANTER + 15);
+  });
+
+  it("H2: trait synergy applies (Empathetic vs DeepEmpathy)", () => {
+    const out = resolvePromenadeCombat({
+      tactic: "DeepEmpathy",
+      stance: "Wallflower",
+      qualityMultiplier: 1.0,
+      targetHasMountFamilyEquipped: false,
+      playerHasMountFamilyEquipped: false,
+      targetMood: "Distracted", // no mood synergy
+      targetTraits: ["Empathetic" as TraitId],
+    });
+    // base 8 + trait-bonus 15 = 23.
+    expect(out.affectionDelta).toBe(PROMENADE_BASE_AFFECTION_DEEP_EMPATHY + 15);
+  });
+
+  it("H2: mountless ComplimentMount is a hard 0 (parity with ballroom ZeroYield)", () => {
+    const out = resolvePromenadeCombat({
+      tactic: "ComplimentMount",
+      stance: "Mingle",
+      qualityMultiplier: 1.5,
+      targetHasMountFamilyEquipped: false, // no mount
+      playerHasMountFamilyEquipped: true, // would otherwise add the bonus
+      targetMood: "Receptive", // would otherwise be a mood hit
+      targetTraits: [],
+    });
+    expect(out.affectionDelta).toBe(0);
+    expect(out.composureDelta).toBe(0);
   });
 });

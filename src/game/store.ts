@@ -505,6 +505,9 @@ export type StoreActions = {
 export type PromenadeMessageInput = {
   freeformMessage: string;
   pinnedTactic: "WittyBanter" | "DeepEmpathy" | "ComplimentMount";
+  // P26 (H1): the promenade stance. Only "Mingle" enables the mount bonus. The
+  // Visit UI (no stance toggle) always passes "Mingle".
+  stance: Stance;
 };
 
 // P26: rejection union for acceptCallingCard / declineCallingCard. Includes
@@ -2585,9 +2588,12 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         const promenadeTactic = narrowToPromenadeTactic(outcome.response.classifiedTactic);
         const promenadeOutcome = resolvePromenadeCombat({
           tactic: promenadeTactic,
+          stance: input.stance,
           qualityMultiplier: outcome.response.qualityMultiplier,
           targetHasMountFamilyEquipped: targetMount,
           playerHasMountFamilyEquipped: playerMount,
+          targetMood: target.mood,
+          targetTraits: getEffectiveTraits(stateAtResolve, target.id),
         });
 
         // Commit history + affection. Tick is NOT advanced here — only on
@@ -2814,9 +2820,12 @@ export function createStore({ seed }: { seed: string }): SeasonStore {
         const promenadeTactic = narrowToPromenadeTactic(outcome.response.classifiedTactic);
         const promenadeOutcome = resolvePromenadeCombat({
           tactic: promenadeTactic,
+          stance: input.stance,
           qualityMultiplier: outcome.response.qualityMultiplier,
           targetHasMountFamilyEquipped: targetMount,
           playerHasMountFamilyEquipped: playerMount,
+          targetMood: target.mood,
+          targetTraits: getEffectiveTraits(stateAtResolve, target.id),
         });
         set((draft) => {
           overwriteFromGameState(

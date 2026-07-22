@@ -14,6 +14,7 @@
 // resolves to the orchestrator's source of truth.
 
 import { useEffect, useState } from "react";
+import type { Stance } from "../../game/constants";
 import { type ConversationFailure, makePairKey } from "../../game/conversation/types";
 import { PLAYER_HOUSE_ID } from "../../game/rng.seeds";
 import {
@@ -25,6 +26,7 @@ import { conversationOrchestrator } from "../../runtime/conversationOrchestrator
 import { ChatLog } from "../ballroom/ChatLog";
 import { ConversationFailureBanner } from "../ballroom/ConversationFailureBanner";
 import { MessageInput } from "../ballroom/MessageInput";
+import { StanceToggle } from "../ballroom/StanceToggle";
 import { ThinkingIndicator } from "../ballroom/ThinkingIndicator";
 import { PromenadeTacticButtons } from "./PromenadeTacticButtons";
 
@@ -56,6 +58,9 @@ export function PromenadeView({ store, onExit }: Props) {
 
   // Session-local React state.
   const [pinnedTactic, setPinnedTactic] = useState<PromenadeTactic | null>(null);
+  // P26 (H1): promenade stance. Only Mingle enables the mount bonus;
+  // Wallflower/TargetedPursuit are inert in promenade (tooltipped by the toggle).
+  const [stance, setStance] = useState<Stance>("Mingle");
   const [draftMessage, setDraftMessage] = useState("");
   const [inFlight, setInFlight] = useState(false);
   const [failure, setFailure] = useState<ConversationFailure | null>(null);
@@ -90,6 +95,7 @@ export function PromenadeView({ store, onExit }: Props) {
       const result = await store.getState().sendPromenadeMessage({
         freeformMessage: draftMessage,
         pinnedTactic,
+        stance,
       });
       if (!result.ok) {
         setFailure(result.reason);
@@ -167,6 +173,12 @@ export function PromenadeView({ store, onExit }: Props) {
       <ConversationFailureBanner failure={failure} onDismiss={() => setFailure(null)} />
 
       <ChatLog exchanges={exchanges} npcName={partner.name} />
+
+      <StanceToggle
+        stance={stance}
+        onChange={setStance}
+        inertStances={new Set<Stance>(["Wallflower", "TargetedPursuit"])}
+      />
 
       <PromenadeTacticButtons
         pinned={pinnedTactic}
