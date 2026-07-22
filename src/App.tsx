@@ -14,11 +14,13 @@ import { useBusEvent } from "./runtime/events/useBusEvent";
 import { BallroomView } from "./ui/ballroom/BallroomView";
 import { ElopementOverlay } from "./ui/elopement/ElopementOverlay";
 import { LedgerView } from "./ui/ledger/LedgerView";
+import { CallingCardBanner } from "./ui/map/CallingCardBanner";
 import { MapView } from "./ui/map/MapView";
 import { PromenadeView } from "./ui/promenade/PromenadeView";
 import { CorruptSaveBanner } from "./ui/shared/CorruptSaveBanner";
 import { SettingsMenu } from "./ui/shared/SettingsMenu";
 import { TopBar } from "./ui/shared/TopBar";
+import { VisitView } from "./ui/visit/VisitView";
 
 type Props = {
   store: SeasonStore;
@@ -81,6 +83,7 @@ export function App({ store, seed }: Props) {
   const [loadError, setLoadError] = useState<SaveLoadError | null>(null);
   const [inBallroom, setInBallroom] = useState(false);
   const [inPromenade, setInPromenade] = useState(false);
+  const [inVisit, setInVisit] = useState(false);
   const [inLedger, setInLedger] = useState(false);
   const hasPlayerSprint = store((s) => hasActivePlayerElopement(s));
   // P14: exile flag hoisted from MapView so the banner surfaces across every
@@ -196,6 +199,9 @@ export function App({ store, seed }: Props) {
         seed={seed}
         onDismiss={() => setLoadError(null)}
       />
+      {!hasPlayerSprint && !inVisit && (
+        <CallingCardBanner store={store} onAccepted={() => setInVisit(true)} />
+      )}
       <p
         aria-live="polite"
         className="text-sm text-stone-600 min-h-[1.25rem] px-6"
@@ -205,6 +211,8 @@ export function App({ store, seed }: Props) {
       </p>
       {hasPlayerSprint ? (
         <ElopementOverlay store={store} />
+      ) : inVisit ? (
+        <VisitView store={store} onExit={() => setInVisit(false)} />
       ) : inBallroom ? (
         <BallroomView store={store} onExit={() => setInBallroom(false)} />
       ) : inPromenade ? (
